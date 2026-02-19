@@ -10,7 +10,28 @@ permissions:
   contents: write
 
 jobs:
+  prepare-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean existing release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "Release $TAG exists, deleting all assets to avoid upload conflicts..."
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | while read -r asset; do
+              echo "Deleting: $asset"
+              gh release delete-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes || true
+            done
+          else
+            echo "No existing release for $TAG, nothing to clean"
+          fi
+
   build:
+    needs: [prepare-release]
+    if: ${{ always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
