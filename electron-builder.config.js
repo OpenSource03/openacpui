@@ -50,6 +50,7 @@ module.exports = {
   // --- macOS ---
   mac: {
     target: [
+      { target: "dmg", arch: ["arm64", "x64"] },
       { target: "zip", arch: ["arm64", "x64"] },
     ],
     category: "public.app-category.developer-tools",

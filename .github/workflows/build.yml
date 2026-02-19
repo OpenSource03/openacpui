@@ -15,10 +15,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-26
             platform: mac
             arch: arm64
-          - os: macos-13
+          - os: macos-26
             platform: mac
             arch: x64
           - os: windows-latest
