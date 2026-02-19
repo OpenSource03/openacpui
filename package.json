@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "productName": "OpenACP UI",
   "description": "Open-source desktop client for the Agent Client Protocol",
-  "author": "Dejan Zegarac",
+  "author": {
+    "name": "Dejan Zegarac",
+    "email": "dejanzegarac3@gmail.com"
+  },
   "homepage": "https://github.com/OpenSource03/openacpui",
   "repository": {
     "type": "git",
