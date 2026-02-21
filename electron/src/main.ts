@@ -52,6 +52,11 @@ if (glassEnabled) {
   app.commandLine.appendSwitch("remote-allow-origins", "*");
 }
 
+// --- Mica: Chromium needs transparent visuals for DWM backdrop to show through content ---
+if (micaEnabled) {
+  app.commandLine.appendSwitch("enable-transparent-visuals");
+}
+
 let mainWindow: BrowserWindow | null = null;
 
 function getMainWindow(): BrowserWindow | null {
@@ -81,11 +86,15 @@ function createWindow(): void {
     windowOptions.titleBarStyle = "hidden";
     windowOptions.transparent = true;
     windowOptions.trafficLightPosition = { x: 16, y: 16 };
+  } else if (micaEnabled) {
+    // Windows + mica: transparent content area so DWM backdrop shows through.
+    // Uses regular BrowserWindow (not MicaBrowserWindow) to keep the native
+    // title bar — MicaBrowserWindow's onShow DWM FRAME calls break it.
+    windowOptions.autoHideMenuBar = true;
+    windowOptions.transparent = true;
+    windowOptions.backgroundColor = "#00000000";
   } else if (process.platform === "win32") {
-    // Windows: always use regular BrowserWindow with native frame.
-    // MicaBrowserWindow forces transparent: true which makes the title bar
-    // invisible when DWM effects fail in packaged builds. Mica DWM effects
-    // are applied post-creation via applyMicaEffect() without transparency.
+    // Windows without mica: solid background, no transparency
     windowOptions.autoHideMenuBar = true;
     windowOptions.backgroundColor = "#18181b";
   } else {

@@ -65,19 +65,18 @@ export function applyMicaEffect(win: BrowserWindow): void {
   try {
     const hwnd = win.getNativeWindowHandle().readInt32LE(0);
 
-    // Set dark theme
     nativeTheme.themeSource = "dark";
-    if (isWindows11) {
-      executeDwm(hwnd, PARAMS.BACKGROUND.AUTO, THEME.DARK);
-    }
 
-    // Apply acrylic (Win10+) or mica acrylic (Win11)
     if (isWindows11) {
+      // Set dark theme on the DWM backdrop
+      executeDwm(hwnd, PARAMS.BACKGROUND.AUTO, THEME.DARK);
+      // Apply mica acrylic backdrop
       executeDwm(hwnd, PARAMS.BACKGROUND.ACRYLIC, THEME.DARK);
     }
 
-    // Enable frame styling for resize/maximize
-    executeDwm(hwnd, PARAMS.FRAME, 1);
+    // NOTE: intentionally NOT calling DWM FRAME params here —
+    // MicaBrowserWindow's onShow does FRAME=2 + FRAME=1 which breaks the
+    // native title bar. Regular BrowserWindow handles frame correctly on its own.
 
     log("MICA", "DWM mica/acrylic effect applied");
   } catch (err) {
