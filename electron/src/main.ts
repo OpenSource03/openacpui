@@ -87,7 +87,7 @@ function createWindow(): void {
     // WebContents is automatically transparent (no transparent: true needed),
     // and the native title bar stays intact.
     windowOptions.autoHideMenuBar = true;
-    windowOptions.backgroundMaterial = "auto";
+    windowOptions.backgroundMaterial = "mica";
   } else {
     // macOS without glass / Linux
     windowOptions.titleBarStyle = "hiddenInset";
