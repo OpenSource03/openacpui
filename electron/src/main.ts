@@ -1,10 +1,25 @@
+import { execSync } from "child_process";
 import { app, BrowserWindow, globalShortcut } from "electron";
 import path from "path";
 import http from "http";
+
+// Packaged .app bundles launched from Finder get a minimal PATH (/usr/bin:/bin).
+// Inherit the user's shell PATH so child processes (SDK's `node`, git, etc.) resolve.
+if (process.platform !== "win32") {
+  try {
+    const shell = process.env.SHELL || "/bin/zsh";
+    const shellPath = execSync(`${shell} -ilc 'echo -n "$PATH"'`, {
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    if (shellPath) process.env.PATH = shellPath;
+  } catch {
+    // Fall through — keep whatever PATH we already have
+  }
+}
 import { log } from "./lib/logger";
 import { glassEnabled, liquidGlass } from "./lib/glass";
-import { micaEnabled, MicaBrowserWindow, isWindows11 } from "./lib/mica";
-import type { MicaWindow } from "./lib/mica";
+import { micaEnabled, applyMicaEffect } from "./lib/mica";
 import { initAutoUpdater } from "./lib/updater";
 import { sessions } from "./ipc/claude-sessions";
 import { acpSessions } from "./ipc/acp-sessions";
@@ -47,7 +62,10 @@ function createWindow(): void {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1200,
     height: 800,
-    icon: path.join(__dirname, "../../build/icon.png"),
+    // build/ isn't in the asar (buildResources only); use dist/ (Vite output) in production
+    icon: app.isPackaged
+      ? path.join(__dirname, "../../dist/icon.png")
+      : path.join(__dirname, "../../build/icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -63,12 +81,11 @@ function createWindow(): void {
     windowOptions.titleBarStyle = "hidden";
     windowOptions.transparent = true;
     windowOptions.trafficLightPosition = { x: 16, y: 16 };
-  } else if (micaEnabled) {
-    // Windows: start hidden, show after mica effect is applied to avoid flash
-    windowOptions.autoHideMenuBar = true;
-    windowOptions.show = false;
   } else if (process.platform === "win32") {
-    // Windows without mica: solid background, no transparency
+    // Windows: always use regular BrowserWindow with native frame.
+    // MicaBrowserWindow forces transparent: true which makes the title bar
+    // invisible when DWM effects fail in packaged builds. Mica DWM effects
+    // are applied post-creation via applyMicaEffect() without transparency.
     windowOptions.autoHideMenuBar = true;
     windowOptions.backgroundColor = "#18181b";
   } else {
@@ -78,12 +95,7 @@ function createWindow(): void {
     windowOptions.backgroundColor = "#18181b";
   }
 
-  // MicaBrowserWindow extends BrowserWindow with native DWM/User32 calls — must be used at construction time
-  if (micaEnabled && MicaBrowserWindow) {
-    mainWindow = new MicaBrowserWindow(windowOptions) as BrowserWindow;
-  } else {
-    mainWindow = new BrowserWindow(windowOptions);
-  }
+  mainWindow = new BrowserWindow(windowOptions);
 
   const isDev = !app.isPackaged;
   if (isDev) {
@@ -103,18 +115,11 @@ function createWindow(): void {
       }
     });
   } else if (micaEnabled) {
-    // Windows: apply Mica/Acrylic effect after DOM is ready, then show
-    const micaWin = mainWindow as unknown as MicaWindow;
+    // Windows: apply DWM mica/acrylic effect on a regular BrowserWindow.
+    // The window already has a visible native frame — mica just adds the
+    // translucent backdrop. If it fails, the window still works normally.
     mainWindow.webContents.once("dom-ready", () => {
-      micaWin.setDarkTheme();
-      if (isWindows11) {
-        micaWin.setMicaAcrylicEffect();
-        log("MICA", "Applied Mica Acrylic effect (Windows 11)");
-      } else {
-        micaWin.setAcrylic();
-        log("MICA", "Applied Acrylic effect (Windows 10)");
-      }
-      mainWindow!.show();
+      applyMicaEffect(mainWindow!);
     });
   }
 }
@@ -205,7 +210,10 @@ app.whenReady().then(() => {
 
   // Set dock icon in dev mode — packaged builds get it from the .app bundle
   if (process.platform === "darwin" && app.dock) {
-    app.dock.setIcon(path.join(__dirname, "../../build/icon.png"));
+    const dockIcon = app.isPackaged
+      ? path.join(__dirname, "../../dist/icon.png")
+      : path.join(__dirname, "../../build/icon.png");
+    app.dock.setIcon(dockIcon);
   }
 
   const shortcuts = ["CommandOrControl+Alt+I", "F12", "CommandOrControl+Shift+J"];
