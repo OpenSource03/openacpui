@@ -185,6 +185,15 @@ html.glass-enabled #root {
   -webkit-app-region: no-drag;
 }
 
+/* Windows: smaller corner radius to match native chrome, no traffic-light padding */
+html.platform-win32 {
+  --radius: 0.375rem;
+}
+html.platform-win32 .drag-region {
+  -webkit-app-region: none;
+  padding-inline-start: 8px !important;
+}
+
 /* ── Tool Call: Ghost Pulse shimmer ── */
 @keyframes tool-shimmer {
   0% {

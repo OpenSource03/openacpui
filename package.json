@@ -15,14 +15,15 @@
   "main": "electron/dist/main.js",
   "scripts": {
     "build:electron": "tsup --config tsup.electron.config.ts",
-    "dev": "concurrently \"vite\" \"pnpm build:electron --watch\" \"sleep 3 && electron .\"",
+    "dev": "concurrently \"vite\" \"pnpm build:electron --watch\" \"node scripts/delay.js 3 && electron .\"",
     "build": "pnpm build:electron && vite build",
     "start": "electron .",
     "dist": "pnpm build && electron-builder --config electron-builder.config.js",
     "dist:fast": "pnpm build && electron-builder --config electron-builder.config.js --dir",
     "dist:mac": "pnpm build && electron-builder --mac --config electron-builder.config.js",
     "dist:win": "pnpm build && electron-builder --win --config electron-builder.config.js",
-    "dist:linux": "pnpm build && electron-builder --linux --config electron-builder.config.js"
+    "dist:linux": "pnpm build && electron-builder --linux --config electron-builder.config.js",
+    "postinstall": "electron-rebuild"
   },
   "packageManager": "pnpm@10.26.0",
   "dependencies": {

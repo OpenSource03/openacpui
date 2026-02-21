@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectManager } from "@/hooks/useProjectManager";
@@ -17,16 +17,14 @@ import { ToolPicker } from "./ToolPicker";
 import type { ToolId } from "./ToolPicker";
 import { WelcomeScreen } from "./WelcomeScreen";
 import { SpaceCreator } from "./SpaceCreator";
+import { ToolsPanel } from "./ToolsPanel";
+import { BrowserPanel } from "./BrowserPanel";
+import { GitPanel } from "./GitPanel";
+import { FilesPanel } from "./FilesPanel";
+import { McpPanel } from "./McpPanel";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
 import type { TodoItem, ImageAttachment, Space, SpaceColor, AgentDefinition } from "@/types";
-
-// Lazy-load tool panels — split into separate chunks, only fetched when user activates them via ToolPicker
-const ToolsPanel = lazy(() => import("./ToolsPanel").then((m) => ({ default: m.ToolsPanel })));
-const BrowserPanel = lazy(() => import("./BrowserPanel").then((m) => ({ default: m.BrowserPanel })));
-const GitPanel = lazy(() => import("./GitPanel").then((m) => ({ default: m.GitPanel })));
-const FilesPanel = lazy(() => import("./FilesPanel").then((m) => ({ default: m.FilesPanel })));
-const McpPanel = lazy(() => import("./McpPanel").then((m) => ({ default: m.McpPanel })));
 
 export function AppLayout() {
   const sidebar = useSidebar();
@@ -720,7 +718,6 @@ export function AppLayout() {
               className="flex shrink-0 flex-col gap-0 overflow-hidden"
               style={{ width: settings.toolsPanelWidth }}
             >
-              <Suspense fallback={null}>
               {(() => {
                 const toolOrder: Array<{ id: string; node: React.ReactNode }> = [];
                 if (activeTools.has("terminal"))
@@ -797,7 +794,6 @@ export function AppLayout() {
                   </div>
                 ));
               })()}
-              </Suspense>
             </div>
           </>
         )}

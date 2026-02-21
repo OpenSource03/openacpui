@@ -66,7 +66,12 @@ function createWindow(): void {
     // Windows: start hidden, show after mica effect is applied to avoid flash
     windowOptions.autoHideMenuBar = true;
     windowOptions.show = false;
+  } else if (process.platform === "win32") {
+    // Windows without mica: solid background, no transparency
+    windowOptions.autoHideMenuBar = true;
+    windowOptions.backgroundColor = "#18181b";
   } else {
+    // macOS without glass / Linux
     windowOptions.titleBarStyle = "hiddenInset";
     windowOptions.trafficLightPosition = { x: 16, y: 16 };
     windowOptions.backgroundColor = "#18181b";

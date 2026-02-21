@@ -1,4 +1,6 @@
 import { BrowserWindow } from "electron";
+import fs from "fs";
+import path from "path";
 import { log } from "./logger";
 
 interface MicaBrowserWindowClass {
@@ -28,11 +30,23 @@ let isWindows11 = false;
 
 if (process.platform === "win32") {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("mica-electron");
-    MicaBrowserWindow = mod.MicaBrowserWindow;
-    isWindows11 = !!mod.IS_WINDOWS_11;
-    log("MICA", `mica-electron loaded (Windows 11: ${isWindows11})`);
+    // Verify native binary exists BEFORE requiring the module —
+    // require("mica-electron") has side effects (enables transparent visuals globally)
+    // and its MicaBrowserWindow constructor forces transparent: true even when
+    // the native .node addon is missing, making the window invisible.
+    const modPath = require.resolve("mica-electron");
+    const modDir = path.dirname(modPath);
+    const nativeBinary = path.join(modDir, "src", `micaElectron_${process.arch}.node`);
+
+    if (!fs.existsSync(nativeBinary)) {
+      log("MICA", `Native binary not found for ${process.arch}, mica disabled`);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require("mica-electron");
+      MicaBrowserWindow = mod.MicaBrowserWindow;
+      isWindows11 = !!mod.IS_WINDOWS_11;
+      log("MICA", `mica-electron loaded (Windows 11: ${isWindows11})`);
+    }
   } catch (err) {
     log("MICA", `Failed to load mica-electron: ${(err as Error).message}`);
   }

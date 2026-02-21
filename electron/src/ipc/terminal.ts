@@ -31,14 +31,17 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("terminal:create", (_event, { cwd, cols, rows }: { cwd?: string; cols?: number; rows?: number }) => {
     try {
       const pty = getPty();
-      const shellPath = process.env.SHELL || "/bin/zsh";
+      const isWin = process.platform === "win32";
+      const shellPath = isWin
+        ? process.env.COMSPEC || "powershell.exe"
+        : process.env.SHELL || "/bin/zsh";
       const terminalId = crypto.randomUUID();
 
       const ptyProcess = pty.spawn(shellPath, [], {
         name: "xterm-256color",
         cols: cols || 80,
         rows: rows || 24,
-        cwd: cwd || process.env.HOME,
+        cwd: cwd || (isWin ? process.env.USERPROFILE : process.env.HOME),
         env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
       });
 

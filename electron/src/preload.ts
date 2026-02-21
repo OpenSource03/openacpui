@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
 
-// Apply glass-enabled class as early as possible (before React mounts)
+// Apply platform + glass classes as early as possible (before React mounts)
 ipcRenderer.invoke("app:getGlassEnabled").then((enabled: boolean) => {
+  // Platform class for platform-specific CSS (e.g. hiding macOS traffic-light padding on Windows)
+  document.documentElement.classList.add(`platform-${process.platform}`);
   if (enabled) {
     document.documentElement.classList.add("glass-enabled");
   }
