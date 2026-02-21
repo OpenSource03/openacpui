@@ -57,6 +57,7 @@ export function initAutoUpdater(
   ipcMain.handle("updater:download", () => autoUpdater.downloadUpdate());
   ipcMain.handle("updater:install", () => autoUpdater.quitAndInstall());
   ipcMain.handle("updater:check", () => autoUpdater.checkForUpdates());
+  ipcMain.handle("updater:current-version", () => app.getVersion());
 
   // Check 5s after startup, then every 4 hours
   setTimeout(() => {

@@ -181,5 +181,6 @@ contextBridge.exposeInMainWorld("claude", {
     download: () => ipcRenderer.invoke("updater:download"),
     install: () => ipcRenderer.invoke("updater:install"),
     check: () => ipcRenderer.invoke("updater:check"),
+    currentVersion: () => ipcRenderer.invoke("updater:current-version") as Promise<string>,
   },
 });

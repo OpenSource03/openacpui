@@ -97,7 +97,7 @@ export const SidebarSearch = memo(function SidebarSearch({
 
   return (
     <div ref={containerRef} className="relative no-drag px-2 pb-1">
-      <div className="relative">
+      <div className="glass-outline relative overflow-hidden rounded-lg" style={{ "--island-fill": "var(--sidebar)" } as React.CSSProperties}>
         <Search className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sidebar-foreground/30" />
         <input
           ref={inputRef}
@@ -109,7 +109,7 @@ export const SidebarSearch = memo(function SidebarSearch({
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder="Search chats..."
-          className="w-full rounded-md bg-sidebar-accent/50 py-1.5 pe-7 ps-8 text-sm text-sidebar-foreground placeholder:text-sidebar-foreground/30 outline-none transition-colors focus:bg-sidebar-accent"
+          className="w-full rounded-lg bg-sidebar-accent/50 py-1.5 pe-7 ps-8 text-sm text-sidebar-foreground placeholder:text-sidebar-foreground/30 outline-none transition-colors focus:bg-sidebar-accent"
         />
         {query && (
           <button

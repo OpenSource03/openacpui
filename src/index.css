@@ -166,6 +166,15 @@ html.glass-enabled #root {
     ) border-box;
 }
 
+/* Subtle island border for small sidebar elements — uniform low-opacity edge */
+.glass-outline {
+  --island-fill: var(--sidebar-accent);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--island-fill) 0 0) padding-box,
+    linear-gradient(135deg, oklch(1 0 0 / 0.08), oklch(1 0 0 / 0.04) 50%, oklch(1 0 0 / 0.08)) border-box;
+}
+
 /* Skip layout/paint for off-screen messages — large chats render instantly */
 .message-item {
   content-visibility: auto;

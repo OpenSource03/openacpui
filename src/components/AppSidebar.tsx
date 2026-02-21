@@ -29,6 +29,7 @@ import {
 import type { ChatSession, CCSessionInfo, Project, Space } from "@/types";
 import { SidebarSearch } from "./SidebarSearch";
 import { SpaceBar } from "./SpaceBar";
+import { UpdateBanner } from "./UpdateBanner";
 
 interface AppSidebarProps {
   isOpen: boolean;
@@ -185,7 +186,7 @@ export const AppSidebar = memo(function AppSidebar({
 
   return (
     <div
-      className={`flex shrink-0 flex-col overflow-hidden bg-sidebar transition-[width] duration-200 ${
+      className={`flex shrink-0 flex-col overflow-hidden bg-sidebar ps-2 transition-[width] duration-200 ${
         isOpen ? "w-[260px]" : "w-0"
       }`}
     >
@@ -254,6 +255,8 @@ export const AppSidebar = memo(function AppSidebar({
           </div>
         </ScrollArea>
       </div>
+
+      <UpdateBanner />
 
       <SpaceBar
         spaces={spaces}

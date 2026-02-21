@@ -184,6 +184,7 @@ declare global {
         download: () => Promise<unknown>;
         install: () => Promise<void>;
         check: () => Promise<unknown>;
+        currentVersion: () => Promise<string>;
       };
     };
   }
