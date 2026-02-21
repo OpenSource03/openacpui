@@ -1,8 +1,14 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
 
-// Platform class applied synchronously — process.platform is available immediately
-// in preload, so no need to wait for IPC (avoids FOUC on Windows with macOS padding)
-document.documentElement.classList.add(`platform-${process.platform}`);
+// Platform + glass classes applied before React mounts.
+// DOMContentLoaded fires after the <html> element exists but before React hydrates,
+// so the CSS rules (e.g. platform-win32 hiding macOS traffic-light padding) are active
+// on the very first render — no FOUC.
+const platformClass = `platform-${process.platform}`;
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.documentElement.classList.add(platformClass);
+}, { once: true });
 
 // Glass class requires an IPC check (glass support depends on OS + compositor)
 ipcRenderer.invoke("app:getGlassEnabled").then((enabled: boolean) => {
