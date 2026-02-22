@@ -1,10 +1,16 @@
 import { memo, useMemo, createContext, useContext, type ReactNode } from "react";
-import { AlertCircle, File, Folder, Info } from "lucide-react";
+import { AlertCircle, File, Folder, Info, RotateCcw, Undo2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { guessLanguage } from "@/lib/languages";
 import type { UIMessage } from "@/types";
@@ -80,9 +86,13 @@ function renderWithMentions(text: string): ReactNode[] {
 interface MessageBubbleProps {
   message: UIMessage;
   isContinuation?: boolean;
+  /** Called when user clicks "Revert files only" — restores files to state before this message */
+  onRevert?: (checkpointId: string) => void;
+  /** Called when user clicks "Revert files + chat" — restores files AND truncates conversation */
+  onFullRevert?: (checkpointId: string) => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, isContinuation }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, isContinuation, onRevert, onFullRevert }: MessageBubbleProps) {
   if (message.role === "system") {
     const isError = message.isError;
     return (
@@ -101,12 +111,14 @@ export const MessageBubble = memo(function MessageBubble({ message, isContinuati
   const isUser = message.role === "user";
   // toLocaleTimeString() is slow (~0.5ms) — memoize since timestamp never changes
   const time = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
-  // Memoize regex stripping for user messages (no-op for assistant since content changes during streaming)
-  const displayContent = useMemo(() => isUser ? stripFileContext(message.content) : message.content, [isUser, message.content]);
+  // Prefer pre-computed displayContent; fall back to regex stripping for old persisted sessions
+  const displayContent = useMemo(() => isUser ? (message.displayContent ?? stripFileContext(message.content)) : message.content, [isUser, message.content, message.displayContent]);
 
   if (isUser) {
+    const checkpointId = message.checkpointId;
+    const canRevert = !!checkpointId && (!!onRevert || !!onFullRevert);
     return (
-      <div className="flex justify-end px-4 py-1.5">
+      <div className="group/user flex justify-end px-4 py-1.5">
         <div className="max-w-[80%]">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -130,6 +142,33 @@ export const MessageBubble = memo(function MessageBubble({ message, isContinuati
               <p className="text-xs">{time}</p>
             </TooltipContent>
           </Tooltip>
+          {/* Revert dropdown — visible on hover, offers file-only or full (files + chat) revert */}
+          {canRevert && (
+            <div className="mt-0.5 flex justify-end opacity-0 transition-opacity group-hover/user:opacity-100">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-foreground/30 transition-colors hover:text-foreground/60">
+                    <Undo2 className="h-3 w-3" />
+                    Revert to here
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {onRevert && (
+                    <DropdownMenuItem onClick={() => onRevert(checkpointId)}>
+                      <Undo2 className="h-3.5 w-3.5 me-2" />
+                      Revert files only
+                    </DropdownMenuItem>
+                  )}
+                  {onFullRevert && (
+                    <DropdownMenuItem onClick={() => onFullRevert(checkpointId)}>
+                      <RotateCcw className="h-3.5 w-3.5 me-2" />
+                      Revert files + chat
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -175,7 +214,10 @@ export const MessageBubble = memo(function MessageBubble({ message, isContinuati
   prev.message.thinkingComplete === next.message.thinkingComplete &&
   prev.message.images === next.message.images &&
   prev.message.isError === next.message.isError &&
-  prev.isContinuation === next.isContinuation,
+  prev.message.checkpointId === next.message.checkpointId &&
+  prev.isContinuation === next.isContinuation &&
+  prev.onRevert === next.onRevert &&
+  prev.onFullRevert === next.onFullRevert,
 );
 
 /**

@@ -31,8 +31,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ImageAttachment, ContextUsage, AgentDefinition, ACPConfigOption, ModelInfo } from "@/types";
+import type { ImageAttachment, ContextUsage, AgentDefinition, ACPConfigOption, ModelInfo, AcpPermissionBehavior } from "@/types";
 import { flattenConfigOptions } from "@/types/acp";
+
+const ACP_PERMISSION_BEHAVIORS = [
+  { id: "ask" as const, label: "Ask", description: "Show permission prompt" },
+  { id: "auto_accept" as const, label: "Auto Accept", description: "Auto-approve each tool call" },
+  { id: "allow_all" as const, label: "Allow All", description: "Auto-approve with always-allow" },
+] as const;
 
 const PERMISSION_MODES = [
   { id: "plan", label: "Plan" },
@@ -85,7 +91,7 @@ const FILE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 2
 const FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 shrink-0 text-blue-400"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
 
 interface InputBarProps {
-  onSend: (text: string, images?: ImageAttachment[]) => void;
+  onSend: (text: string, images?: ImageAttachment[], displayText?: string) => void;
   onStop: () => void;
   isProcessing: boolean;
   model: string;
@@ -103,9 +109,13 @@ interface InputBarProps {
   onAgentChange?: (agent: AgentDefinition | null) => void;
   acpConfigOptions?: ACPConfigOption[];
   onACPConfigChange?: (configId: string, value: string) => void;
+  acpPermissionBehavior?: AcpPermissionBehavior;
+  onAcpPermissionBehaviorChange?: (behavior: AcpPermissionBehavior) => void;
   supportedModels?: ModelInfo[];
   /** Non-null when session is active (not draft) — engine is locked and cross-engine agents show "Opens new chat" */
   lockedEngine?: "claude" | "acp" | null;
+  /** Non-null when an ACP session is active — switching to a different ACP agent opens new chat */
+  lockedAgentId?: string | null;
 }
 
 // Simple fuzzy match: all query chars must appear in order
@@ -169,8 +179,11 @@ export const InputBar = memo(function InputBar({
   onAgentChange,
   acpConfigOptions,
   onACPConfigChange,
+  acpPermissionBehavior,
+  onAcpPermissionBehaviorChange,
   supportedModels,
   lockedEngine,
+  lockedAgentId,
 }: InputBarProps) {
   const [hasContent, setHasContent] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
@@ -366,7 +379,8 @@ export const InputBar = memo(function InputBar({
 
         const contextBlock = contextParts.join("\n\n");
         const fullMessage = contextBlock ? `${contextBlock}\n\n${trimmed}` : trimmed;
-        onSend(fullMessage, currentImages);
+        // Pass trimmed (@path text) as displayText so MessageBubble doesn't need regex stripping
+        onSend(fullMessage, currentImages, trimmed);
       } finally {
         setIsSending(false);
       }
@@ -626,174 +640,225 @@ export const InputBar = memo(function InputBar({
         )}
 
         <div className="flex items-center gap-1 px-3 pb-2.5">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center rounded-lg px-2 py-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-            title="Attach image"
-          >
-            <Paperclip className="h-3.5 w-3.5" />
-          </button>
+          {/* Left controls — scrollable as a defensive fallback (should never trigger with proper MIN_CHAT_WIDTH) */}
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex shrink-0 items-center justify-center rounded-lg px-2 py-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              title="Attach image"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+            </button>
 
-          {agents && agents.length > 1 && onAgentChange && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground">
-                  {selectedAgent?.name ?? "Claude Code"}
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {(() => {
-                  const isCrossEngine = (agent: AgentDefinition) =>
-                    lockedEngine != null && agent.engine !== lockedEngine;
-                  const sameEngine = agents.filter((a) => !isCrossEngine(a));
-                  const crossEngine = agents.filter((a) => isCrossEngine(a));
-
-                  const renderItem = (agent: AgentDefinition, crossEngine: boolean) => (
-                    <DropdownMenuItem
-                      key={agent.id}
-                      onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
-                      className={
-                        (selectedAgent?.id ?? "claude-code") === agent.id ? "bg-accent" : ""
-                      }
-                    >
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          {agent.name}
-                          {agent.engine === "acp" && (
-                            <span className="text-[10px] text-muted-foreground">ACP</span>
-                          )}
-                        </div>
-                        {crossEngine && (
-                          <div className="text-[10px] text-muted-foreground/70">
-                            Opens new chat
-                          </div>
-                        )}
-                      </div>
-                    </DropdownMenuItem>
-                  );
-
-                  return (
-                    <>
-                      {sameEngine.map((a) => renderItem(a, false))}
-                      {crossEngine.length > 0 && sameEngine.length > 0 && (
-                        <DropdownMenuSeparator />
-                      )}
-                      {crossEngine.map((a) => renderItem(a, true))}
-                    </>
-                  );
-                })()}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {isACPAgent ? (
-            /* ACP agent config dropdowns — dynamically rendered from agent-provided options */
-            acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange && (
-              <>
-                {acpConfigOptions.map((opt) => {
-                  const flat = flattenConfigOptions(opt.options);
-                  const current = flat.find((o) => o.value === opt.currentValue);
-                  return (
-                    <DropdownMenu key={opt.id}>
-                      <DropdownMenuTrigger asChild>
-                        <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground">
-                          {current?.name ?? opt.currentValue}
-                          <ChevronDown className="h-3 w-3" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        {flat.map((o) => (
-                          <DropdownMenuItem
-                            key={o.value}
-                            onClick={() => onACPConfigChange(opt.id, o.value)}
-                            className={o.value === opt.currentValue ? "bg-accent" : ""}
-                          >
-                            <div>
-                              <div>{o.name}</div>
-                              {o.description && (
-                                <div className="text-[10px] text-muted-foreground">{o.description}</div>
-                              )}
-                            </div>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  );
-                })}
-              </>
-            )
-          ) : (
-            /* Claude SDK controls — model, permission mode, thinking */
-            <>
-              {modelsLoading ? (
-                <div className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Loading models…
-                </div>
-              ) : (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground">
-                      {selectedModel?.label}
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {modelList.map((m) => (
-                      <DropdownMenuItem
-                        key={m.id}
-                        onClick={() => onModelChange(m.id)}
-                        className={m.id === model ? "bg-accent" : ""}
-                      >
-                        <div>
-                          <div>{m.label}</div>
-                          {m.description && (
-                            <div className="text-[10px] text-muted-foreground">{m.description}</div>
-                          )}
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-
+            {agents && agents.length > 1 && onAgentChange && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground">
-                    <Shield className="h-3 w-3" />
-                    {selectedMode.label}
+                  <button
+                    className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                    disabled={isProcessing}
+                  >
+                    {selectedAgent?.name ?? "Claude Code"}
                     <ChevronDown className="h-3 w-3" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
-                  {PERMISSION_MODES.map((m) => (
-                    <DropdownMenuItem
-                      key={m.id}
-                      onClick={() => onPermissionModeChange(m.id)}
-                      className={m.id === permissionMode ? "bg-accent" : ""}
-                    >
-                      {m.label}
-                    </DropdownMenuItem>
-                  ))}
+                  {(() => {
+                    // An agent "will open new chat" if engine differs OR same ACP engine but different agent
+                    const willOpenNewChat = (agent: AgentDefinition) => {
+                      if (lockedEngine == null) return false;
+                      if (agent.engine !== lockedEngine) return true;
+                      if (lockedEngine === "acp" && lockedAgentId && agent.id !== lockedAgentId) return true;
+                      return false;
+                    };
+                    const sameEngine = agents.filter((a) => !willOpenNewChat(a));
+                    const crossEngine = agents.filter((a) => willOpenNewChat(a));
+
+                    const renderItem = (agent: AgentDefinition, crossEngine: boolean) => (
+                      <DropdownMenuItem
+                        key={agent.id}
+                        onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
+                        className={
+                          (selectedAgent?.id ?? "claude-code") === agent.id ? "bg-accent" : ""
+                        }
+                      >
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            {agent.name}
+                            {agent.engine === "acp" && (
+                              <span className="text-[10px] text-muted-foreground">ACP</span>
+                            )}
+                          </div>
+                          {crossEngine && (
+                            <div className="text-[10px] text-muted-foreground/70">
+                              Opens new chat
+                            </div>
+                          )}
+                        </div>
+                      </DropdownMenuItem>
+                    );
+
+                    return (
+                      <>
+                        {sameEngine.map((a) => renderItem(a, false))}
+                        {crossEngine.length > 0 && sameEngine.length > 0 && (
+                          <DropdownMenuSeparator />
+                        )}
+                        {crossEngine.map((a) => renderItem(a, true))}
+                      </>
+                    );
+                  })()}
                 </DropdownMenuContent>
               </DropdownMenu>
+            )}
 
-              <button
-                onClick={() => onThinkingChange(!thinking)}
-                className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
-                  thinking
-                    ? "text-foreground bg-muted/40"
-                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                }`}
-              >
-                <Brain className="h-3 w-3" />
-                Reasoning
-              </button>
-            </>
-          )}
+            {isACPAgent ? (
+              /* ACP agent controls — permission behavior + dynamic config dropdowns */
+              <>
+                {/* ACP permission behavior dropdown */}
+                {onAcpPermissionBehaviorChange && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                        disabled={isProcessing}
+                      >
+                        <Shield className="h-3 w-3" />
+                        {ACP_PERMISSION_BEHAVIORS.find(b => b.id === acpPermissionBehavior)?.label ?? "Ask"}
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {ACP_PERMISSION_BEHAVIORS.map((b) => (
+                        <DropdownMenuItem
+                          key={b.id}
+                          onClick={() => onAcpPermissionBehaviorChange(b.id)}
+                          className={b.id === acpPermissionBehavior ? "bg-accent" : ""}
+                        >
+                          <div>
+                            <div>{b.label}</div>
+                            <div className="text-[10px] text-muted-foreground">{b.description}</div>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                {/* Agent-provided config dropdowns */}
+                {acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
+                  acpConfigOptions.map((opt) => {
+                    const flat = flattenConfigOptions(opt.options);
+                    const current = flat.find((o) => o.value === opt.currentValue);
+                    return (
+                      <DropdownMenu key={opt.id}>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                            disabled={isProcessing}
+                          >
+                            {current?.name ?? opt.currentValue}
+                            <ChevronDown className="h-3 w-3" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {flat.map((o) => (
+                            <DropdownMenuItem
+                              key={o.value}
+                              onClick={() => onACPConfigChange(opt.id, o.value)}
+                              className={o.value === opt.currentValue ? "bg-accent" : ""}
+                            >
+                              <div>
+                                <div>{o.name}</div>
+                                {o.description && (
+                                  <div className="text-[10px] text-muted-foreground">{o.description}</div>
+                                )}
+                              </div>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  })
+                }
+              </>
+            ) : (
+              /* Claude SDK controls — model, permission mode, thinking */
+              <>
+                {modelsLoading ? (
+                  <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading models…
+                  </div>
+                ) : (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                        disabled={isProcessing}
+                      >
+                        {selectedModel?.label}
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {modelList.map((m) => (
+                        <DropdownMenuItem
+                          key={m.id}
+                          onClick={() => onModelChange(m.id)}
+                          className={m.id === model ? "bg-accent" : ""}
+                        >
+                          <div>
+                            <div>{m.label}</div>
+                            {m.description && (
+                              <div className="text-[10px] text-muted-foreground">{m.description}</div>
+                            )}
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
 
-          <div className="ms-auto flex items-center gap-1.5">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                      disabled={isProcessing}
+                    >
+                      <Shield className="h-3 w-3" />
+                      {selectedMode.label}
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {PERMISSION_MODES.map((m) => (
+                      <DropdownMenuItem
+                        key={m.id}
+                        onClick={() => onPermissionModeChange(m.id)}
+                        className={m.id === permissionMode ? "bg-accent" : ""}
+                      >
+                        {m.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <button
+                  onClick={() => onThinkingChange(!thinking)}
+                  className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
+                    thinking
+                      ? "text-foreground bg-muted/40"
+                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  }`}
+                >
+                  <Brain className="h-3 w-3" />
+                  Reasoning
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Right controls — always visible, never shrink */}
+          <div className="flex shrink-0 items-center gap-1.5">
             {contextUsage && (() => {
               const totalInput = contextUsage.inputTokens + contextUsage.cacheReadTokens + contextUsage.cacheCreationTokens;
               const percent = Math.min(100, (totalInput / contextUsage.contextWindow) * 100);

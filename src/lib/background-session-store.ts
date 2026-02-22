@@ -212,6 +212,15 @@ export class BackgroundSessionStore {
             }
             return { ...m, toolResult: resultMeta };
           });
+        } else if (typeof uc === "string" && evt.uuid) {
+          // Replayed user text message — stamp checkpoint UUID on first unmatched user message.
+          // Mirrors the logic in useClaude.ts so background sessions also capture checkpoints.
+          const userIdx = state.messages.findIndex(
+            (m) => m.role === "user" && !m.checkpointId,
+          );
+          if (userIdx >= 0) {
+            state.messages[userIdx] = { ...state.messages[userIdx], checkpointId: evt.uuid };
+          }
         }
         break;
       }

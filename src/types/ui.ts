@@ -1,5 +1,17 @@
 import type { ToolUseResult } from "./protocol";
 
+export type PreferredEditor = "auto" | "cursor" | "code" | "zed";
+
+/** Main-process app settings (persisted to JSON file in data dir). */
+export interface AppSettings {
+  /** Include pre-release versions when checking for updates */
+  allowPrereleaseUpdates: boolean;
+  /** Number of recent chats to show per project in the sidebar (default: 10) */
+  defaultChatLimit: number;
+  /** Preferred code editor for "Open in Editor" actions (default: "auto") */
+  preferredEditor: PreferredEditor;
+}
+
 export interface SpaceColor {
   hue: number;           // OKLCh hue 0-360
   chroma: number;        // OKLCh chroma 0-0.4
@@ -71,10 +83,14 @@ export interface UIMessage {
   subagentTokens?: number;
   toolError?: boolean;
   images?: ImageAttachment[];
+  /** User-visible text (with @path refs but without <file> XML blocks). Falls back to regex stripping if absent (old sessions). */
+  displayContent?: string;
   compactTrigger?: "manual" | "auto";
   compactPreTokens?: number;
   /** When true, system message is rendered with error styling (red text, alert icon) */
   isError?: boolean;
+  /** SDK checkpoint UUID — when present, files can be reverted to the state before this message */
+  checkpointId?: string;
 }
 
 export interface SessionInfo {
@@ -100,6 +116,8 @@ export interface ChatSession {
   projectId: string;
   title: string;
   createdAt: number;
+  /** Timestamp of the most recent message — used for sidebar sort order */
+  lastMessageAt?: number;
   model?: string;
   totalCost: number;
   isActive: boolean;
@@ -135,6 +153,13 @@ export interface PermissionRequest {
   suggestions?: string[];
   decisionReason?: string;
 }
+
+/**
+ * Client-side permission auto-response behavior for ACP sessions.
+ * ACP agents provide their own permission options (allow_once, allow_always, etc.).
+ * This setting controls whether the client auto-responds or prompts the user.
+ */
+export type AcpPermissionBehavior = "ask" | "auto_accept" | "allow_all";
 
 export interface CCSessionInfo {
   sessionId: string;
@@ -181,6 +206,12 @@ export interface AgentDefinition {
   env?: Record<string, string>;
   icon?: string;
   builtIn?: boolean;
+  /** Matching id from the ACP registry (for update detection) */
+  registryId?: string;
+  /** Version from the registry at install time */
+  registryVersion?: string;
+  /** Description from the registry, shown in agent cards */
+  description?: string;
 }
 
 // ── Model types ──

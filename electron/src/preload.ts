@@ -11,6 +11,7 @@ ipcRenderer.invoke("app:getGlassEnabled").then((enabled: boolean) => {
 
 contextBridge.exposeInMainWorld("claude", {
   getGlassEnabled: () => ipcRenderer.invoke("app:getGlassEnabled"),
+  setMinWidth: (width: number) => ipcRenderer.send("app:set-min-width", width),
   start: (options: unknown) => ipcRenderer.invoke("claude:start", options),
   send: (sessionId: string, message: unknown) => ipcRenderer.invoke("claude:send", { sessionId, message }),
   stop: (sessionId: string) => ipcRenderer.invoke("claude:stop", sessionId),
@@ -44,14 +45,16 @@ contextBridge.exposeInMainWorld("claude", {
   mcpStatus: (sessionId: string) => ipcRenderer.invoke("claude:mcp-status", sessionId),
   mcpReconnect: (sessionId: string, serverName: string) =>
     ipcRenderer.invoke("claude:mcp-reconnect", { sessionId, serverName }),
+  revertFiles: (sessionId: string, checkpointId: string) =>
+    ipcRenderer.invoke("claude:revert-files", { sessionId, checkpointId }),
   restartSession: (sessionId: string, mcpServers?: unknown[]) =>
     ipcRenderer.invoke("claude:restart-session", { sessionId, mcpServers }),
   readFile: (filePath: string) => ipcRenderer.invoke("file:read", filePath),
-  openInEditor: (filePath: string, line?: number) => ipcRenderer.invoke("file:open-in-editor", { filePath, line }),
+  openInEditor: (filePath: string, line?: number, editor?: string) => ipcRenderer.invoke("file:open-in-editor", { filePath, line, editor }),
   generateTitle: (message: string, cwd?: string) => ipcRenderer.invoke("claude:generate-title", { message, cwd }),
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
-    create: () => ipcRenderer.invoke("projects:create"),
+    create: (spaceId?: string) => ipcRenderer.invoke("projects:create", spaceId),
     delete: (projectId: string) => ipcRenderer.invoke("projects:delete", projectId),
     rename: (projectId: string, name: string) => ipcRenderer.invoke("projects:rename", projectId, name),
     updateSpace: (projectId: string, spaceId: string) => ipcRenderer.invoke("projects:update-space", projectId, spaceId),
@@ -122,6 +125,7 @@ contextBridge.exposeInMainWorld("claude", {
     reviveSession: (options: { agentId: string; cwd: string; agentSessionId?: string; mcpServers?: unknown[] }) =>
       ipcRenderer.invoke("acp:revive-session", options),
     cancel: (sessionId: string) => ipcRenderer.invoke("acp:cancel", sessionId),
+    abortPendingStart: () => ipcRenderer.invoke("acp:abort-pending-start"),
     respondPermission: (sessionId: string, requestId: string, optionId: string) =>
       ipcRenderer.invoke("acp:permission_response", { sessionId, requestId, optionId }),
     setConfig: (sessionId: string, configId: string, value: string) =>
@@ -161,6 +165,10 @@ contextBridge.exposeInMainWorld("claude", {
     list: () => ipcRenderer.invoke("agents:list"),
     save: (agent: unknown) => ipcRenderer.invoke("agents:save", agent),
     delete: (id: string) => ipcRenderer.invoke("agents:delete", id),
+  },
+  settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
+    set: (patch: Record<string, unknown>) => ipcRenderer.invoke("settings:set", patch),
   },
   updater: {
     onUpdateAvailable: (cb: (info: unknown) => void) => {

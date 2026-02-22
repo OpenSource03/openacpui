@@ -2,18 +2,21 @@ import { memo, useState, useCallback, useEffect } from "react";
 import {
   SlidersHorizontal,
   Bot,
+  Plug,
   Cpu,
   Keyboard,
   Info,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { AgentSettings } from "@/components/settings/AgentSettings";
+import { GeneralSettings } from "@/components/settings/GeneralSettings";
+import { McpSettings } from "@/components/settings/McpSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
 import type { AgentDefinition } from "@/types";
 
 // ── Section definitions ──
 
-type SettingsSection = "general" | "agents" | "models" | "shortcuts" | "about";
+type SettingsSection = "general" | "agents" | "mcp" | "models" | "shortcuts" | "about";
 
 interface NavItem {
   id: SettingsSection;
@@ -24,10 +27,19 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: "general", label: "General", icon: SlidersHorizontal },
   { id: "agents", label: "ACP Agents", icon: Bot },
+  { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "models", label: "Models", icon: Cpu },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "about", label: "About", icon: Info },
 ];
+
+// ── App settings types (mirrors electron/src/lib/app-settings.ts) ──
+
+interface AppSettings {
+  allowPrereleaseUpdates: boolean;
+  defaultChatLimit: number;
+  preferredEditor: "auto" | "cursor" | "code" | "zed";
+}
 
 // ── Props ──
 
@@ -48,6 +60,21 @@ export const SettingsView = memo(function SettingsView({
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
 
+  // ── Main-process app settings (loaded once, updated optimistically) ──
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+
+  useEffect(() => {
+    window.claude.settings.get().then((s: AppSettings | null) => {
+      if (s) setAppSettings(s);
+    });
+  }, []);
+
+  const updateAppSettings = useCallback(async (patch: Partial<AppSettings>) => {
+    // Optimistic local update
+    setAppSettings((prev) => (prev ? { ...prev, ...patch } : null));
+    await window.claude.settings.set(patch);
+  }, []);
+
   // Escape key closes settings
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -59,6 +86,13 @@ export const SettingsView = memo(function SettingsView({
 
   const renderSection = useCallback(() => {
     switch (activeSection) {
+      case "general":
+        return (
+          <GeneralSettings
+            appSettings={appSettings}
+            onUpdateAppSettings={updateAppSettings}
+          />
+        );
       case "agents":
         return (
           <AgentSettings
@@ -67,14 +101,8 @@ export const SettingsView = memo(function SettingsView({
             onDelete={onDeleteAgent}
           />
         );
-      case "general":
-        return (
-          <PlaceholderSection
-            title="General Settings"
-            description="Theme, language, and display preferences will appear here."
-            icon={SlidersHorizontal}
-          />
-        );
+      case "mcp":
+        return <McpSettings />;
       case "models":
         return (
           <PlaceholderSection
@@ -102,7 +130,7 @@ export const SettingsView = memo(function SettingsView({
       default:
         return null;
     }
-  }, [activeSection, agents, onSaveAgent, onDeleteAgent]);
+  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent]);
 
   return (
     <div className="island flex flex-1 overflow-hidden rounded-lg bg-background">

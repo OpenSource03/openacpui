@@ -37,6 +37,7 @@ import * as gitIpc from "./ipc/git";
 import * as agentRegistryIpc from "./ipc/agent-registry";
 import * as acpSessionsIpc from "./ipc/acp-sessions";
 import * as mcpIpc from "./ipc/mcp";
+import * as settingsIpc from "./ipc/settings";
 import { ipcMain } from "electron";
 
 // --- Performance: Chromium/V8 flags (must be set before app.whenReady()) ---
@@ -122,6 +123,22 @@ ipcMain.handle("app:getGlassEnabled", () => {
   return !!(glassEnabled || process.platform === "win32");
 });
 
+// Dynamic minimum window width — renderer calculates based on which panels are open.
+// Also expands the window if it's currently smaller than the new minimum (e.g. Tasks
+// panel appeared while at min size), so content never overflows off-screen.
+ipcMain.on("app:set-min-width", (_event, minWidth: number) => {
+  if (mainWindow && Number.isFinite(minWidth) && minWidth >= 600) {
+    const clamped = Math.min(Math.round(minWidth), 4000);
+    const [, minH] = mainWindow.getMinimumSize();
+    mainWindow.setMinimumSize(clamped, minH);
+    // Grow the window if it's currently smaller than the new minimum
+    const [currentW, currentH] = mainWindow.getSize();
+    if (currentW < clamped) {
+      mainWindow.setSize(clamped, currentH);
+    }
+  }
+});
+
 // --- Register all IPC modules ---
 spacesIpc.register();
 projectsIpc.register(getMainWindow);
@@ -135,6 +152,7 @@ gitIpc.register();
 agentRegistryIpc.register();
 acpSessionsIpc.register(getMainWindow);
 mcpIpc.register();
+settingsIpc.register();
 
 // --- DevTools in separate window via remote debugging ---
 let devToolsWindow: BrowserWindow | null = null;

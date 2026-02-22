@@ -2,6 +2,8 @@ import { app, ipcMain, BrowserWindow } from "electron";
 import { autoUpdater } from "electron-updater";
 import type { UpdateInfo, ProgressInfo } from "electron-updater";
 import { log } from "./logger";
+import { getAppSetting } from "./app-settings";
+import { onSettingsChanged } from "../ipc/settings";
 
 // Flag to prevent window-all-closed from calling app.quit() while quitAndInstall() is
 // managing the quit lifecycle (Squirrel.Mac needs control of the process on macOS).
@@ -25,6 +27,14 @@ export function initAutoUpdater(
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Read persisted preference (defaults to true — all GitHub releases are pre-release/beta)
+  autoUpdater.allowPrerelease = getAppSetting("allowPrereleaseUpdates");
+
+  // React to setting changes at runtime (e.g. user toggles in Settings UI)
+  onSettingsChanged((settings) => {
+    autoUpdater.allowPrerelease = settings.allowPrereleaseUpdates;
+    log("UPDATER", `allowPrerelease changed to ${settings.allowPrereleaseUpdates}`);
+  });
 
   autoUpdater.on("update-available", (info: UpdateInfo) => {
     log("UPDATER", `Update available: ${info.version}`);

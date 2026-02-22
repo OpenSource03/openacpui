@@ -9,6 +9,7 @@ import {
   Plus,
   SquarePen,
   ChevronRight,
+  ChevronDown,
   Loader2,
   History,
   ArrowRightLeft,
@@ -63,6 +64,11 @@ interface SessionGroup {
   sessions: ChatSession[];
 }
 
+/** Sort key: latest message timestamp, falling back to creation time. */
+function getSortTimestamp(session: ChatSession): number {
+  return session.lastMessageAt ?? session.createdAt;
+}
+
 function groupSessionsByDate(sessions: ChatSession[]): SessionGroup[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -77,8 +83,11 @@ function groupSessionsByDate(sessions: ChatSession[]): SessionGroup[] {
     { label: "Older", sessions: [] },
   ];
 
-  for (const session of sessions) {
-    const ts = session.createdAt;
+  // Sort by most recent activity first
+  const sorted = [...sessions].sort((a, b) => getSortTimestamp(b) - getSortTimestamp(a));
+
+  for (const session of sorted) {
+    const ts = getSortTimestamp(session);
     if (ts >= todayMs) {
       groups[0].sessions.push(session);
     } else if (ts >= yesterdayMs) {
@@ -118,6 +127,28 @@ export const AppSidebar = memo(function AppSidebar({
   onDeleteSpace,
   onOpenSettings,
 }: AppSidebarProps) {
+  // Load default chat limit from main-process settings
+  const [defaultChatLimit, setDefaultChatLimit] = useState(10);
+  useEffect(() => {
+    window.claude.settings.get().then((s: { defaultChatLimit?: number } | null) => {
+      if (s?.defaultChatLimit && s.defaultChatLimit > 0) {
+        setDefaultChatLimit(s.defaultChatLimit);
+      }
+    });
+  }, []);
+
+  // Listen for settings changes so the limit updates without restart
+  useEffect(() => {
+    const interval = setInterval(() => {
+      window.claude.settings.get().then((s: { defaultChatLimit?: number } | null) => {
+        if (s?.defaultChatLimit && s.defaultChatLimit > 0) {
+          setDefaultChatLimit((prev) => s.defaultChatLimit !== prev ? s.defaultChatLimit! : prev);
+        }
+      });
+    }, 5000); // Poll every 5s — lightweight since it's a small JSON read
+    return () => clearInterval(interval);
+  }, []);
+
   // Filter projects by active space
   const filteredProjects = useMemo(
     () =>
@@ -255,6 +286,7 @@ export const AppSidebar = memo(function AppSidebar({
                   onReorderProject={(targetId) =>
                     onReorderProject(project.id, targetId)
                   }
+                  defaultChatLimit={defaultChatLimit}
                 />
               );
             })}
@@ -300,6 +332,7 @@ function ProjectSection({
   otherSpaces,
   onMoveToSpace,
   onReorderProject,
+  defaultChatLimit,
 }: {
   project: Project;
   sessions: ChatSession[];
@@ -314,12 +347,33 @@ function ProjectSection({
   otherSpaces: Space[];
   onMoveToSpace: (spaceId: string) => void;
   onReorderProject: (targetProjectId: string) => void;
+  defaultChatLimit: number;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(project.name);
   const [isDragOver, setIsDragOver] = useState(false);
-  const groups = useMemo(() => groupSessionsByDate(sessions), [sessions]);
+  // Pagination: show N chats initially, load 20 more on each click
+  const [visibleCount, setVisibleCount] = useState(defaultChatLimit);
+
+  // Reset visible count when the configured limit changes
+  useEffect(() => {
+    setVisibleCount(defaultChatLimit);
+  }, [defaultChatLimit]);
+
+  // Sort all sessions by latest message, then slice for pagination
+  const sortedSessions = useMemo(
+    () => [...sessions].sort((a, b) => getSortTimestamp(b) - getSortTimestamp(a)),
+    [sessions],
+  );
+  const visibleSessions = useMemo(
+    () => sortedSessions.slice(0, visibleCount),
+    [sortedSessions, visibleCount],
+  );
+  const hasMore = sortedSessions.length > visibleCount;
+  const remainingCount = sortedSessions.length - visibleCount;
+
+  const groups = useMemo(() => groupSessionsByDate(visibleSessions), [visibleSessions]);
 
   const handleRename = () => {
     const trimmed = editName.trim();
@@ -489,6 +543,22 @@ function ProjectSection({
               ))}
             </div>
           ))}
+
+          {/* Load more button */}
+          {hasMore && (
+            <button
+              onClick={() => setVisibleCount((prev) => prev + 20)}
+              className="group/more mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/60"
+            >
+              <ChevronDown className="h-3 w-3 shrink-0 transition-transform group-hover/more:translate-y-px" />
+              <span>
+                Show more
+                <span className="ms-1 text-sidebar-foreground/25">
+                  ({Math.min(20, remainingCount)} of {remainingCount})
+                </span>
+              </span>
+            </button>
+          )}
 
           {sessions.length === 0 && (
             <p className="px-2 py-2 text-xs text-sidebar-foreground/25">

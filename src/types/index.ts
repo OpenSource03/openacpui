@@ -32,11 +32,13 @@ export type {
   ChatSession,
   PersistedSession,
   PermissionRequest,
+  AcpPermissionBehavior,
   CCSessionInfo,
   BackgroundAgent,
   BackgroundAgentActivity,
   ImageAttachment,
   ContextUsage,
+  AppSettings,
   AgentDefinition,
   ModelInfo,
   GitFileStatus,
@@ -62,3 +64,11 @@ export type {
   ACPConfigSelectGroup,
 } from "./acp";
 export { flattenConfigOptions } from "./acp";
+
+export type {
+  RegistryAgent,
+  RegistryData,
+  RegistryDistribution,
+  RegistryNpxDistribution,
+  RegistryBinaryTarget,
+} from "./registry";

@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { log } from "../lib/logger";
 import { ALWAYS_SKIP } from "../lib/git-exec";
+import { getAppSetting } from "../lib/app-settings";
 
 function listFilesGit(cwd: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
@@ -199,24 +200,41 @@ export function register(): void {
     }
   });
 
-  ipcMain.handle("file:open-in-editor", async (_event, { filePath, line }: { filePath: string; line?: number }) => {
-    const gotoArg = line ? `${filePath}:${line}` : filePath;
-    const editors = ["cursor", "code", "zed"];
+  ipcMain.handle("file:open-in-editor", async (_event, { filePath, line, editor: editorOverride }: { filePath: string; line?: number; editor?: string }) => {
+    // Directories don't support --goto; just pass the path so the editor opens the folder
+    let isDir = false;
+    try { isDir = fs.statSync(filePath).isDirectory(); } catch { /* not found — treat as file */ }
 
-    for (const editor of editors) {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          execFile(editor, ["--goto", gotoArg], { timeout: 3000 }, (err) => {
-            if (err) reject(err);
-            else resolve();
-          });
+    /** Try launching a single editor CLI. Resolves on success, rejects if not found. */
+    const tryEditor = (editor: string): Promise<{ ok: true; editor: string }> =>
+      new Promise((resolve, reject) => {
+        const args = isDir
+          ? [filePath]
+          : ["--goto", line ? `${filePath}:${line}` : filePath];
+        execFile(editor, args, { timeout: 3000 }, (err) => {
+          if (err) reject(err);
+          else resolve({ ok: true, editor });
         });
-        return { ok: true, editor };
+      });
+
+    // Resolution order: explicit override → AppSettings preferredEditor → auto-detect
+    const preferred = editorOverride ?? getAppSetting("preferredEditor") ?? "auto";
+    const allEditors = ["cursor", "code", "zed"];
+
+    // If a specific editor is requested, try it first then fall through to the rest
+    const ordered = preferred !== "auto"
+      ? [preferred, ...allEditors.filter((e) => e !== preferred)]
+      : allEditors;
+
+    for (const editor of ordered) {
+      try {
+        return await tryEditor(editor);
       } catch {
         // Editor not found, try next
       }
     }
 
+    // Fallback: OS default
     try {
       await shell.openPath(filePath);
       return { ok: true, editor: "default" };

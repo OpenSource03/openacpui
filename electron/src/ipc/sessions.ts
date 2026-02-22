@@ -9,6 +9,8 @@ interface SessionMeta {
   projectId: string;
   title: string;
   createdAt: number;
+  /** Timestamp of the most recent message — used for sidebar sort order */
+  lastMessageAt: number;
   model?: string;
   totalCost?: number;
   engine?: "claude" | "acp";
@@ -32,10 +34,17 @@ interface SearchResult {
 }
 
 export function register(): void {
-  ipcMain.handle("sessions:save", (_event, data: { projectId: string; id: string }) => {
+  ipcMain.handle("sessions:save", (_event, data: { projectId: string; id: string; createdAt?: number; messages?: Array<{ timestamp?: number }> }) => {
     try {
       const filePath = getSessionFilePath(data.projectId, data.id);
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+      // Compute lastMessageAt from messages so sessions:list can sort by latest activity
+      let lastMessageAt = (data as Record<string, unknown>).lastMessageAt as number | undefined;
+      if (!lastMessageAt && Array.isArray(data.messages) && data.messages.length > 0) {
+        const lastMsg = data.messages[data.messages.length - 1];
+        lastMessageAt = lastMsg?.timestamp || data.createdAt || 0;
+      }
+      const enriched = { ...data, lastMessageAt: lastMessageAt || data.createdAt || 0 };
+      fs.writeFileSync(filePath, JSON.stringify(enriched, null, 2), "utf-8");
       return { ok: true };
     } catch (err) {
       log("SESSIONS:SAVE_ERR", (err as Error).message);
@@ -63,11 +72,20 @@ export function register(): void {
         try {
           const raw = fs.readFileSync(path.join(dir, file), "utf-8");
           const data = JSON.parse(raw);
+          // Derive lastMessageAt: stored field → last message timestamp → createdAt
+          let lastMessageAt: number = data.lastMessageAt || 0;
+          if (!lastMessageAt && Array.isArray(data.messages) && data.messages.length > 0) {
+            const lastMsg = data.messages[data.messages.length - 1];
+            lastMessageAt = lastMsg?.timestamp || 0;
+          }
+          if (!lastMessageAt) lastMessageAt = data.createdAt || 0;
+
           list.push({
             id: data.id,
             projectId: data.projectId,
             title: data.title || "Untitled",
             createdAt: data.createdAt || 0,
+            lastMessageAt,
             model: data.model,
             totalCost: data.totalCost || 0,
             engine: data.engine,
@@ -76,7 +94,8 @@ export function register(): void {
           // Skip corrupted files
         }
       }
-      list.sort((a, b) => b.createdAt - a.createdAt);
+      // Sort by most recent activity (latest message), not creation time
+      list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       return list;
     } catch (err) {
       log("SESSIONS:LIST_ERR", (err as Error).message);

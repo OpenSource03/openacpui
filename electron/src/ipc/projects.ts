@@ -41,7 +41,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle("projects:create", async () => {
+  ipcMain.handle("projects:create", async (_event, spaceId?: string) => {
     try {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
@@ -61,6 +61,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         name: path.basename(folderPath),
         path: folderPath,
         createdAt: Date.now(),
+        // Assign to the caller's active space (falls back to "default" if omitted)
+        ...(spaceId && spaceId !== "default" ? { spaceId } : {}),
       };
       projects.push(project);
       writeProjects(projects);

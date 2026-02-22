@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { UIMessage, PermissionRequest, SessionInfo, ContextUsage, ImageAttachment } from "@/types";
+import type { UIMessage, PermissionRequest, SessionInfo, ContextUsage, ImageAttachment, AcpPermissionBehavior } from "@/types";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "@/types/acp";
-import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName } from "@/lib/acp-adapter";
+import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, pickAutoResponseOption } from "@/lib/acp-adapter";
 
 interface UseACPOptions {
   sessionId: string | null;
@@ -17,6 +17,8 @@ interface UseACPOptions {
   initialPermission?: PermissionRequest | null;
   /** Restore the raw ACP permission event (needed for optionId lookup) */
   initialRawAcpPermission?: ACPPermissionEvent | null;
+  /** Client-side ACP permission behavior — controls auto-response to permission requests */
+  acpPermissionBehavior?: AcpPermissionBehavior;
 }
 
 /** Renderer-side ACP log — forwarded to main process log file as [ACP_UI:TAG] */
@@ -29,7 +31,7 @@ function nextAcpId(prefix: string): string {
   return `${prefix}-${Date.now()}-${acpIdCounter++}`;
 }
 
-export function useACP({ sessionId, initialMessages, initialConfigOptions, initialMeta, initialPermission, initialRawAcpPermission }: UseACPOptions) {
+export function useACP({ sessionId, initialMessages, initialConfigOptions, initialMeta, initialPermission, initialRawAcpPermission, acpPermissionBehavior }: UseACPOptions) {
   const [messages, setMessages] = useState<UIMessage[]>(initialMessages ?? []);
   const [isProcessing, setIsProcessing] = useState(initialMeta?.isProcessing ?? false);
   const [isConnected, setIsConnected] = useState(initialMeta?.isConnected ?? false);
@@ -52,6 +54,9 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   const pendingFlush = useRef(false);
   const rafId = useRef(0);
   const acpPermissionRef = useRef<ACPPermissionEvent | null>(null);
+  // Track latest permission behavior to avoid stale closures in event listeners
+  const acpPermissionBehaviorRef = useRef<AcpPermissionBehavior>(acpPermissionBehavior ?? "ask");
+  acpPermissionBehaviorRef.current = acpPermissionBehavior ?? "ask";
 
   sessionIdRef.current = sessionId;
 
@@ -259,12 +264,31 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
 
     const unsubPermission = window.claude.acp.onPermissionRequest((data: ACPPermissionEvent) => {
       if (data._sessionId !== sessionIdRef.current) return;
+
+      const behavior = acpPermissionBehaviorRef.current;
       acpLog("PERMISSION_REQUEST", {
         requestId: data.requestId,
         tool: data.toolCall.title,
         toolCallId: data.toolCall.toolCallId?.slice(0, 12),
         optionCount: data.options?.length,
+        behavior,
       });
+
+      // Auto-respond if behavior is configured and a matching allow option exists
+      const autoOptionId = pickAutoResponseOption(data.options, behavior);
+      if (autoOptionId) {
+        acpLog("PERMISSION_AUTO_RESPOND", {
+          session: sessionIdRef.current?.slice(0, 8),
+          requestId: data.requestId,
+          optionId: autoOptionId,
+          behavior,
+          tool: data.toolCall.title,
+        });
+        window.claude.acp.respondPermission(data._sessionId, data.requestId, autoOptionId);
+        return;
+      }
+
+      // Fall through to manual prompt
       acpPermissionRef.current = data;
       setPendingPermission({
         requestId: data.requestId,
@@ -312,7 +336,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     };
   }, [sessionId, handleSessionUpdate, finalizeStreamingMessage, closePendingTools]);
 
-  const send = useCallback(async (text: string, images?: ImageAttachment[]) => {
+  const send = useCallback(async (text: string, images?: ImageAttachment[], displayText?: string) => {
     if (!sessionId) return;
     acpLog("SEND", { session: sessionId.slice(0, 8), textLen: text.length, images: images?.length ?? 0 });
     setMessages(prev => [...prev, {
@@ -321,6 +345,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       content: text,
       images,
       timestamp: Date.now(),
+      ...(displayText ? { displayContent: displayText } : {}),
     }]);
     setIsProcessing(true);
     await window.claude.acp.prompt(sessionId, text, images);

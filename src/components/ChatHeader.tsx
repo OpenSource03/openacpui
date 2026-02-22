@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isMac } from "@/lib/utils";
+import type { AcpPermissionBehavior } from "@/types";
 
 const PERMISSION_MODE_LABELS: Record<string, string> = {
   plan: "Plan",
@@ -11,6 +12,12 @@ const PERMISSION_MODE_LABELS: Record<string, string> = {
   acceptEdits: "Accept Edits",
   dontAsk: "Don't Ask",
   bypassPermissions: "Allow All",
+};
+
+const ACP_PERMISSION_BEHAVIOR_LABELS: Record<AcpPermissionBehavior, string> = {
+  ask: "Ask",
+  auto_accept: "Auto Accept",
+  allow_all: "Allow All",
 };
 
 interface ChatHeaderProps {
@@ -21,6 +28,7 @@ interface ChatHeaderProps {
   totalCost: number;
   title?: string;
   permissionMode?: string;
+  acpPermissionBehavior?: AcpPermissionBehavior;
   onToggleSidebar: () => void;
 }
 
@@ -32,9 +40,13 @@ export const ChatHeader = memo(function ChatHeader({
   totalCost,
   title,
   permissionMode,
+  acpPermissionBehavior,
   onToggleSidebar,
 }: ChatHeaderProps) {
   const modeLabel = permissionMode ? PERMISSION_MODE_LABELS[permissionMode] : null;
+  const acpBehaviorLabel = acpPermissionBehavior && acpPermissionBehavior !== "ask"
+    ? ACP_PERMISSION_BEHAVIOR_LABELS[acpPermissionBehavior]
+    : null;
 
   return (
     <div
@@ -75,6 +87,12 @@ export const ChatHeader = memo(function ChatHeader({
       {modeLabel && permissionMode !== "default" && (
         <Badge variant="outline" className="no-drag text-[11px] font-normal">
           {modeLabel}
+        </Badge>
+      )}
+
+      {acpBehaviorLabel && (
+        <Badge variant="outline" className="no-drag text-[11px] font-normal">
+          {acpBehaviorLabel}
         </Badge>
       )}
 

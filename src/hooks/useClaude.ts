@@ -86,6 +86,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   const parentToolMap = useRef<ParentToolMap>(new Map());
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  const messagesRef = useRef<UIMessage[]>([]);
+  messagesRef.current = messages;
 
   // Reset state when sessionId changes, restoring background state if available
   useEffect(() => {
@@ -541,6 +543,10 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           }
 
           if (textPayload) {
+            // Checkpoint UUID from replayed user messages (replay-user-messages flag).
+            // TypeScript narrows event to ToolResultEvent in case "user".
+            const checkpointUuid = event.uuid;
+
             setMessages((prev) => {
               // Look for an unfilled compact_boundary placeholder
               const compactIdx = prev.findLastIndex(
@@ -553,7 +559,22 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
                   i === compactIdx ? { ...m, content: textPayload } : m,
                 );
               }
-              // No pending compact — not a context summary, ignore
+
+              // Stamp checkpoint UUID on the first user message without one.
+              // With replay-user-messages, the SDK replays user text in order,
+              // so sequential matching assigns UUIDs to the correct messages.
+              if (checkpointUuid) {
+                const userIdx = prev.findIndex(
+                  (m) => m.role === "user" && !m.checkpointId,
+                );
+                if (userIdx >= 0) {
+                  uiLog("CHECKPOINT", { uuid: checkpointUuid.slice(0, 12), msgIdx: userIdx });
+                  return prev.map((m, i) =>
+                    i === userIdx ? { ...m, checkpointId: checkpointUuid } : m,
+                  );
+                }
+              }
+
               return prev;
             });
           }
@@ -637,18 +658,22 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   );
 
   const send = useCallback(
-    async (text: string, images?: ImageAttachment[]): Promise<boolean> => {
+    async (text: string, images?: ImageAttachment[], displayText?: string): Promise<boolean> => {
       if (!sessionIdRef.current) return false;
-      setIsProcessing(true);
       const content = buildSdkContent(text, images);
       const result = await window.claude.send(sessionIdRef.current, {
         type: "user",
         message: { role: "user", content },
       });
       if (result?.error) {
-        setIsProcessing(false);
         return false;
       }
+      // Both updates in the same synchronous scope so React batches them into
+      // one render.  Previously setIsProcessing(true) fired before the await,
+      // creating an intermediate render where isProcessing=true but the user
+      // message wasn't in the array yet — which made extractTurnSummaries drop
+      // the last completed turn's inline change summary.
+      setIsProcessing(true);
       setMessages((prev) => [
         ...prev,
         {
@@ -657,6 +682,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           content: text,
           timestamp: Date.now(),
           ...(images?.length ? { images } : {}),
+          ...(displayText ? { displayContent: displayText } : {}),
         },
       ]);
       return true;
@@ -816,6 +842,26 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     await refreshMcpStatus();
   }, [refreshMcpStatus]);
 
+  /** Revert files on disk to the state before the given checkpoint (user message UUID) */
+  const revertFiles = useCallback(async (checkpointId: string) => {
+    if (!sessionIdRef.current) return { error: "No session" };
+    const result = await window.claude.revertFiles(sessionIdRef.current, checkpointId);
+    // Show feedback as a system message so the user knows the revert happened (or failed)
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: nextId("system-revert"),
+        role: "system" as const,
+        content: result.error
+          ? `File revert failed: ${result.error}`
+          : "Files reverted to checkpoint successfully.",
+        isError: !!result.error,
+        timestamp: Date.now(),
+      },
+    ]);
+    return result;
+  }, []);
+
   return {
     messages,
     setMessages,
@@ -839,5 +885,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     reconnectMcpServer,
     restartWithMcpServers,
     supportedModels,
+    revertFiles,
+    flushNow,
+    resetStreaming,
   };
 }

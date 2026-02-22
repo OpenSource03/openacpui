@@ -1,18 +1,28 @@
-import { useEffect, useRef, useMemo, useCallback, memo } from "react";
+import { Fragment, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { UIMessage } from "@/types";
 import { MessageBubble } from "./MessageBubble";
 import { SummaryBlock } from "./SummaryBlock";
 import { ToolCall } from "./ToolCall";
+import { TurnChangesSummary } from "./TurnChangesSummary";
+import { extractTurnSummaries } from "@/lib/turn-changes";
+import type { TurnSummary } from "@/lib/turn-changes";
 
 interface ChatViewProps {
   messages: UIMessage[];
+  isProcessing: boolean;
   extraBottomPadding?: boolean;
   scrollToMessageId?: string;
   onScrolledToMessage?: () => void;
+  /** Called when user clicks "Revert files only" on a user message */
+  onRevert?: (checkpointId: string) => void;
+  /** Called when user clicks "Revert files + chat" on a user message */
+  onFullRevert?: (checkpointId: string) => void;
+  /** Called when user clicks "View changes" on an inline turn summary */
+  onViewTurnChanges?: (turnIndex: number) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, extraBottomPadding, scrollToMessageId, onScrolledToMessage }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, extraBottomPadding, scrollToMessageId, onScrolledToMessage, onRevert, onFullRevert, onViewTurnChanges }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef(0);
@@ -108,6 +118,17 @@ export const ChatView = memo(function ChatView({ messages, extraBottomPadding, s
     return ids;
   }, [messages]);
 
+  // Pre-compute per-turn change summaries, keyed by the last message index of each turn.
+  // Only completed turns with file changes get a summary block rendered after them.
+  const turnSummaryByEndIndex = useMemo(() => {
+    const summaries = extractTurnSummaries(messages, isProcessing);
+    const map = new Map<number, TurnSummary>();
+    for (const s of summaries) {
+      map.set(s.endMessageIndex, s);
+    }
+    return map;
+  }, [messages, isProcessing]);
+
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -124,22 +145,46 @@ export const ChatView = memo(function ChatView({ messages, extraBottomPadding, s
   return (
     <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
       <div className={`pt-14 ${extraBottomPadding ? "pb-56" : "pb-36"}`}>
-        {messages.map((msg) => {
+        {messages.map((msg, index) => {
+          // Determine the turn summary to render after this message (if any)
+          const turnSummary = turnSummaryByEndIndex.get(index);
+
           if (msg.role === "tool_call") {
-            return <div key={msg.id} data-message-id={msg.id} className="message-item"><ToolCall message={msg} /></div>;
+            return (
+              <Fragment key={msg.id}>
+                <div data-message-id={msg.id} className="message-item"><ToolCall message={msg} /></div>
+                {turnSummary && (
+                  <TurnChangesSummary summary={turnSummary} onViewInPanel={onViewTurnChanges} />
+                )}
+              </Fragment>
+            );
           }
           if (msg.role === "tool_result") return null;
           if (msg.role === "summary") {
-            return <div key={msg.id} data-message-id={msg.id} className="message-item"><SummaryBlock message={msg} /></div>;
+            return (
+              <Fragment key={msg.id}>
+                <div data-message-id={msg.id} className="message-item"><SummaryBlock message={msg} /></div>
+                {turnSummary && (
+                  <TurnChangesSummary summary={turnSummary} onViewInPanel={onViewTurnChanges} />
+                )}
+              </Fragment>
+            );
           }
 
           return (
-            <div key={msg.id} data-message-id={msg.id} className="message-item">
-              <MessageBubble
-                message={msg}
-                isContinuation={continuationIds.has(msg.id)}
-              />
-            </div>
+            <Fragment key={msg.id}>
+              <div data-message-id={msg.id} className="message-item">
+                <MessageBubble
+                  message={msg}
+                  isContinuation={continuationIds.has(msg.id)}
+                  onRevert={onRevert}
+                  onFullRevert={onFullRevert}
+                />
+              </div>
+              {turnSummary && (
+                <TurnChangesSummary summary={turnSummary} onViewInPanel={onViewTurnChanges} />
+              )}
+            </Fragment>
           );
         })}
         <div ref={bottomRef} />

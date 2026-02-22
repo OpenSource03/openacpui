@@ -8,8 +8,8 @@ export function useProjectManager() {
     window.claude.projects.list().then(setProjects);
   }, []);
 
-  const createProject = useCallback(async () => {
-    const project = await window.claude.projects.create();
+  const createProject = useCallback(async (spaceId?: string) => {
+    const project = await window.claude.projects.create(spaceId);
     if (!project) return null;
     setProjects((prev) => {
       if (prev.some((p) => p.id === project.id)) return prev;

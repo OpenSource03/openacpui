@@ -11,6 +11,12 @@ export interface AgentDefinition {
   env?: Record<string, string>;
   icon?: string;
   builtIn?: boolean;
+  /** Matching id from the ACP registry (for update detection) */
+  registryId?: string;
+  /** Version from the registry at install time */
+  registryVersion?: string;
+  /** Description from the registry, shown in agent cards */
+  description?: string;
 }
 
 const BUILTIN_CLAUDE: AgentDefinition = {

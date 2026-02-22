@@ -33,6 +33,7 @@ electron/
     │   ├── logger.ts         # log(), logStream setup
     │   ├── async-channel.ts  # AsyncChannel class for multi-turn SDK input
     │   ├── data-dir.ts       # getDataDir, getProjectSessionsDir, getSessionFilePath
+    │   ├── app-settings.ts   # AppSettings JSON store (main-process settings persisted to data dir)
     │   ├── glass.ts          # Liquid glass detection + glassEnabled export
     │   ├── sdk.ts            # Cached getSDK() for @anthropic-ai/claude-agent-sdk
     │   └── git-exec.ts       # gitExec() helper + ALWAYS_SKIP set
@@ -41,6 +42,7 @@ electron/
         ├── title-gen.ts       # claude:generate-title, git:generate-commit-message
         ├── projects.ts        # projects:list/create/delete/rename/reorder/update-space
         ├── sessions.ts        # sessions:save/load/list/delete/search
+        ├── settings.ts        # settings:get/set (main-process AppSettings with change listeners)
         ├── spaces.ts          # spaces:list/save
         ├── files.ts           # files:list/read-multiple, file:read/open-in-editor
         ├── terminal.ts        # terminal:create/write/resize/destroy
@@ -94,6 +96,11 @@ src/
     ├── ToolPicker.tsx            # Vertical tool bar: toggles tool panels on/off (terminal, browser, files)
     ├── ToolsPanel.tsx            # Terminal panel: multi-tab xterm.js instances backed by node-pty
     ├── BrowserPanel.tsx          # Browser panel: multi-tab Electron webview with URL bar + navigation
+    ├── SettingsView.tsx          # Settings panel with nav sidebar, loads AppSettings from main process
+    ├── settings/
+    │   ├── GeneralSettings.tsx   # General section: pre-release updates toggle, etc.
+    │   ├── AgentSettings.tsx     # ACP agent CRUD (create, edit, delete, paste-JSON import)
+    │   └── PlaceholderSection.tsx # Empty placeholder for unimplemented sections
     ├── FilesPanel.tsx            # Open Files panel: derives accessed files from session messages
     └── OpenInEditorButton.tsx    # Subtle hover button to open file in external editor (cursor/code/zed)
 ```
@@ -164,6 +171,21 @@ The main process uses `@anthropic-ai/claude-agent-sdk` (ESM-only, loaded via `aw
 - `terminal:resize({ terminalId, cols, rows })` → resizes PTY dimensions
 - `terminal:destroy(terminalId)` → kills the PTY process
 - Events: `terminal:data` (PTY output), `terminal:exit` (process exit)
+
+**IPC API — App Settings:**
+
+- `settings:get` — returns full `AppSettings` object (JSON file in data dir)
+- `settings:set(patch)` — merges partial update, persists to disk, notifies in-process listeners
+
+### Settings Architecture
+
+Two tiers of settings storage, each suited to different access patterns:
+
+1. **`useSettings` hook** (renderer, localStorage) — UI preferences that only the renderer needs: model, permissionMode, panel widths, active tools, thinking toggle. Per-project settings keyed by `openacpui-{projectId}-*`, global settings keyed by `openacpui-*`.
+
+2. **`AppSettings` store** (main process, JSON file) — settings that the main process needs at startup before any BrowserWindow exists (e.g. `autoUpdater.allowPrerelease`). File location: `{userData}/openacpui-data/settings.json`. Accessed via `getAppSettings()`/`setAppSettings()` in `electron/src/lib/app-settings.ts`. The `settings` IPC module exposes `settings:get`/`settings:set` to the renderer and fires `onSettingsChanged` listeners for in-process consumers (e.g. the updater).
+
+**When to use which:** Use `useSettings` for renderer-only preferences. Use `AppSettings` when the main process must read the value synchronously at startup or react to changes (e.g. updater config, window behavior).
 
 ### State Architecture
 

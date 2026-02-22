@@ -7,6 +7,15 @@ import { getSDK, getCliPath } from "../lib/sdk";
 import type { QueryHandle } from "../lib/sdk";
 import { getMcpAuthHeaders } from "../lib/mcp-oauth-flow";
 
+/** SDK options for file checkpointing — enables Write/Edit/NotebookEdit revert support */
+function fileCheckpointOptions(): Record<string, unknown> {
+  return {
+    enableFileCheckpointing: true,
+    extraArgs: { "replay-user-messages": null }, // required to receive checkpoint UUIDs
+    env: { ...process.env, CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: "1" },
+  };
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -119,6 +128,10 @@ interface StartOptions {
   model?: string;
   permissionMode?: string;
   resume?: string;
+  /** Fork to a new session ID when resuming (model forgets messages after resumeSessionAt) */
+  forkSession?: boolean;
+  /** Resume at a specific message UUID — used with forkSession to truncate history */
+  resumeSessionAt?: string;
   mcpServers?: McpServerInput[];
 }
 
@@ -206,6 +219,7 @@ async function restartSession(
     canUseTool,
     settingSources: ["user", "project"],
     pathToClaudeCodeExecutable: getCliPath(),
+    ...fileCheckpointOptions(),
     resume: sessionId,
     stderr: (data: string) => {
       const trimmed = data.trim();
@@ -283,7 +297,11 @@ async function restartSession(
 
 export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("claude:start", async (_event, options: StartOptions = {}) => {
-    const sessionId = options.resume || crypto.randomUUID();
+    // Fork sessions get a fresh IPC-level ID to avoid race with old session's
+    // async cleanup (which would delete the new Map entry if we reused the old key).
+    const sessionId = (options.resume && options.forkSession)
+      ? crypto.randomUUID()
+      : (options.resume || crypto.randomUUID());
 
     try {
       const query = await getSDK();
@@ -328,6 +346,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         canUseTool,
         settingSources: ["user", "project"],
         pathToClaudeCodeExecutable: getCliPath(),
+        ...fileCheckpointOptions(),
         stderr: (data: string) => {
           const trimmed = data.trim();
           log("STDERR", `session=${sessionId.slice(0, 8)} ${trimmed}`);
@@ -337,6 +356,12 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       if (options.resume) {
         queryOptions.resume = options.resume;
+        if (options.forkSession) {
+          queryOptions.forkSession = true;
+          // Use our IPC-level ID as the fork's session ID so future resume works
+          queryOptions.sessionId = sessionId;
+        }
+        if (options.resumeSessionAt) queryOptions.resumeSessionAt = options.resumeSessionAt;
       } else {
         queryOptions.sessionId = sessionId;
       }
@@ -528,6 +553,21 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
 
     return { ok: true };
+  });
+
+  ipcMain.handle("claude:revert-files", async (_event, { sessionId, checkpointId }: { sessionId: string; checkpointId: string }) => {
+    const session = sessions.get(sessionId);
+    if (!session?.queryHandle?.rewindFiles) {
+      return { error: "No active session or rewind not supported" };
+    }
+    try {
+      await session.queryHandle.rewindFiles(checkpointId);
+      log("REVERT_FILES", `session=${sessionId.slice(0, 8)} checkpoint=${checkpointId.slice(0, 12)}`);
+      return { ok: true };
+    } catch (err) {
+      log("REVERT_FILES_ERR", `session=${sessionId.slice(0, 8)} ${errorMessage(err)}`);
+      return { error: errorMessage(err) };
+    }
   });
 
   ipcMain.handle("claude:mcp-status", async (_event, sessionId: string) => {

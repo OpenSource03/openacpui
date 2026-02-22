@@ -5,7 +5,7 @@ import { useProjectManager } from "@/hooks/useProjectManager";
 import { useSessionManager } from "@/hooks/useSessionManager";
 import { useSidebar } from "@/hooks/useSidebar";
 import { useSpaceManager } from "@/hooks/useSpaceManager";
-import { useSettings } from "@/hooks/useSettings";
+import { useSettings, normalizeRatios } from "@/hooks/useSettings";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
 import { ChatView } from "./ChatView";
@@ -22,17 +22,21 @@ import { BrowserPanel } from "./BrowserPanel";
 import { GitPanel } from "./GitPanel";
 import { FilesPanel } from "./FilesPanel";
 import { McpPanel } from "./McpPanel";
+import { ChangesPanel } from "./ChangesPanel";
 import { SettingsView } from "./SettingsView";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
 import { isMac } from "@/lib/utils";
-import type { TodoItem, ImageAttachment, Space, SpaceColor, AgentDefinition } from "@/types";
+import type { TodoItem, ImageAttachment, Space, SpaceColor, AgentDefinition, AcpPermissionBehavior } from "@/types";
 
 export function AppLayout() {
   const sidebar = useSidebar();
   const projectManager = useProjectManager();
   const spaceManager = useSpaceManager();
-  const manager = useSessionManager(projectManager.projects);
+  // Read ACP permission behavior early — it's a global setting (same localStorage key as useSettings)
+  // so we can read it before useSettings which depends on manager.activeSession for per-project scoping
+  const acpPermissionBehavior = (localStorage.getItem("openacpui-acp-permission-behavior") ?? "ask") as AcpPermissionBehavior;
+  const manager = useSessionManager(projectManager.projects, acpPermissionBehavior);
 
   // Derive activeProjectId early so useSettings can scope per-project
   const activeProjectId = manager.activeSession?.projectId ?? manager.draftProjectId;
@@ -44,12 +48,37 @@ export function AppLayout() {
   const [selectedAgent, setSelectedAgent] = useState<AgentDefinition | null>(null);
   const handleAgentChange = useCallback((agent: AgentDefinition | null) => {
     setSelectedAgent(agent);
-    manager.setDraftAgent(agent?.engine ?? "claude", agent?.id ?? "claude-code");
-  }, [manager.setDraftAgent]);
+
+    // If this agent would open a new chat, do it immediately on selection
+    const currentEngine = manager.activeSession?.engine ?? "claude";
+    const currentAgentId = manager.activeSession?.agentId;
+    const wantedEngine = agent?.engine ?? "claude";
+    const wantedAgentId = agent?.id;
+    const needsNewSession = !manager.isDraft && manager.activeSession && (
+      currentEngine !== wantedEngine ||
+      (currentEngine === "acp" && wantedEngine === "acp" && currentAgentId !== wantedAgentId)
+    );
+
+    if (needsNewSession) {
+      manager.createSession(manager.activeSession!.projectId, {
+        model: settings.model,
+        permissionMode: settings.permissionMode,
+        engine: wantedEngine,
+        agentId: agent?.id ?? "claude-code",
+      });
+    } else {
+      manager.setDraftAgent(agent?.engine ?? "claude", agent?.id ?? "claude-code");
+    }
+  }, [manager.setDraftAgent, manager.isDraft, manager.activeSession, manager.createSession, settings.model, settings.permissionMode]);
 
   // Engine is locked once a session is active (not draft) — null means free to switch
   const lockedEngine = !manager.isDraft && manager.activeSession?.engine
     ? manager.activeSession.engine
+    : null;
+
+  // Agent ID is locked for ACP sessions — switching agents must open a new chat
+  const lockedAgentId = !manager.isDraft && manager.activeSession?.agentId
+    ? manager.activeSession.agentId
     : null;
 
   const [showSettings, setShowSettings] = useState(false);
@@ -64,6 +93,8 @@ export function AppLayout() {
   const [scrollToMessageId, setScrollToMessageId] = useState<string | undefined>();
   const [glassOverlayStyle, setGlassOverlayStyle] = useState<React.CSSProperties | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+  // Focus turn index for the Changes panel (set by inline turn summary "View changes" click)
+  const [changesPanelFocusTurn, setChangesPanelFocusTurn] = useState<number | undefined>();
 
   const hasProjects = projectManager.projects.length > 0;
 
@@ -89,6 +120,30 @@ export function AppLayout() {
     [settings],
   );
 
+  // Reorder panel tools in the ToolPicker (moves fromId to toId's position)
+  const handleToolReorder = useCallback(
+    (fromId: ToolId, toId: ToolId) => {
+      const count = settings.toolOrder.filter(
+        (id) => settings.activeTools.has(id) && ["terminal", "git", "browser", "files", "mcp", "changes"].includes(id),
+      ).length;
+      settings.setToolOrder((prev) => {
+        const next = [...prev];
+        const fromIdx = next.indexOf(fromId);
+        const toIdx = next.indexOf(toId);
+        if (fromIdx < 0 || toIdx < 0) return prev;
+        next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, fromId);
+        return next;
+      });
+      // Reset split ratios to equal when reordering (positional, not keyed)
+      if (count > 1) {
+        settings.setToolsSplitRatios(new Array<number>(count).fill(1 / count));
+        settings.saveToolsSplitRatios();
+      }
+    },
+    [settings],
+  );
+
   const handleNewChat = useCallback(
     async (projectId: string) => {
       setShowSettings(false);
@@ -104,19 +159,26 @@ export function AppLayout() {
   );
 
   const handleSend = useCallback(
-    async (text: string, images?: ImageAttachment[]) => {
-      // If the selected agent's engine differs from the current session, start a new session first
+    async (text: string, images?: ImageAttachment[], displayText?: string) => {
+      // If the selected agent/engine differs from the current session, start a new session first
       const currentEngine = manager.activeSession?.engine ?? "claude";
       const wantedEngine = selectedAgent?.engine ?? "claude";
-      if (!manager.isDraft && currentEngine !== wantedEngine && manager.activeSession) {
-        await manager.createSession(manager.activeSession.projectId, {
+      const currentAgentId = manager.activeSession?.agentId;
+      const wantedAgentId = selectedAgent?.id;
+      const needsNewSession = !manager.isDraft && manager.activeSession && (
+        currentEngine !== wantedEngine ||
+        // Switching ACP agents within a session must also create a new chat
+        (currentEngine === "acp" && wantedEngine === "acp" && currentAgentId !== wantedAgentId)
+      );
+      if (needsNewSession) {
+        await manager.createSession(manager.activeSession!.projectId, {
           model: settings.model,
           permissionMode: settings.permissionMode,
           engine: wantedEngine,
           agentId: selectedAgent?.id ?? "claude-code",
         });
       }
-      await manager.send(text, images);
+      await manager.send(text, images, displayText);
     },
     [manager.send, manager.isDraft, manager.activeSession, manager.createSession, selectedAgent, settings.model, settings.permissionMode],
   );
@@ -150,11 +212,11 @@ export function AppLayout() {
     [manager.switchSession],
   );
 
-  // Wrap project creation to also close settings view
+  // Wrap project creation to also close settings view, assigning to the active space
   const handleCreateProject = useCallback(async () => {
     setShowSettings(false);
-    await projectManager.createProject();
-  }, [projectManager.createProject]);
+    await projectManager.createProject(spaceManager.activeSpaceId);
+  }, [projectManager.createProject, spaceManager.activeSpaceId]);
 
   const handleImportCCSession = useCallback(
     async (projectId: string, ccSessionId: string) => {
@@ -169,6 +231,20 @@ export function AppLayout() {
       setTimeout(() => setScrollToMessageId(messageId), 200);
     },
     [manager.switchSession],
+  );
+
+  // Opens the Changes panel and focuses on a specific turn (from inline summary click)
+  const handleViewTurnChanges = useCallback(
+    (turnIndex: number) => {
+      settings.setActiveTools((prev) => {
+        if (prev.has("changes")) return prev;
+        const next = new Set(prev);
+        next.add("changes");
+        return next;
+      });
+      setChangesPanelFocusTurn(turnIndex);
+    },
+    [settings],
   );
 
   const handleCreateSpace = useCallback(() => {
@@ -440,19 +516,43 @@ export function AppLayout() {
   }, [hasAgents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Layout constraints ──
-  // Minimum chat width to keep it usable when panels are open
-  const MIN_CHAT_WIDTH = 380;
+  // Minimum chat width — must fit the full InputBar toolbar including agent dropdown +
+  // longest model name + "Ask Before Edits" permission + reasoning + context + send.
+  // Breakdown: 56px outer padding (px-4+px-3) + ~550px toolbar content = ~606px, rounded up.
+  const MIN_CHAT_WIDTH = 640;
   // ToolPicker strip (w-14 = 56px) + its left margin (ms-2 = 8px)
   const TOOL_PICKER_WIDTH = 64;
   const RESIZE_HANDLE_WIDTH = 8;
+  // Panel min/max (declared here so dynamic minWidth and resize handlers can share them)
+  const MIN_PANEL_WIDTH = 200;
+  const MAX_PANEL_WIDTH = 500;
+  const MIN_TOOLS_WIDTH = 280;
+  const MAX_TOOLS_WIDTH = 800;
 
   const contentRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
 
-  // ── Right panel resize ──
+  // ── Panel visibility flags (used by dynamic minWidth + clamping) ──
+  const hasRightPanel = ((hasTodos && settings.activeTools.has("tasks")) || (hasAgents && settings.activeTools.has("agents"))) && !!manager.activeSessionId;
+  const hasToolsColumn = (settings.activeTools.has("terminal") || settings.activeTools.has("browser") || settings.activeTools.has("git") || settings.activeTools.has("files") || settings.activeTools.has("mcp") || settings.activeTools.has("changes")) && !!manager.activeSessionId;
 
-  const MIN_PANEL_WIDTH = 200;
-  const MAX_PANEL_WIDTH = 500;
+  // ── Dynamic Electron minimum window width ──
+  // Recalculates whenever panel visibility or sidebar state changes
+  useEffect(() => {
+    const sidebarW = sidebar.isOpen ? 260 : 0;
+    const margins = 16; // ms-2 + me-2 on contentRef
+    let minW = sidebarW + margins + MIN_CHAT_WIDTH;
+
+    if (manager.activeSessionId) {
+      minW += TOOL_PICKER_WIDTH;
+      if (hasRightPanel) minW += MIN_PANEL_WIDTH + RESIZE_HANDLE_WIDTH;
+      if (hasToolsColumn) minW += MIN_TOOLS_WIDTH + RESIZE_HANDLE_WIDTH;
+    }
+
+    window.claude.setMinWidth(Math.max(minW, 600));
+  }, [sidebar.isOpen, hasRightPanel, hasToolsColumn, manager.activeSessionId]);
+
+  // ── Right panel resize ──
 
   const rightPanelWidthRef = useRef(settings.rightPanelWidth);
   rightPanelWidthRef.current = settings.rightPanelWidth;
@@ -495,9 +595,6 @@ export function AppLayout() {
 
   // ── Tools panel resize ──
 
-  const MIN_TOOLS_WIDTH = 280;
-  const MAX_TOOLS_WIDTH = 800;
-
   const toolsPanelWidthRef = useRef(settings.toolsPanelWidth);
   toolsPanelWidthRef.current = settings.toolsPanelWidth;
 
@@ -537,34 +634,132 @@ export function AppLayout() {
     [settings],
   );
 
-  // ── Tools vertical split ratio ──
+  // ── Reactive panel clamping on window resize / project switch ──
+  // When the container shrinks (window resize or panel toggle), clamp stored panel widths
+  // so the chat island never goes below MIN_CHAT_WIDTH. Tools panel yields first, then right panel.
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
 
-  const toolsSplitRef = useRef(settings.toolsSplitRatio);
-  toolsSplitRef.current = settings.toolsSplitRatio;
+    const clamp = () => {
+      const containerW = el.clientWidth;
+      const hasRight = !!rightPanelRef.current;
+      const hasTools = !!toolsColumnRef.current;
+
+      let reserved = MIN_CHAT_WIDTH + (manager.activeSessionId ? TOOL_PICKER_WIDTH : 0);
+      if (hasRight) reserved += RESIZE_HANDLE_WIDTH;
+      if (hasTools) reserved += RESIZE_HANDLE_WIDTH;
+
+      const available = containerW - reserved;
+      let rw = hasRight ? rightPanelWidthRef.current : 0;
+      let tw = hasTools ? toolsPanelWidthRef.current : 0;
+
+      if (rw + tw > available) {
+        // Shrink tools panel first, then right panel
+        const excess = rw + tw - available;
+        const twReduction = Math.min(excess, Math.max(0, tw - MIN_TOOLS_WIDTH));
+        tw = Math.max(MIN_TOOLS_WIDTH, tw - twReduction);
+        const remaining = rw + tw - available;
+        if (remaining > 0) rw = Math.max(MIN_PANEL_WIDTH, rw - remaining);
+
+        // Only update state if actually changed (>1px guard against loops)
+        if (hasRight && Math.abs(rw - rightPanelWidthRef.current) > 1) settings.setRightPanelWidth(rw);
+        if (hasTools && Math.abs(tw - toolsPanelWidthRef.current) > 1) settings.setToolsPanelWidth(tw);
+      }
+    };
+
+    const observer = new ResizeObserver(clamp);
+    observer.observe(el);
+    // Also clamp immediately on mount / project switch
+    clamp();
+    return () => observer.disconnect();
+  }, [hasRightPanel, hasToolsColumn, manager.activeSessionId, activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Tools vertical split ratios ──
+
   const toolsColumnRef = useRef<HTMLDivElement>(null);
+  // Track the current NORMALIZED ratios so the drag handler always has correct values
+  // (raw settings.toolsSplitRatios can be empty or wrong length when tools are toggled)
+  const normalizedToolRatiosRef = useRef<number[]>([]);
+
+  // Count of active panel tools (used to sync stored ratios when tools are toggled)
+  const activeToolCount = useMemo(
+    () => settings.toolOrder.filter((id) => settings.activeTools.has(id) && ["terminal", "git", "browser", "files", "mcp", "changes"].includes(id)).length,
+    [settings.toolOrder, settings.activeTools],
+  );
+
+  // Sync stored ratios to the actual tool count whenever tools are toggled on/off.
+  // Without this, the drag handler would start from stale ratios of a different length.
+  useEffect(() => {
+    if (activeToolCount <= 0) return;
+    if (settings.toolsSplitRatios.length !== activeToolCount) {
+      const synced = normalizeRatios(settings.toolsSplitRatios, activeToolCount);
+      settings.setToolsSplitRatios(synced);
+    }
+  }, [activeToolCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToolsSplitStart = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.MouseEvent, dividerIndex: number) => {
       e.preventDefault();
       setIsResizing(true);
       const startY = e.clientY;
-      const startRatio = toolsSplitRef.current;
       const columnEl = toolsColumnRef.current;
       if (!columnEl) return;
       const columnHeight = columnEl.getBoundingClientRect().height;
+      // Use the normalized ratios (always match current tool count, never NaN/empty)
+      const startRatios = [...normalizedToolRatiosRef.current];
+      if (dividerIndex + 1 >= startRatios.length) return; // safety guard
+      const minRatio = 0.1;
 
       const onMouseMove = (ev: MouseEvent) => {
-        const deltaY = ev.clientY - startY;
-        const deltaRatio = deltaY / columnHeight;
-        const next = Math.max(0.2, Math.min(0.8, startRatio + deltaRatio));
-        settings.setToolsSplitRatio(next);
+        const delta = (ev.clientY - startY) / columnHeight;
+        const next = [...startRatios];
+        let upper = startRatios[dividerIndex] + delta;
+        let lower = startRatios[dividerIndex + 1] - delta;
+        // Clamp both sides
+        if (upper < minRatio) { lower += upper - minRatio; upper = minRatio; }
+        if (lower < minRatio) { upper += lower - minRatio; lower = minRatio; }
+        next[dividerIndex] = upper;
+        next[dividerIndex + 1] = lower;
+        settings.setToolsSplitRatios(next);
       };
 
       const onMouseUp = () => {
         setIsResizing(false);
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
-        settings.saveToolsSplitRatio();
+        settings.saveToolsSplitRatios();
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    },
+    [settings],
+  );
+
+  // ── Right panel vertical split (Tasks / Agents) ──
+
+  const handleRightSplitStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+      const startY = e.clientY;
+      const startRatio = settings.rightSplitRatio;
+      const panelEl = rightPanelRef.current;
+      if (!panelEl) return;
+      const panelHeight = panelEl.getBoundingClientRect().height;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        const delta = ev.clientY - startY;
+        const next = Math.max(0.2, Math.min(0.8, startRatio + delta / panelHeight));
+        settings.setRightSplitRatio(next);
+      };
+
+      const onMouseUp = () => {
+        setIsResizing(false);
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        settings.saveRightSplitRatio();
       };
 
       document.addEventListener("mousemove", onMouseMove);
@@ -636,7 +831,7 @@ export function AppLayout() {
         {/* Keep chat area mounted (hidden) when settings is open to avoid
             destroying/recreating the entire ChatView DOM tree on toggle */}
         <div className={showSettings ? "hidden" : "contents"}>
-        <div className="island relative flex min-w-[380px] flex-1 flex-col overflow-hidden rounded-lg bg-background">
+        <div className="island relative flex min-w-[640px] flex-1 flex-col overflow-hidden rounded-lg bg-background">
           {manager.activeSessionId ? (
             <>
               <div className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-24 bg-gradient-to-b from-black to-transparent" />
@@ -649,14 +844,19 @@ export function AppLayout() {
                   totalCost={manager.totalCost}
                   title={manager.activeSession?.title}
                   permissionMode={manager.sessionInfo?.permissionMode}
+                  acpPermissionBehavior={manager.activeSession?.engine === "acp" ? settings.acpPermissionBehavior : undefined}
                   onToggleSidebar={sidebar.toggle}
                 />
               </div>
               <ChatView
                 messages={manager.messages}
+                isProcessing={manager.isProcessing}
                 extraBottomPadding={!!manager.pendingPermission}
                 scrollToMessageId={scrollToMessageId}
                 onScrolledToMessage={() => setScrollToMessageId(undefined)}
+                onRevert={manager.isConnected && manager.revertFiles ? manager.revertFiles : undefined}
+                onFullRevert={manager.isConnected && manager.fullRevert ? manager.fullRevert : undefined}
+                onViewTurnChanges={handleViewTurnChanges}
               />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-24 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
@@ -685,8 +885,11 @@ export function AppLayout() {
                     onAgentChange={handleAgentChange}
                     acpConfigOptions={manager.acpConfigOptions}
                     onACPConfigChange={manager.setACPConfig}
+                    acpPermissionBehavior={settings.acpPermissionBehavior}
+                    onAcpPermissionBehaviorChange={settings.setAcpPermissionBehavior}
                     supportedModels={manager.supportedModels}
                     lockedEngine={lockedEngine}
+                    lockedAgentId={lockedAgentId}
                   />
                 )}
               </div>
@@ -711,13 +914,13 @@ export function AppLayout() {
               </div>
               <WelcomeScreen
                 hasProjects={hasProjects}
-                onCreateProject={projectManager.createProject}
+                onCreateProject={handleCreateProject}
               />
             </>
           )}
         </div>
 
-        {((hasTodos && activeTools.has("tasks")) || (hasAgents && activeTools.has("agents"))) && manager.activeSessionId && (
+        {hasRightPanel && (
           <>
             {/* Resize handle */}
             <div
@@ -733,33 +936,66 @@ export function AppLayout() {
               />
             </div>
 
-            {/* Right panel — Tasks / Agents */}
+            {/* Right panel — Tasks / Agents with optional draggable vertical split */}
             <div
               ref={rightPanelRef}
-              className="flex shrink-0 flex-col gap-2 overflow-hidden"
+              className="flex shrink-0 flex-col overflow-hidden"
               style={{ width: settings.rightPanelWidth }}
             >
-              {hasTodos && activeTools.has("tasks") && (
-                <div
-                  className={`island flex flex-col overflow-hidden rounded-lg bg-background ${
-                    hasAgents && activeTools.has("agents") ? "shrink-0" : "min-h-0 flex-1"
-                  }`}
-                  style={{ maxHeight: hasAgents && activeTools.has("agents") ? "50%" : undefined }}
-                >
-                  <TodoPanel todos={activeTodos} />
-                </div>
-              )}
-              {hasAgents && activeTools.has("agents") && (
-                <div className="island flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-background">
-                  <BackgroundAgentsPanel agents={bgAgents.agents} onDismiss={bgAgents.dismissAgent} />
-                </div>
-              )}
+              {(() => {
+                const showTodos = hasTodos && activeTools.has("tasks");
+                const showAgents = hasAgents && activeTools.has("agents");
+                const bothVisible = showTodos && showAgents;
+
+                return (
+                  <>
+                    {showTodos && (
+                      <div
+                        className="island flex flex-col overflow-hidden rounded-lg bg-background"
+                        style={
+                          bothVisible
+                            ? { height: `calc(${settings.rightSplitRatio * 100}% - 4px)`, flexShrink: 0 }
+                            : { flex: "1 1 0%", minHeight: 0 }
+                        }
+                      >
+                        <TodoPanel todos={activeTodos} />
+                      </div>
+                    )}
+                    {bothVisible && (
+                      <div
+                        className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+                        onMouseDown={handleRightSplitStart}
+                      >
+                        <div
+                          className={`w-10 h-0.5 rounded-full transition-colors duration-150 ${
+                            isResizing
+                              ? "bg-foreground/40"
+                              : "bg-transparent group-hover:bg-foreground/25"
+                          }`}
+                        />
+                      </div>
+                    )}
+                    {showAgents && (
+                      <div
+                        className="island flex flex-col overflow-hidden rounded-lg bg-background"
+                        style={
+                          bothVisible
+                            ? { height: `calc(${(1 - settings.rightSplitRatio) * 100}% - 4px)`, flexShrink: 0 }
+                            : { flex: "1 1 0%", minHeight: 0 }
+                        }
+                      >
+                        <BackgroundAgentsPanel agents={bgAgents.agents} onDismiss={bgAgents.dismissAgent} />
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </>
         )}
 
-        {/* Tools panels — shown when toggled from picker */}
-        {(activeTools.has("terminal") || activeTools.has("browser") || activeTools.has("git") || activeTools.has("files") || activeTools.has("mcp")) && manager.activeSessionId && (
+        {/* Tools panels — shown when toggled from picker, ordered by settings.toolOrder */}
+        {hasToolsColumn && (
           <>
             {/* Resize handle */}
             <div
@@ -781,68 +1017,66 @@ export function AppLayout() {
               style={{ width: settings.toolsPanelWidth }}
             >
               {(() => {
-                const toolOrder: Array<{ id: string; node: React.ReactNode }> = [];
-                if (activeTools.has("terminal"))
-                  toolOrder.push({ id: "terminal", node: <ToolsPanel cwd={activeProjectPath} /> });
-                if (activeTools.has("git"))
-                  toolOrder.push({
-                    id: "git",
-                    node: (
-                      <GitPanel
-                        cwd={activeProjectPath}
-                        collapsedRepos={settings.collapsedRepos}
-                        onToggleRepoCollapsed={settings.toggleRepoCollapsed}
-                      />
-                    ),
-                  });
-                if (activeTools.has("browser"))
-                  toolOrder.push({ id: "browser", node: <BrowserPanel /> });
-                if (activeTools.has("files"))
-                  toolOrder.push({
-                    id: "files",
-                    node: (
-                      <FilesPanel
-                        messages={manager.messages}
-                        cwd={activeProjectPath}
-                        onScrollToToolCall={setScrollToMessageId}
-                      />
-                    ),
-                  });
-                if (activeTools.has("mcp"))
-                  toolOrder.push({
-                    id: "mcp",
-                    node: (
-                      <McpPanel
-                        projectId={activeProjectId ?? null}
-                        runtimeStatuses={manager.mcpServerStatuses}
-                        isPreliminary={manager.mcpStatusPreliminary}
-                        hasLiveSession={!manager.isDraft}
-                        onRefreshStatus={manager.refreshMcpStatus}
-                        onReconnect={manager.reconnectMcpServer}
-                        onRestartWithServers={manager.restartWithMcpServers}
-                      />
-                    ),
-                  });
+                // Build tool components map, then filter to active + order by settings
+                const toolComponents: Record<string, React.ReactNode> = {
+                  terminal: <ToolsPanel cwd={activeProjectPath} />,
+                  git: (
+                    <GitPanel
+                      cwd={activeProjectPath}
+                      collapsedRepos={settings.collapsedRepos}
+                      onToggleRepoCollapsed={settings.toggleRepoCollapsed}
+                    />
+                  ),
+                  browser: <BrowserPanel />,
+                  files: (
+                    <FilesPanel
+                      messages={manager.messages}
+                      cwd={activeProjectPath}
+                      onScrollToToolCall={setScrollToMessageId}
+                    />
+                  ),
+                  mcp: (
+                    <McpPanel
+                      projectId={activeProjectId ?? null}
+                      runtimeStatuses={manager.mcpServerStatuses}
+                      isPreliminary={manager.mcpStatusPreliminary}
+                      hasLiveSession={!manager.isDraft}
+                      onRefreshStatus={manager.refreshMcpStatus}
+                      onReconnect={manager.reconnectMcpServer}
+                      onRestartWithServers={manager.restartWithMcpServers}
+                    />
+                  ),
+                  changes: (
+                    <ChangesPanel
+                      messages={manager.messages}
+                      isProcessing={manager.isProcessing}
+                      focusTurnIndex={changesPanelFocusTurn}
+                      onFocusTurnHandled={() => setChangesPanelFocusTurn(undefined)}
+                    />
+                  ),
+                };
 
-                const count = toolOrder.length;
-                const gapPx = (count - 1) * 8;
+                const orderedTools = settings.toolOrder
+                  .filter((id) => activeTools.has(id) && id in toolComponents)
+                  .map((id) => ({ id, node: toolComponents[id] }));
 
-                return toolOrder.map((tool, i) => (
+                const count = orderedTools.length;
+                const ratios = normalizeRatios(settings.toolsSplitRatios, count);
+                // Keep ref in sync so the drag handler always reads correct normalized values
+                normalizedToolRatiosRef.current = ratios;
+
+                return orderedTools.map((tool, i) => (
                   <div key={tool.id} className="contents">
                     <div
                       className="island flex flex-col overflow-hidden rounded-lg bg-background"
-                      style={
-                        count === 1
-                          ? { flex: "1 1 0%", minHeight: 0 }
-                          : { height: `calc(${100 / count}% - ${gapPx / count}px)`, flexShrink: 0 }
-                      }
+                      style={{ flex: `${ratios[i]} 1 0%`, minHeight: 0 }}
                     >
                       {tool.node}
                     </div>
                     {i < count - 1 && (
                       <div
                         className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
-                        onMouseDown={handleToolsSplitStart}
+                        onMouseDown={(e) => handleToolsSplitStart(e, i)}
                       >
                         <div
                           className={`w-10 h-0.5 rounded-full transition-colors duration-150 ${
@@ -863,7 +1097,7 @@ export function AppLayout() {
         {/* Tool picker — always visible */}
         {manager.activeSessionId && (
           <div className="ms-2 shrink-0">
-            <ToolPicker activeTools={activeTools} onToggle={handleToggleTool} availableContextual={availableContextual} />
+            <ToolPicker activeTools={activeTools} onToggle={handleToggleTool} availableContextual={availableContextual} toolOrder={settings.toolOrder} onReorder={handleToolReorder} projectPath={activeProjectPath} />
           </div>
         )}
         </div>

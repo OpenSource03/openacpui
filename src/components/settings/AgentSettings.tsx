@@ -9,11 +9,13 @@ import {
   Terminal,
   Shield,
   ClipboardPaste,
+  Store,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -28,7 +30,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { IconPicker } from "@/components/IconPicker";
-import { resolveLucideIcon } from "@/lib/icon-utils";
+import { AgentIcon } from "@/components/AgentIcon";
+import { AgentStore } from "@/components/settings/AgentStore";
 import type { AgentDefinition } from "@/types";
 
 // ── Types ──
@@ -100,18 +103,6 @@ function agentToForm(agent: AgentDefinition): FormState {
   };
 }
 
-function AgentIcon({ agent, size = 16 }: { agent: AgentDefinition; size?: number }) {
-  if (agent.icon) {
-    // Emoji icons start with a non-ASCII/emoji character
-    if (/^\p{Emoji}/u.test(agent.icon)) {
-      return <span style={{ fontSize: size - 2 }}>{agent.icon}</span>;
-    }
-    const Icon = resolveLucideIcon(agent.icon);
-    if (Icon) return <Icon style={{ width: size, height: size }} />;
-  }
-  return <Bot style={{ width: size, height: size }} />;
-}
-
 // ── Agent Card ──
 
 const AgentCard = memo(function AgentCard({
@@ -135,7 +126,7 @@ const AgentCard = memo(function AgentCard({
     >
       {/* Icon */}
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/40 text-foreground/60">
-        <AgentIcon agent={agent} />
+        <AgentIcon icon={agent.icon} />
       </div>
 
       {/* Info */}
@@ -504,7 +495,7 @@ export const AgentSettings = memo(function AgentSettings({
     setDeleteConfirmId(null);
   }, [deleteConfirmId, onDelete]);
 
-  // Show form view when creating or editing
+  // Show form view when creating or editing (replaces entire view, no tabs)
   if (isCreating) {
     return (
       <AgentForm
@@ -538,42 +529,72 @@ export const AgentSettings = memo(function AgentSettings({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-foreground/[0.06] px-6 py-4">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">ACP Agents</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Manage agent binaries for the Agent Client Protocol
-          </p>
+      <Tabs defaultValue="store" className="flex min-h-0 flex-1 flex-col">
+        {/* Header: title + description + tabs in one bordered section */}
+        <div className="border-b border-foreground/[0.06] px-6">
+          <div className="py-4">
+            <h2 className="text-base font-semibold text-foreground">ACP Agents</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Browse the agent store or manage your installed agents
+            </p>
+          </div>
+          <TabsList variant="line">
+            <TabsTrigger value="store" className="gap-1.5">
+              <Store className="h-3.5 w-3.5" />
+              Agent Store
+            </TabsTrigger>
+            <TabsTrigger value="my-agents" className="gap-1.5">
+              <Bot className="h-3.5 w-3.5" />
+              My Agents
+            </TabsTrigger>
+          </TabsList>
         </div>
-        <Button size="sm" onClick={() => setIsCreating(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          Add Agent
-        </Button>
-      </div>
 
-      {/* Agent list */}
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-2 px-6 py-4">
-          {sorted.map((agent) => (
-            <AgentCard
-              key={agent.id}
-              agent={agent}
-              onEdit={() => setEditingAgent(agent)}
-              onDelete={() => setDeleteConfirmId(agent.id)}
-            />
-          ))}
-          {agents.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Bot className="h-8 w-8 text-muted-foreground/30" />
-              <p className="mt-3 text-sm text-muted-foreground">No agents configured</p>
-              <p className="mt-1 text-xs text-muted-foreground/60">
-                Add an ACP agent to get started
-              </p>
+        {/* Store tab */}
+        <TabsContent value="store" className="min-h-0 flex-1">
+          <AgentStore
+            installedAgents={agents}
+            onInstall={onSave}
+            onUninstall={onDelete}
+          />
+        </TabsContent>
+
+        {/* My Agents tab */}
+        <TabsContent value="my-agents" className="min-h-0 flex-1">
+          <div className="flex h-full flex-col">
+            {/* Add Agent button bar */}
+            <div className="flex items-center justify-end px-6 py-3">
+              <Button size="sm" onClick={() => setIsCreating(true)}>
+                <Plus className="h-3.5 w-3.5" />
+                Add Agent
+              </Button>
             </div>
-          )}
-        </div>
-      </ScrollArea>
+
+            {/* Agent list */}
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="space-y-2 px-6 pb-4">
+                {sorted.map((agent) => (
+                  <AgentCard
+                    key={agent.id}
+                    agent={agent}
+                    onEdit={() => setEditingAgent(agent)}
+                    onDelete={() => setDeleteConfirmId(agent.id)}
+                  />
+                ))}
+                {agents.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Bot className="h-8 w-8 text-muted-foreground/30" />
+                    <p className="mt-3 text-sm text-muted-foreground">No agents configured</p>
+                    <p className="mt-1 text-xs text-muted-foreground/60">
+                      Add an ACP agent from the store or manually
+                    </p>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Delete confirmation dialog */}
       <Dialog open={deleteConfirmId !== null} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>

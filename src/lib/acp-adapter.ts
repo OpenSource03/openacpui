@@ -53,6 +53,31 @@ function isDiffContent(item: unknown): item is { type: "diff"; path: string; old
   return typeof item === "object" && item !== null && (item as Record<string, unknown>).type === "diff";
 }
 
+/**
+ * Pick the best auto-response option from agent-provided permission options.
+ * Returns the optionId to auto-select, or null if no matching allow option exists
+ * (which means the request should fall through to the manual permission prompt).
+ */
+export function pickAutoResponseOption(
+  options: Array<{ optionId: string; kind: string }>,
+  behavior: "ask" | "auto_accept" | "allow_all",
+): string | null {
+  if (behavior === "ask") return null;
+
+  if (behavior === "allow_all") {
+    // Prefer allow_always for blanket approval, fall back to allow_once
+    return (options.find(o => o.kind === "allow_always")
+         ?? options.find(o => o.kind === "allow_once"))?.optionId ?? null;
+  }
+
+  if (behavior === "auto_accept") {
+    // Per-tool approval only — use allow_once
+    return options.find(o => o.kind === "allow_once")?.optionId ?? null;
+  }
+
+  return null;
+}
+
 export function deriveToolName(title: string, kind?: string): string {
   if (kind) {
     const kindMap: Record<string, string> = {

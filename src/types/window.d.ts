@@ -4,6 +4,7 @@ import type {
   SearchMessageResult, SearchSessionResult,
   GitRepoInfo, GitStatus, GitBranch, GitLogEntry,
   AgentDefinition, ModelInfo, McpServerConfig, McpServerStatus,
+  AppSettings,
 } from "./ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
 
@@ -12,6 +13,8 @@ interface SessionListItem {
   projectId: string;
   title: string;
   createdAt: number;
+  /** Timestamp of the most recent message — used for sidebar sort order */
+  lastMessageAt: number;
   model?: string;
   totalCost: number;
   engine?: "claude" | "acp";
@@ -21,11 +24,16 @@ declare global {
   interface Window {
     claude: {
       getGlassEnabled: () => Promise<boolean>;
+      setMinWidth: (width: number) => void;
       start: (options?: {
         cwd?: string;
         model?: string;
         permissionMode?: string;
         resume?: string;
+        /** Fork to a new session ID when resuming (model forgets messages after resumeSessionAt) */
+        forkSession?: boolean;
+        /** Resume at a specific message UUID — used with forkSession to truncate history */
+        resumeSessionAt?: string;
         mcpServers?: McpServerConfig[];
       }) => Promise<{ sessionId: string; pid: number; error?: string }>;
       send: (
@@ -37,9 +45,10 @@ declare global {
       supportedModels: (sessionId: string) => Promise<{ models: ModelInfo[]; error?: string }>;
       mcpStatus: (sessionId: string) => Promise<{ servers: McpServerStatus[]; error?: string }>;
       mcpReconnect: (sessionId: string, serverName: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
+      revertFiles: (sessionId: string, checkpointId: string) => Promise<{ ok?: boolean; error?: string }>;
       restartSession: (sessionId: string, mcpServers?: McpServerConfig[]) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
-      openInEditor: (filePath: string, line?: number) => Promise<{ ok?: boolean; editor?: string; error?: string }>;
+      openInEditor: (filePath: string, line?: number, editor?: string) => Promise<{ ok?: boolean; editor?: string; error?: string }>;
       generateTitle: (
         message: string,
         cwd?: string,
@@ -73,7 +82,7 @@ declare global {
       ) => Promise<{ ok?: boolean; error?: string }>;
       projects: {
         list: () => Promise<Project[]>;
-        create: () => Promise<Project | null>;
+        create: (spaceId?: string) => Promise<Project | null>;
         delete: (projectId: string) => Promise<{ ok?: boolean; error?: string }>;
         rename: (projectId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
         updateSpace: (projectId: string, spaceId: string) => Promise<{ ok?: boolean; error?: string }>;
@@ -150,12 +159,14 @@ declare global {
           configOptions?: ACPConfigOption[];
           mcpStatuses?: Array<{ name: string; status: string }>;
           error?: string;
+          cancelled?: boolean;
         }>;
         prompt: (sessionId: string, text: string, images?: unknown[]) => Promise<{ ok?: boolean; error?: string }>;
         stop: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
         reloadSession: (sessionId: string, mcpServers?: McpServerConfig[]) => Promise<{ ok?: boolean; supportsLoad?: boolean; error?: string }>;
         reviveSession: (options: { agentId: string; cwd: string; agentSessionId?: string; mcpServers?: McpServerConfig[] }) => Promise<{ sessionId?: string; agentSessionId?: string; usedLoad?: boolean; configOptions?: ACPConfigOption[]; mcpStatuses?: Array<{ name: string; status: string }>; error?: string }>;
         cancel: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        abortPendingStart: () => Promise<{ ok?: boolean }>;
         respondPermission: (sessionId: string, requestId: string, optionId: string) => Promise<{ ok?: boolean; error?: string }>;
         setConfig: (sessionId: string, configId: string, value: string) => Promise<{ configOptions?: ACPConfigOption[]; error?: string }>;
         getConfigOptions: (sessionId: string) => Promise<{ configOptions?: ACPConfigOption[] }>;
@@ -176,6 +187,10 @@ declare global {
         list: () => Promise<AgentDefinition[]>;
         save: (agent: AgentDefinition) => Promise<{ ok?: boolean; error?: string }>;
         delete: (id: string) => Promise<{ ok?: boolean; error?: string }>;
+      };
+      settings: {
+        get: () => Promise<AppSettings>;
+        set: (patch: Partial<AppSettings>) => Promise<{ ok?: boolean; error?: string }>;
       };
       updater: {
         onUpdateAvailable: (cb: (info: { version: string; releaseNotes?: string }) => void) => () => void;

@@ -33,6 +33,10 @@ export const acpSessions = new Map<string, ACPSessionEntry>();
 // where events arrive before useACP's listener is subscribed
 const configBuffer = new Map<string, unknown[]>();
 
+// Track in-flight acp:start so the renderer can abort during npx download / protocol init.
+// Only one start can be in-flight at a time (guarded by materializingRef in the renderer).
+let pendingStartProcess: { id: string; process: ChildProcess; aborted?: boolean } | null = null;
+
 /** One-line summary for each ACP session update (mirrors summarizeEvent for Claude) */
 function summarizeUpdate(update: Record<string, unknown>): string {
   const kind = update.sessionUpdate as string;
@@ -99,6 +103,16 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     log(`ACP_UI:${label}`, data);
   });
 
+  // ACP SDK throws JSON-RPC error objects ({code, message}), not Error instances —
+  // String() on those yields "[object Object]". This helper extracts the message properly.
+  function extractErrorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "object" && err !== null && "message" in err) {
+      return String((err as { message: unknown }).message);
+    }
+    return String(err);
+  }
+
   ipcMain.handle("acp:start", async (_event, options: { agentId: string; cwd: string; mcpServers?: Array<{ name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> }> }) => {
     log("ACP_SPAWN", `acp:start called with agentId=${options.agentId} cwd=${options.cwd}`);
 
@@ -131,6 +145,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         stdio: ["pipe", "pipe", "pipe"],
         env: { ...process.env, ...agentDef.env },
       });
+
+      // Track immediately so the renderer can abort during the long protocol init / npx download
+      pendingStartProcess = { id: internalId, process: proc };
 
       proc.on("error", (err) => {
         log("ACP_SPAWN", `ERROR: spawn failed: ${err.message}`);
@@ -333,6 +350,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         status: "connected" as const,
       }));
 
+      // Startup succeeded — clear the pending tracker before returning
+      pendingStartProcess = null;
+
       return {
         sessionId: internalId,
         agentSessionId: sessionResult.sessionId,
@@ -341,9 +361,19 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         mcpStatuses,
       };
     } catch (err) {
+      // Check if the user intentionally aborted the start (stop button during download)
+      const wasAborted = pendingStartProcess?.aborted === true;
+      pendingStartProcess = null;
+
       // Kill the spawned process to avoid orphans
       try { proc?.kill(); } catch { /* already dead */ }
-      const msg = err instanceof Error ? err.message : String(err);
+
+      if (wasAborted) {
+        log("ACP_SPAWN", `Aborted by user`);
+        return { cancelled: true };
+      }
+
+      const msg = extractErrorMessage(err);
       log("ACP_SPAWN", `ERROR: ${msg}`);
       if (err instanceof Error && err.stack) {
         log("ACP_SPAWN", `Stack: ${err.stack}`);
@@ -510,7 +540,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         acpSessions.delete(reviveInternalId);
         configBuffer.delete(reviveInternalId);
       }
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = extractErrorMessage(err);
       log("ACP_REVIVE", `ERROR: ${msg}`);
       return { error: msg };
     }
@@ -555,9 +585,30 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
+  // Abort an in-flight acp:start (e.g. user clicked stop during npx download).
+  // Marks pendingStartProcess as aborted and kills the process — the acp:start
+  // catch block will detect `.aborted` and return { cancelled: true }.
+  ipcMain.handle("acp:abort-pending-start", async () => {
+    if (!pendingStartProcess) {
+      log("ACP_ABORT_START", "No pending start to abort");
+      return { ok: false };
+    }
+    log("ACP_ABORT_START", `Aborting start id=${pendingStartProcess.id.slice(0, 8)} pid=${pendingStartProcess.process.pid}`);
+    pendingStartProcess.aborted = true;
+    try { pendingStartProcess.process.kill(); } catch { /* already dead */ }
+    return { ok: true };
+  });
+
   ipcMain.handle("acp:stop", async (_event, sessionId: string) => {
     const session = acpSessions.get(sessionId);
     if (!session) {
+      // Fallback: check if this is a pending start that hasn't completed yet
+      if (pendingStartProcess?.id === sessionId) {
+        log("ACP_STOP", `session=${sessionId?.slice(0, 8)} is pending start — aborting`);
+        pendingStartProcess.aborted = true;
+        try { pendingStartProcess.process.kill(); } catch { /* already dead */ }
+        return { ok: true };
+      }
       log("ACP_STOP", `session=${sessionId?.slice(0, 8)} already removed`);
       return { ok: true };
     }
@@ -632,7 +683,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("ACP_RELOAD", `session=${sessionId.slice(0, 8)} loadSession OK`);
       return { ok: true, supportsLoad: true };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = extractErrorMessage(err);
       log("ACP_RELOAD", `ERROR: session=${sessionId.slice(0, 8)} loadSession failed: ${msg}`);
       return { error: msg, supportsLoad: true };
     }

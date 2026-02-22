@@ -7,6 +7,8 @@ type QueryHandle = AsyncGenerator & {
   mcpServerStatus?: () => Promise<unknown[]>;
   reconnectMcpServer?: (serverName: string) => Promise<void>;
   supportedModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>;
+  /** Restore files to their state at the given user message UUID checkpoint */
+  rewindFiles?: (userMessageUuid: string) => Promise<void>;
 };
 
 type QueryFn = (args: { prompt: unknown; options: unknown }) => QueryHandle;

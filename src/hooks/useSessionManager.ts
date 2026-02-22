@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import type { ChatSession, UIMessage, PersistedSession, Project, ClaudeEvent, SystemInitEvent, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, McpServerConfig, ModelInfo } from "../types";
+import type { ChatSession, UIMessage, PersistedSession, Project, ClaudeEvent, SystemInitEvent, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, McpServerConfig, ModelInfo, AcpPermissionBehavior } from "../types";
 import { toMcpStatusState } from "../types/ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPConfigOption } from "../types/acp";
-import { normalizeToolInput as acpNormalizeToolInput } from "../lib/acp-adapter";
+import { normalizeToolInput as acpNormalizeToolInput, pickAutoResponseOption } from "../lib/acp-adapter";
 import { useClaude } from "./useClaude";
 import { useACP } from "./useACP";
 import { BackgroundSessionStore } from "../lib/background-session-store";
@@ -18,7 +18,7 @@ interface StartOptions {
 
 const DRAFT_ID = "__draft__";
 
-export function useSessionManager(projects: Project[]) {
+export function useSessionManager(projects: Project[], acpPermissionBehavior: AcpPermissionBehavior = "ask") {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
@@ -59,7 +59,7 @@ export function useSessionManager(projects: Project[]) {
   const acpSessionId = (isACP && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
 
   const claude = useClaude({ sessionId: claudeSessionId, initialMessages: isACP ? [] : initialMessages, initialMeta: isACP ? null : initialMeta, initialPermission: isACP ? null : initialPermission });
-  const acp = useACP({ sessionId: acpSessionId, initialMessages: isACP ? initialMessages : [], initialConfigOptions: isACP ? initialConfigOptions : [], initialMeta: isACP ? initialMeta : null, initialPermission: isACP ? initialPermission : null, initialRawAcpPermission: isACP ? initialRawAcpPermission : null });
+  const acp = useACP({ sessionId: acpSessionId, initialMessages: isACP ? initialMessages : [], initialConfigOptions: isACP ? initialConfigOptions : [], initialMeta: isACP ? initialMeta : null, initialPermission: isACP ? initialPermission : null, initialRawAcpPermission: isACP ? initialRawAcpPermission : null, acpPermissionBehavior });
 
   // Pick the active engine's state
   const engine = isACP ? acp : claude;
@@ -88,6 +88,9 @@ export function useSessionManager(projects: Project[]) {
   sessionInfoRef.current = engine.sessionInfo;
   const pendingPermissionRef = useRef(engine.pendingPermission);
   pendingPermissionRef.current = engine.pendingPermission;
+  // Track ACP permission behavior for background session auto-response
+  const acpPermissionBehaviorRef = useRef<AcpPermissionBehavior>(acpPermissionBehavior);
+  acpPermissionBehaviorRef.current = acpPermissionBehavior;
   // Stable ref to switchSession so toast callbacks don't capture stale closures
   const switchSessionRef = useRef<(id: string) => Promise<void>>(undefined);
 
@@ -374,9 +377,18 @@ export function useSessionManager(projects: Project[]) {
     });
 
     // Route permission requests for non-active ACP sessions to the background store
+    // (auto-respond if the client-side permission behavior allows it)
     const unsubBgAcpPerm = window.claude.acp.onPermissionRequest((data: ACPPermissionEvent) => {
       const sid = data._sessionId;
       if (!sid || sid === activeSessionIdRef.current) return;
+
+      // Auto-respond for background ACP sessions when behavior is configured
+      const autoOptionId = pickAutoResponseOption(data.options, acpPermissionBehaviorRef.current);
+      if (autoOptionId) {
+        window.claude.acp.respondPermission(sid, data.requestId, autoOptionId);
+        return;
+      }
+
       backgroundStoreRef.current.setPermission(
         sid,
         {
@@ -406,6 +418,7 @@ export function useSessionManager(projects: Project[]) {
         projectId: s.projectId,
         title: s.title,
         createdAt: s.createdAt,
+        lastMessageAt: s.lastMessageAt || s.createdAt,
         model: s.model,
         totalCost: s.totalCost,
         isActive: false,
@@ -513,6 +526,18 @@ export function useSessionManager(projects: Project[]) {
     );
   }, [activeSessionId, totalCost]);
 
+  // Keep lastMessageAt in sync so the sidebar sorts by most recent activity
+  useEffect(() => {
+    if (!activeSessionId || activeSessionId === DRAFT_ID || messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    const lastMessageAt = lastMsg?.timestamp || Date.now();
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSessionId ? { ...s, lastMessageAt } : s,
+      ),
+    );
+  }, [activeSessionId, messages.length]);
+
   // Sync active session's isProcessing to the session list (for sidebar spinner)
   useEffect(() => {
     if (!activeSessionId || activeSessionId === DRAFT_ID) return;
@@ -586,8 +611,13 @@ export function useSessionManager(projects: Project[]) {
       setInitialMeta(null);
       setInitialPermission(null);
       setInitialRawAcpPermission(null);
+      // Explicitly clear ACP state — when activeSessionId is already DRAFT_ID,
+      // useACP's reset effect won't fire, so stale messages (e.g. from a failed start) would persist
+      acp.setMessages([]);
+      acp.setIsProcessing(false);
       setActiveSessionId(DRAFT_ID);
-      setSessions((prev) => prev.map((s) => ({ ...s, isActive: false })));
+      // Remove any leftover pending DRAFT_ID session from a previous failed ACP start
+      setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
 
       // Eager start for Claude engine (fire-and-forget)
       const draftEngine = options?.engine ?? "claude";
@@ -612,7 +642,7 @@ export function useSessionManager(projects: Project[]) {
 
   const materializingRef = useRef(false);
   const materializeDraft = useCallback(
-    async (text: string) => {
+    async (text: string, images?: ImageAttachment[], displayText?: string) => {
       // Re-entrancy guard — prevent double-materialization from rapid sends
       if (materializingRef.current) return "";
       materializingRef.current = true;
@@ -635,6 +665,20 @@ export function useSessionManager(projects: Project[]) {
       const mcpServers = await window.claude.mcp.list(project.id);
 
       if (draftEngine === "acp" && options.agentId) {
+        // Show a "New Chat" entry in the sidebar immediately — before the blocking acp:start.
+        // Uses DRAFT_ID as a placeholder; replaced with real session ID on success, removed on error.
+        setSessions(prev => [{
+          id: DRAFT_ID,
+          projectId: project.id,
+          title: "New Chat",
+          createdAt: Date.now(),
+          lastMessageAt: Date.now(),
+          totalCost: 0,
+          isActive: true,
+          engine: "acp" as const,
+          agentId: options.agentId,
+        }, ...prev.map(s => ({ ...s, isActive: false }))]);
+
         console.log("[materializeDraft] Calling acp:start...");
         const result = await window.claude.acp.start({
           agentId: options.agentId,
@@ -642,16 +686,61 @@ export function useSessionManager(projects: Project[]) {
           mcpServers,
         });
         console.log("[materializeDraft] acp:start result:", result);
+        if (result.cancelled) {
+          // User intentionally aborted (stop button during download) — remove pending sidebar entry
+          setSessions(prev => prev.filter(s => s.id !== DRAFT_ID));
+          materializingRef.current = false;
+          return "";
+        }
         if (result.error || !result.sessionId) {
-          // Show error in the UI so user knows what went wrong
+          // Promote the DRAFT_ID placeholder to a real persisted session so it survives
+          // navigation (switchSession/createSession filter out DRAFT_ID entries).
           const errorMsg = result.error || "Failed to start agent session";
-          setInitialMessages(prev => [...prev, {
-            id: `system-error-${Date.now()}`,
-            role: "system",
-            content: errorMsg,
-            isError: true,
-            timestamp: Date.now(),
-          }]);
+          const failedId = `failed-acp-${Date.now()}`;
+          const now = Date.now();
+          // Build messages from params — can't rely on acp.messages (React state is stale mid-await)
+          const errorMessages: UIMessage[] = [
+            {
+              id: `user-${now}`,
+              role: "user" as const,
+              content: text,
+              timestamp: now,
+              ...(images?.length ? { images } : {}),
+              ...(displayText ? { displayContent: displayText } : {}),
+            },
+            {
+              id: `system-error-${now}`,
+              role: "system" as const,
+              content: errorMsg,
+              isError: true,
+              timestamp: now,
+            },
+          ];
+
+          // Swap DRAFT_ID → real ID in sidebar
+          setSessions(prev => prev.map(s =>
+            s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s,
+          ));
+
+          // Transition to the real session ID — useACP's reset effect will fire and
+          // consume initialMessages/initialMeta, preserving the conversation in the chat.
+          setInitialMessages(errorMessages);
+          setInitialMeta({ isProcessing: false, isConnected: false, sessionInfo: null, totalCost: 0 });
+          setActiveSessionId(failedId);
+          setDraftProjectId(null);
+
+          // Persist to disk so it can be loaded when switching back
+          window.claude.sessions.save({
+            id: failedId,
+            projectId: project.id,
+            title: "New Chat",
+            createdAt: Date.now(),
+            messages: errorMessages,
+            totalCost: 0,
+            engine: "acp",
+            agentId: options.agentId,
+          });
+
           materializingRef.current = false;
           return "";
         }
@@ -714,11 +803,13 @@ export function useSessionManager(projects: Project[]) {
       }
       liveSessionIdsRef.current.add(sessionId);
 
+      const now = Date.now();
       const newSession: ChatSession = {
         id: sessionId,
         projectId: project.id,
         title: "New Chat",
-        createdAt: Date.now(),
+        createdAt: now,
+        lastMessageAt: now,
         model: options.model,
         totalCost: 0,
         isActive: true,
@@ -730,12 +821,29 @@ export function useSessionManager(projects: Project[]) {
         } : {}),
       };
 
+      // Replace the DRAFT_ID placeholder (if any) with the real session entry
       setSessions((prev) =>
-        [newSession, ...prev.map((s) => ({ ...s, isActive: false }))],
+        [newSession, ...prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false }))],
       );
       if (!reusedPreStarted) {
-        setInitialMessages([]);
-        setInitialMeta(null);
+        if (draftEngine === "acp") {
+          // Preserve the user message + processing state through useACP's reset effect
+          // (which fires when sessionId changes from null → new ID).
+          // React 19 batches these setState calls with setActiveSessionId below.
+          const userMsg: UIMessage = {
+            id: `user-${Date.now()}`,
+            role: "user" as const,
+            content: text,
+            timestamp: Date.now(),
+            ...(images?.length ? { images } : {}),
+            ...(displayText ? { displayContent: displayText } : {}),
+          };
+          setInitialMessages([userMsg]);
+          setInitialMeta({ isProcessing: true, isConnected: true, sessionInfo: null, totalCost: 0 });
+        } else {
+          setInitialMessages([]);
+          setInitialMeta(null);
+        }
         setInitialPermission(null);
         setInitialRawAcpPermission(null);
       }
@@ -782,9 +890,9 @@ export function useSessionManager(projects: Project[]) {
         setInitialRawAcpPermission(bgState.rawAcpPermission);
         setActiveSessionId(id);
         setDraftProjectId(null);
-        // Clear sidebar badge + mark active
+        // Clear sidebar badge + mark active, remove any leftover DRAFT_ID placeholder
         setSessions((prev) =>
-          prev.map((s) => ({
+          prev.filter(s => s.id !== DRAFT_ID).map((s) => ({
             ...s,
             isActive: s.id === id,
             ...(s.id === id ? { hasPendingPermission: false } : {}),
@@ -805,8 +913,9 @@ export function useSessionManager(projects: Project[]) {
         setInitialRawAcpPermission(null);
         setActiveSessionId(id);
         setDraftProjectId(null);
+        // Remove any leftover DRAFT_ID placeholder from a pending ACP start
         setSessions((prev) =>
-          prev.map((s) => ({
+          prev.filter(s => s.id !== DRAFT_ID).map((s) => ({
             ...s,
             isActive: s.id === id,
             // Restore fields from persisted data (may be missing from sessions:list metadata)
@@ -985,7 +1094,7 @@ export function useSessionManager(projects: Project[]) {
   }, [engine.setPermissionMode]);
 
   const reviveAcpSession = useCallback(
-    async (text: string, images?: ImageAttachment[]) => {
+    async (text: string, images?: ImageAttachment[], displayText?: string) => {
       const oldId = activeSessionIdRef.current;
       if (!oldId || oldId === DRAFT_ID) return;
       const session = sessionsRef.current.find((s) => s.id === oldId);
@@ -1047,6 +1156,7 @@ export function useSessionManager(projects: Project[]) {
         content: text,
         timestamp: Date.now(),
         ...(images?.length ? { images } : {}),
+        ...(displayText ? { displayContent: displayText } : {}),
       }]);
       acp.setIsProcessing(true);
       const promptResult = await window.claude.acp.prompt(newId, text, images);
@@ -1064,7 +1174,7 @@ export function useSessionManager(projects: Project[]) {
   );
 
   const reviveSession = useCallback(
-    async (text: string, images?: ImageAttachment[]) => {
+    async (text: string, images?: ImageAttachment[], displayText?: string) => {
       const oldId = activeSessionIdRef.current;
       if (!oldId || oldId === DRAFT_ID) return;
       const session = sessionsRef.current.find((s) => s.id === oldId);
@@ -1172,6 +1282,7 @@ export function useSessionManager(projects: Project[]) {
           content: text,
           timestamp: Date.now(),
           ...(images?.length ? { images } : {}),
+          ...(displayText ? { displayContent: displayText } : {}),
         },
       ]);
     },
@@ -1179,28 +1290,33 @@ export function useSessionManager(projects: Project[]) {
   );
 
   const send = useCallback(
-    async (text: string, images?: ImageAttachment[]) => {
+    async (text: string, images?: ImageAttachment[], displayText?: string) => {
       const activeId = activeSessionIdRef.current;
       if (activeId === DRAFT_ID) {
         const draftEngine = startOptionsRef.current.engine ?? "claude";
-        const sessionId = await materializeDraft(text);
-        if (!sessionId) return;
-        await new Promise((resolve) => setTimeout(resolve, 50));
 
         if (draftEngine === "acp") {
-          // Can't use acp.send() here — its closure still has sessionId=null from the
-          // DRAFT render. Call the IPC directly (like the Claude path does) and update state manually.
-          acp.setMessages((prev) => [
-            ...prev,
-            {
-              id: `user-${Date.now()}`,
-              role: "user" as const,
-              content: text,
-              timestamp: Date.now(),
-              ...(images?.length ? { images } : {}),
-            },
-          ]);
+          // Show user message + spinner immediately, before the potentially slow materializeDraft
+          const userMsg: UIMessage = {
+            id: `user-${Date.now()}`,
+            role: "user" as const,
+            content: text,
+            timestamp: Date.now(),
+            ...(images?.length ? { images } : {}),
+            ...(displayText ? { displayContent: displayText } : {}),
+          };
+          acp.setMessages((prev) => [...prev, userMsg]);
           acp.setIsProcessing(true);
+
+          const sessionId = await materializeDraft(text, images, displayText);
+          if (!sessionId) {
+            // materializeDraft failed or was cancelled — stop processing (error already shown)
+            acp.setIsProcessing(false);
+            return;
+          }
+
+          // Session is live — send the prompt (user message already in UI)
+          await new Promise((resolve) => setTimeout(resolve, 50));
           const promptResult = await window.claude.acp.prompt(sessionId, text, images);
           if (promptResult?.error) {
             acp.setMessages((prev) => [
@@ -1214,7 +1330,15 @@ export function useSessionManager(projects: Project[]) {
             ]);
             acp.setIsProcessing(false);
           }
-        } else {
+          return;
+        }
+
+        // Claude SDK path
+        const sessionId = await materializeDraft(text);
+        if (!sessionId) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        {
           const content = buildSdkContent(text, images);
           const sendResult = await window.claude.send(sessionId, {
             type: "user",
@@ -1241,6 +1365,7 @@ export function useSessionManager(projects: Project[]) {
               content: text,
               timestamp: Date.now(),
               ...(images?.length ? { images } : {}),
+              ...(displayText ? { displayContent: displayText } : {}),
             },
           ]);
         }
@@ -1255,23 +1380,23 @@ export function useSessionManager(projects: Project[]) {
       if (activeSessionEngine === "acp") {
         // ACP sessions: send through ACP hook if live
         if (liveSessionIdsRef.current.has(activeId)) {
-          await acp.send(text, images);
+          await acp.send(text, images, displayText);
           return;
         }
         // ACP session dead (app restarted) — attempt revival via session/load
-        await reviveAcpSession(text, images);
+        await reviveAcpSession(text, images, displayText);
         return;
       }
 
       // Claude SDK path
       if (liveSessionIdsRef.current.has(activeId)) {
-        const sent = await claude.send(text, images);
+        const sent = await claude.send(text, images, displayText);
         if (sent) return;
         liveSessionIdsRef.current.delete(activeId);
       }
 
       if (activeSessionIdRef.current !== DRAFT_ID) {
-        await reviveSession(text, images);
+        await reviveSession(text, images, displayText);
         return;
       }
     },
@@ -1288,11 +1413,119 @@ export function useSessionManager(projects: Project[]) {
     setInitialMeta(null);
     setInitialPermission(null);
     setInitialRawAcpPermission(null);
-    setSessions((prev) => prev.map((s) => ({ ...s, isActive: false })));
+    // Filter out any leftover DRAFT_ID placeholder from a pending ACP start
+    setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
   }, [saveCurrentSession, seedBackgroundStore, abandonEagerSession]);
 
   const isDraft = activeSessionId === DRAFT_ID;
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
+
+  // Full revert: rewind files + fork a new SDK session truncated to the checkpoint.
+  // Uses forkSession so the model genuinely forgets messages after the fork point.
+  // Flow: revertFiles → stop old session → start forked session → migrate session ID.
+  // Follows the same ID-migration pattern as restartAcpSession (lines 281-291).
+  const fullRevertSession = useCallback(async (checkpointId: string) => {
+    const currentId = activeSessionIdRef.current;
+    if (!currentId || currentId === DRAFT_ID) return;
+
+    const session = sessionsRef.current.find(s => s.id === currentId);
+    if (!session) return;
+    const project = findProject(session.projectId);
+    if (!project) return;
+
+    // 1. Flush any pending streaming content
+    claude.flushNow();
+    claude.resetStreaming();
+
+    // 2. Compute truncated messages BEFORE the async IPC calls
+    const currentMessages = messagesRef.current;
+    const checkpointIdx = currentMessages.findIndex(
+      (m) => m.role === "user" && m.checkpointId === checkpointId,
+    );
+    const truncatedMessages = checkpointIdx >= 0
+      ? currentMessages.slice(0, checkpointIdx)
+      : currentMessages;
+
+    // 3. Revert files while old session is still alive (needs queryHandle.rewindFiles)
+    const revertResult = await window.claude.revertFiles(currentId, checkpointId);
+    if (revertResult.error) {
+      claude.setMessages(prev => [...prev, {
+        id: `system-revert-err-${Date.now()}`,
+        role: "system" as const,
+        content: `File revert failed: ${revertResult.error}`,
+        isError: true,
+        timestamp: Date.now(),
+      }]);
+      return;
+    }
+
+    // 4. Stop old session — cleanup runs async in the event loop's finally block
+    await window.claude.stop(currentId);
+    liveSessionIdsRef.current.delete(currentId);
+    backgroundStoreRef.current.delete(currentId);
+
+    // 5. Start a forked session — SDK creates a new session branched at the checkpoint.
+    //    start() returns a FRESH session ID when forkSession is true (avoids race
+    //    with old session's async cleanup which would delete a same-key Map entry).
+    const mcpServers = await window.claude.mcp.list(session.projectId);
+    const startResult = await window.claude.start({
+      cwd: project.path,
+      model: session.model,
+      permissionMode: startOptionsRef.current.permissionMode,
+      resume: currentId,
+      forkSession: true,
+      resumeSessionAt: checkpointId,
+      mcpServers,
+    });
+
+    if (startResult.error) {
+      claude.setMessages(prev => [...prev, {
+        id: `system-revert-err-${Date.now()}`,
+        role: "system" as const,
+        content: `Full revert failed: ${startResult.error}`,
+        isError: true,
+        timestamp: Date.now(),
+      }]);
+      return;
+    }
+
+    const newId = startResult.sessionId;
+    liveSessionIdsRef.current.add(newId);
+
+    // 6. Map sidebar entry to new forked ID
+    setSessions(prev => prev.map(s =>
+      s.id === currentId ? { ...s, id: newId } : s,
+    ));
+
+    // 7. Provide truncated messages + system message via initialMessages → reset effect
+    const systemMsg: UIMessage = {
+      id: `system-revert-${Date.now()}`,
+      role: "system" as const,
+      content: "Session reverted: files restored and chat history truncated.",
+      timestamp: Date.now(),
+    };
+    setInitialMessages([...truncatedMessages, systemMsg]);
+    setInitialMeta({
+      isProcessing: false,
+      isConnected: true,
+      sessionInfo: null, // repopulated by system/init event from forked session
+      totalCost: totalCostRef.current,
+    });
+
+    // 8. Switch to new session ID → triggers useClaude's reset effect
+    setActiveSessionId(newId);
+
+    // 9. Persist: save under new forked ID, delete old session file
+    const oldData = await window.claude.sessions.load(project.id, currentId);
+    if (oldData) {
+      await window.claude.sessions.save({
+        ...oldData,
+        id: newId,
+        messages: [...truncatedMessages, systemMsg],
+      });
+      await window.claude.sessions.delete(project.id, currentId);
+    }
+  }, [findProject, claude.flushNow, claude.resetStreaming, claude.setMessages]);
 
   return {
     sessions,
@@ -1316,7 +1549,17 @@ export function useSessionManager(projects: Project[]) {
     totalCost: engine.totalCost,
     send,
     stop: engine.stop,
-    interrupt: engine.interrupt,
+    interrupt: async () => {
+      // During ACP startup (DRAFT + processing), abort the pending start process
+      if (activeSessionIdRef.current === DRAFT_ID
+          && startOptionsRef.current.engine === "acp"
+          && isProcessingRef.current) {
+        await window.claude.acp.abortPendingStart();
+        acp.setIsProcessing(false);
+        return;
+      }
+      await engine.interrupt();
+    },
     pendingPermission: engine.pendingPermission,
     respondPermission: engine.respondPermission,
     contextUsage: engine.contextUsage,
@@ -1398,5 +1641,8 @@ export function useSessionManager(projects: Project[]) {
             }
           }
         : claude.restartWithMcpServers,
+    // File revert: only supported by Claude SDK engine (ACP has no native checkpoint support)
+    revertFiles: isACP ? undefined : claude.revertFiles,
+    fullRevert: isACP ? undefined : fullRevertSession,
   };
 }
