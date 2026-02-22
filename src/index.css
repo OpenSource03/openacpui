@@ -149,12 +149,13 @@ html.glass-enabled #root {
 /* ── Island glass border — diagonal reflection ── */
 /* Double-background trick: padding-box fills interior with bg color,
    border-box gradient shows through the 1px transparent border as a
-   liquid-glass reflection — strongest top-left and bottom-right. */
+   liquid-glass reflection — strongest top-left and bottom-right.
+   Override --island-fill on an element to darken/tint the interior. */
 .island {
   position: relative;
   border: 1px solid transparent;
   background:
-    linear-gradient(var(--background) 0 0) padding-box,
+    linear-gradient(var(--island-fill, var(--background)) 0 0) padding-box,
     linear-gradient(
       135deg,
       oklch(1 0 0 / 0.22) 0%,
@@ -192,7 +193,7 @@ html.glass-enabled #root {
 /* Skip layout/paint for off-screen messages — large chats render instantly */
 .message-item {
   content-visibility: auto;
-  contain-intrinsic-size: auto 120px; /* estimated height to prevent scroll jumps */
+  contain-intrinsic-size: auto 120px;
 }
 
 /* Pre-promote islands to GPU compositing layer — avoids first-interaction shader stutter */

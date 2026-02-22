@@ -495,9 +495,19 @@ export class BackgroundSessionStore {
   }
 
   consume(sessionId: string): BackgroundSessionState | undefined {
-    const result = this.get(sessionId);
+    const state = this.sessions.get(sessionId);
+    if (!state) return undefined;
+    // Transfer ownership — no clone needed since we delete the store entry
     this.sessions.delete(sessionId);
-    return result;
+    return {
+      messages: state.messages,
+      isProcessing: state.isProcessing,
+      isConnected: state.isConnected,
+      sessionInfo: state.sessionInfo,
+      totalCost: state.totalCost,
+      pendingPermission: state.pendingPermission,
+      rawAcpPermission: state.rawAcpPermission,
+    };
   }
 
   delete(sessionId: string): void {

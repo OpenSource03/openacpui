@@ -22,6 +22,7 @@ import { BrowserPanel } from "./BrowserPanel";
 import { GitPanel } from "./GitPanel";
 import { FilesPanel } from "./FilesPanel";
 import { McpPanel } from "./McpPanel";
+import { SettingsView } from "./SettingsView";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
 import { isMac } from "@/lib/utils";
@@ -38,7 +39,7 @@ export function AppLayout() {
   const activeProjectPath = projectManager.projects.find((p) => p.id === activeProjectId)?.path;
 
   const settings = useSettings(activeProjectId ?? null);
-  const { agents } = useAgentRegistry();
+  const { agents, saveAgent, deleteAgent } = useAgentRegistry();
 
   const [selectedAgent, setSelectedAgent] = useState<AgentDefinition | null>(null);
   const handleAgentChange = useCallback((agent: AgentDefinition | null) => {
@@ -50,6 +51,13 @@ export function AppLayout() {
   const lockedEngine = !manager.isDraft && manager.activeSession?.engine
     ? manager.activeSession.engine
     : null;
+
+  const [showSettings, setShowSettings] = useState(false);
+
+  // When settings closes, fire resize so hidden tool panels (xterm) re-fit
+  useEffect(() => {
+    if (!showSettings) window.dispatchEvent(new Event("resize"));
+  }, [showSettings]);
 
   const [spaceCreatorOpen, setSpaceCreatorOpen] = useState(false);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
@@ -83,6 +91,7 @@ export function AppLayout() {
 
   const handleNewChat = useCallback(
     async (projectId: string) => {
+      setShowSettings(false);
       const agent = selectedAgent;
       await manager.createSession(projectId, {
         model: settings.model,
@@ -131,6 +140,21 @@ export function AppLayout() {
   const handleStop = useCallback(async () => {
     await manager.interrupt();
   }, [manager.interrupt]);
+
+  // Wrap session selection to also close settings view
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      setShowSettings(false);
+      manager.switchSession(sessionId);
+    },
+    [manager.switchSession],
+  );
+
+  // Wrap project creation to also close settings view
+  const handleCreateProject = useCallback(async () => {
+    setShowSettings(false);
+    await projectManager.createProject();
+  }, [projectManager.createProject]);
 
   const handleImportCCSession = useCallback(
     async (projectId: string, ccSessionId: string) => {
@@ -580,10 +604,10 @@ export function AppLayout() {
         sessions={manager.sessions}
         activeSessionId={manager.activeSessionId}
         onNewChat={handleNewChat}
-        onSelectSession={manager.switchSession}
+        onSelectSession={handleSelectSession}
         onDeleteSession={manager.deleteSession}
         onRenameSession={manager.renameSession}
-        onCreateProject={projectManager.createProject}
+        onCreateProject={handleCreateProject}
         onDeleteProject={projectManager.deleteProject}
         onRenameProject={projectManager.renameProject}
         onImportCCSession={handleImportCCSession}
@@ -597,9 +621,21 @@ export function AppLayout() {
         onCreateSpace={handleCreateSpace}
         onEditSpace={handleEditSpace}
         onDeleteSpace={handleDeleteSpace}
+        onOpenSettings={() => setShowSettings(true)}
       />
 
       <div ref={contentRef} className={`flex min-w-0 flex-1 ms-2 me-2 my-2 ${isResizing ? "select-none" : ""}`}>
+        {showSettings && (
+          <SettingsView
+            onClose={() => setShowSettings(false)}
+            agents={agents}
+            onSaveAgent={saveAgent}
+            onDeleteAgent={deleteAgent}
+          />
+        )}
+        {/* Keep chat area mounted (hidden) when settings is open to avoid
+            destroying/recreating the entire ChatView DOM tree on toggle */}
+        <div className={showSettings ? "hidden" : "contents"}>
         <div className="island relative flex min-w-[380px] flex-1 flex-col overflow-hidden rounded-lg bg-background">
           {manager.activeSessionId ? (
             <>
@@ -830,6 +866,7 @@ export function AppLayout() {
             <ToolPicker activeTools={activeTools} onToggle={handleToggleTool} availableContextual={availableContextual} />
           </div>
         )}
+        </div>
       </div>
     </div>
   );

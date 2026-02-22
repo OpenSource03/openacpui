@@ -55,6 +55,7 @@ interface AppSidebarProps {
   onCreateSpace: () => void;
   onEditSpace: (space: Space) => void;
   onDeleteSpace: (id: string) => void;
+  onOpenSettings: () => void;
 }
 
 interface SessionGroup {
@@ -115,6 +116,7 @@ export const AppSidebar = memo(function AppSidebar({
   onCreateSpace,
   onEditSpace,
   onDeleteSpace,
+  onOpenSettings,
 }: AppSidebarProps) {
   // Filter projects by active space
   const filteredProjects = useMemo(
@@ -278,6 +280,7 @@ export const AppSidebar = memo(function AppSidebar({
         onEditSpace={onEditSpace}
         onDeleteSpace={onDeleteSpace}
         onDropProject={onMoveProjectToSpace}
+        onOpenSettings={onOpenSettings}
       />
     </div>
   );

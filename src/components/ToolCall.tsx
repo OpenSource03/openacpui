@@ -287,13 +287,13 @@ function WriteContent({ message }: { message: UIMessage }) {
   if (!content) return <GenericContent message={message} />;
 
   return (
-    <div className="space-y-1.5 text-xs">
-      <div className="group/write flex items-center gap-1.5 text-foreground/50 font-mono text-[11px]">
-        {filePath.split("/").pop()}
+    <div className="rounded-lg border border-border/50 overflow-hidden font-mono text-[12px] leading-[1.55] bg-black/20">
+      {/* Header — mirrors DiffViewer's file-path bar */}
+      <div className="group/write flex items-center gap-3 px-3 py-1.5 bg-foreground/[0.04] border-b border-border/40">
+        <span className="text-foreground/80 truncate flex-1">{filePath.split("/").pop()}</span>
         <OpenInEditorButton filePath={filePath} className="group-hover/write:text-foreground/25" />
       </div>
-      {/* island gives the code block a diagonal-reflection glass border; overflow-y-auto enables full-file scrolling */}
-      <div className="island max-h-[32rem] overflow-y-auto rounded-lg bg-background">
+      <div className="overflow-y-auto max-h-[32rem]">
         <SyntaxHighlighter
           language={language}
           style={oneDark}
@@ -335,7 +335,7 @@ function ReadContent({ message }: { message: UIMessage }) {
     const isFull = startLine === 1 && numLines >= totalLines;
     return (
       <div className="group/read flex items-center gap-1.5 text-xs text-foreground/50 font-mono text-[11px]">
-        {filePath.split("/").pop()}
+        {filePath}
         <span className="text-foreground/30">
           {isFull
             ? `${totalLines} lines`

@@ -1,5 +1,5 @@
 import { memo, useState, useCallback } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -22,6 +22,7 @@ interface SpaceBarProps {
   onEditSpace: (space: Space) => void;
   onDeleteSpace: (id: string) => void;
   onDropProject?: (projectId: string, spaceId: string) => void;
+  onOpenSettings?: () => void;
 }
 
 function SpaceIcon({ space, size = 18 }: { space: Space; size?: number }) {
@@ -53,6 +54,7 @@ export const SpaceBar = memo(function SpaceBar({
   onEditSpace,
   onDeleteSpace,
   onDropProject,
+  onOpenSettings,
 }: SpaceBarProps) {
   const sorted = [...spaces].sort((a, b) => a.order - b.order);
   const [contextSpace, setContextSpace] = useState<Space | null>(null);
@@ -69,8 +71,20 @@ export const SpaceBar = memo(function SpaceBar({
 
   return (
     <div className="no-drag grid grid-cols-[2rem_1fr_2rem] items-center px-2 py-1.5">
-      {/* Left spacer to balance the + button */}
-      <div />
+      {/* Settings gear — mirrors the + button on the right */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onOpenSettings}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/30 transition-colors hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          Settings
+        </TooltipContent>
+      </Tooltip>
       {/* Center group */}
       <div className="flex items-center justify-center gap-1">
         {sorted.map((space) => {

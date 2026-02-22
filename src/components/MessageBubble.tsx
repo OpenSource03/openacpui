@@ -1,4 +1,4 @@
-import { memo, createContext, useContext, type ReactNode } from "react";
+import { memo, useMemo, createContext, useContext, type ReactNode } from "react";
 import { AlertCircle, File, Folder, Info } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -99,10 +99,12 @@ export const MessageBubble = memo(function MessageBubble({ message, isContinuati
   }
 
   const isUser = message.role === "user";
-  const time = new Date(message.timestamp).toLocaleTimeString();
+  // toLocaleTimeString() is slow (~0.5ms) — memoize since timestamp never changes
+  const time = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
+  // Memoize regex stripping for user messages (no-op for assistant since content changes during streaming)
+  const displayContent = useMemo(() => isUser ? stripFileContext(message.content) : message.content, [isUser, message.content]);
 
   if (isUser) {
-    const displayContent = stripFileContext(message.content);
     return (
       <div className="flex justify-end px-4 py-1.5">
         <div className="max-w-[80%]">
