@@ -3,6 +3,7 @@ import { Loader2, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { isMac } from "@/lib/utils";
 
 const PERMISSION_MODE_LABELS: Record<string, string> = {
   plan: "Plan",
@@ -38,7 +39,7 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div
       className={`pointer-events-auto drag-region flex h-8 items-center gap-3 px-3 ${
-        !sidebarOpen ? "ps-[78px]" : ""
+        !sidebarOpen && isMac ? "ps-[78px]" : ""
       }`}
     >
       {!sidebarOpen && (

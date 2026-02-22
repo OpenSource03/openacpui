@@ -3,6 +3,14 @@ import { autoUpdater } from "electron-updater";
 import type { UpdateInfo, ProgressInfo } from "electron-updater";
 import { log } from "./logger";
 
+// Flag to prevent window-all-closed from calling app.quit() while quitAndInstall() is
+// managing the quit lifecycle (Squirrel.Mac needs control of the process on macOS).
+let installingUpdate = false;
+
+export function getIsInstallingUpdate(): boolean {
+  return installingUpdate;
+}
+
 export function initAutoUpdater(
   getMainWindow: () => BrowserWindow | null,
 ): void {
@@ -55,7 +63,10 @@ export function initAutoUpdater(
 
   // IPC handlers for renderer
   ipcMain.handle("updater:download", () => autoUpdater.downloadUpdate());
-  ipcMain.handle("updater:install", () => autoUpdater.quitAndInstall());
+  ipcMain.handle("updater:install", () => {
+    installingUpdate = true;
+    autoUpdater.quitAndInstall();
+  });
   ipcMain.handle("updater:check", () => autoUpdater.checkForUpdates());
   ipcMain.handle("updater:current-version", () => app.getVersion());
 

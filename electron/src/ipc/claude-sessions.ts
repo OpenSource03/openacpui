@@ -27,6 +27,8 @@ interface SessionEntry {
   startOptions?: StartOptions;
   /** When true, the old event loop should NOT send claude:exit on teardown */
   restarting?: boolean;
+  /** When true, user initiated stop — suppress expected SDK teardown errors */
+  stopping?: boolean;
 }
 
 export const sessions = new Map<string, SessionEntry>();
@@ -256,15 +258,17 @@ async function restartSession(
       }
     } catch (err) {
       restartQueryError = errorMessage(err);
-      log("QUERY_ERROR", `${logPrefix} ${restartQueryError}`);
+      log("QUERY_ERROR", `${logPrefix} stopping=${!!newSession.stopping} ${restartQueryError}`);
     } finally {
       if (!newSession.restarting) {
-        const exitCode = restartQueryError ? 1 : 0;
-        log("EXIT", `${logPrefix} total_events=${newSession.eventCounter} error=${restartQueryError ?? "none"}`);
+        // User-initiated stop: treat teardown errors as clean exit
+        const isUserStop = newSession.stopping;
+        const exitCode = (restartQueryError && !isUserStop) ? 1 : 0;
+        log("EXIT", `${logPrefix} total_events=${newSession.eventCounter} userStop=${!!isUserStop} error=${restartQueryError ?? "none"}`);
         sessions.delete(sessionId);
         safeSend(getMainWindow,"claude:exit", {
           code: exitCode, _sessionId: sessionId,
-          ...(restartQueryError ? { error: restartQueryError } : {}),
+          ...((restartQueryError && !isUserStop) ? { error: restartQueryError } : {}),
         });
       } else {
         log("EXIT_RESTART", `${logPrefix} old loop ended (restarting)`);
@@ -373,16 +377,18 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           }
         } catch (err) {
           queryError = errorMessage(err);
-          log("QUERY_ERROR", `session=${sessionId.slice(0, 8)} ${queryError}`);
+          log("QUERY_ERROR", `session=${sessionId.slice(0, 8)} stopping=${!!session.stopping} ${queryError}`);
         } finally {
           // If restarting, the new loop takes over — don't send exit or delete
           if (!session.restarting) {
-            const exitCode = queryError ? 1 : 0;
-            log("EXIT", `session=${sessionId.slice(0, 8)} total_events=${session.eventCounter} error=${queryError ?? "none"}`);
+            // User-initiated stop: treat teardown errors as clean exit
+            const isUserStop = session.stopping;
+            const exitCode = (queryError && !isUserStop) ? 1 : 0;
+            log("EXIT", `session=${sessionId.slice(0, 8)} total_events=${session.eventCounter} userStop=${!!isUserStop} error=${queryError ?? "none"}`);
             sessions.delete(sessionId);
             safeSend(getMainWindow,"claude:exit", {
               code: exitCode, _sessionId: sessionId,
-              ...(queryError ? { error: queryError } : {}),
+              ...((queryError && !isUserStop) ? { error: queryError } : {}),
             });
           } else {
             log("EXIT_RESTART", `session=${sessionId.slice(0, 8)} old loop ended (restarting)`);
@@ -485,6 +491,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("claude:stop", (_event, sessionId: string) => {
     const session = sessions.get(sessionId);
     if (session) {
+      // Mark as user-initiated stop so teardown errors are suppressed
+      session.stopping = true;
       // Drain pending permissions before closing
       for (const [, pending] of session.pendingPermissions) {
         pending.resolve({ behavior: "deny", message: "Session stopped" });

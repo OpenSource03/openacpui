@@ -24,6 +24,7 @@ import { FilesPanel } from "./FilesPanel";
 import { McpPanel } from "./McpPanel";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
+import { isMac } from "@/lib/utils";
 import type { TodoItem, ImageAttachment, Space, SpaceColor, AgentDefinition } from "@/types";
 
 export function AppLayout() {
@@ -658,7 +659,7 @@ export function AppLayout() {
             <>
               <div
                 className={`drag-region flex h-12 items-center px-3 ${
-                  !sidebar.isOpen ? "ps-[78px]" : ""
+                  !sidebar.isOpen && isMac ? "ps-[78px]" : ""
                 }`}
               >
                 {!sidebar.isOpen && (

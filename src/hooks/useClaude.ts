@@ -491,32 +491,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
         case "user": {
           const rawContent = event.message.content;
 
-          // content can be a string (e.g. after compact_boundary) or an array
-          if (typeof rawContent === "string") {
-            // String content — context summary after compact_boundary
-            if (rawContent.trim()) {
-              uiLog("CONTEXT_SUMMARY", { length: rawContent.length });
-              setMessages((prev) => {
-                const compactIdx = prev.findLastIndex(
-                  (m) => m.role === "summary" && m.id.startsWith("compact-") && !m.content,
-                );
-                if (compactIdx >= 0) {
-                  return prev.map((m, i) =>
-                    i === compactIdx ? { ...m, content: rawContent } : m,
-                  );
-                }
-                return [
-                  ...prev,
-                  {
-                    id: nextId("summary"),
-                    role: "summary",
-                    content: rawContent,
-                    timestamp: Date.now(),
-                  },
-                ];
-              });
-            }
-          } else if (Array.isArray(rawContent) && rawContent[0]?.type === "tool_result") {
+          // Tool result — update the matching tool_call message
+          if (Array.isArray(rawContent) && rawContent[0]?.type === "tool_result") {
             const toolResult = rawContent[0];
             const toolUseId = toolResult.tool_use_id;
             const isError = !!toolResult.is_error;
@@ -545,36 +521,41 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
                 return { ...m, toolResult: resultMeta, toolError: isError || undefined };
               }),
             );
+            break;
+          }
+
+          // Text content (string or array of text blocks).
+          // Only treat as a context summary if a compact_boundary placeholder
+          // is waiting to be filled — otherwise this is an SDK bookkeeping event
+          // (e.g. "[Request interrupted by user]") that doesn't need UI display.
+          let textPayload: string | null = null;
+          if (typeof rawContent === "string") {
+            textPayload = rawContent.trim() || null;
           } else if (Array.isArray(rawContent)) {
-            // Text content user event — context summary after compact_boundary
             const textBlocks = rawContent.filter(
               (b): b is { type: "text"; text: string } => b.type === "text",
             );
             if (textBlocks.length) {
-              const summaryText = textBlocks
-                .map((b) => b.text)
-                .join("\n");
-              uiLog("CONTEXT_SUMMARY", { length: summaryText.length });
-              setMessages((prev) => {
-                const compactIdx = prev.findLastIndex(
-                  (m) => m.role === "summary" && m.id.startsWith("compact-") && !m.content,
-                );
-                if (compactIdx >= 0) {
-                  return prev.map((m, i) =>
-                    i === compactIdx ? { ...m, content: summaryText } : m,
-                  );
-                }
-                return [
-                  ...prev,
-                  {
-                    id: nextId("summary"),
-                    role: "summary",
-                    content: summaryText,
-                    timestamp: Date.now(),
-                  },
-                ];
-              });
+              textPayload = textBlocks.map((b) => b.text).join("\n");
             }
+          }
+
+          if (textPayload) {
+            setMessages((prev) => {
+              // Look for an unfilled compact_boundary placeholder
+              const compactIdx = prev.findLastIndex(
+                (m) => m.role === "summary" && m.id.startsWith("compact-") && !m.content,
+              );
+              if (compactIdx >= 0) {
+                // Fill the placeholder with the summary content
+                uiLog("CONTEXT_SUMMARY", { length: textPayload.length });
+                return prev.map((m, i) =>
+                  i === compactIdx ? { ...m, content: textPayload } : m,
+                );
+              }
+              // No pending compact — not a context summary, ignore
+              return prev;
+            });
           }
           break;
         }
@@ -584,9 +565,16 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           setIsProcessing(false);
           setTotalCost((prev) => prev + (event.total_cost_usd ?? 0));
 
-          // Surface SDK error results to the user
+          // Surface SDK error results to the user.
+          // Respect is_error flag — when false, the SDK considers it a non-fatal result
+          // (e.g. interrupt teardown with LSP cleanup errors). Only show genuine errors,
+          // or user-relevant limit subtypes (max_turns, max_budget) regardless of is_error.
           const resultEvent = event as ResultEvent;
-          if (resultEvent.is_error || resultEvent.subtype?.startsWith("error")) {
+          const isUserRelevantError = resultEvent.is_error
+            || resultEvent.subtype === "error_max_turns"
+            || resultEvent.subtype === "error_max_budget_usd"
+            || resultEvent.subtype === "error_max_structured_output_retries";
+          if (isUserRelevantError) {
             const errorMsg = resultEvent.errors?.join("\n")
               || resultEvent.result
               || "An error occurred";

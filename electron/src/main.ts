@@ -19,7 +19,7 @@ if (process.platform !== "win32") {
 }
 import { log } from "./lib/logger";
 import { glassEnabled, liquidGlass } from "./lib/glass";
-import { initAutoUpdater } from "./lib/updater";
+import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
 import { sessions } from "./ipc/claude-sessions";
 import { acpSessions } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
@@ -226,6 +226,8 @@ app.on("will-quit", () => {
 app.on("window-all-closed", () => {
   for (const [sessionId, session] of sessions) {
     log("CLEANUP", `Closing session ${sessionId.slice(0, 8)}`);
+    // Mark as stopping so event loops suppress expected teardown errors
+    session.stopping = true;
     session.channel.close();
     session.queryHandle?.close();
   }
@@ -243,5 +245,9 @@ app.on("window-all-closed", () => {
   }
   terminals.clear();
 
-  app.quit();
+  // When quitAndInstall() is running, Squirrel.Mac needs to control the quit lifecycle.
+  // Calling app.quit() here would kill the process before the update is applied on macOS.
+  if (!getIsInstallingUpdate()) {
+    app.quit();
+  }
 });

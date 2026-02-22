@@ -14,6 +14,7 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import { resolveLucideIcon } from "@/lib/icon-utils";
+import { isMac } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -186,11 +187,13 @@ export const AppSidebar = memo(function AppSidebar({
 
   return (
     <div
-      className={`flex shrink-0 flex-col overflow-hidden bg-sidebar ps-2 transition-[width] duration-200 ${
-        isOpen ? "w-[260px]" : "w-0"
+      className={`flex shrink-0 flex-col overflow-hidden bg-sidebar transition-[width] duration-200 ${
+        isOpen ? "w-[260px] ps-2" : "w-0"
       }`}
     >
-      <div className="drag-region flex h-[46px] items-center gap-1 pe-2 ps-[84px]">
+      <div
+        className={`drag-region flex h-[46px] items-center gap-1 pe-2 ${isMac ? "ps-[84px]" : "ps-0"}`}
+      >
         <Button
           variant="ghost"
           size="icon"
@@ -217,41 +220,50 @@ export const AppSidebar = memo(function AppSidebar({
         onSelectSession={onSelectSession}
       />
 
-      <div className="min-h-0 flex-1" style={{ maskImage: maskValue, WebkitMaskImage: maskValue }}>
+      <div
+        className="min-h-0 flex-1"
+        style={{ maskImage: maskValue, WebkitMaskImage: maskValue }}
+      >
         <ScrollArea ref={scrollRef} className="h-full">
           <div className={`px-2 pt-2 pb-8 ${slideClass}`}>
             {filteredProjects.map((project) => {
-            const projectSessions = sessions.filter(
-              (s) => s.projectId === project.id,
-            );
+              const projectSessions = sessions.filter(
+                (s) => s.projectId === project.id,
+              );
 
-            return (
-              <ProjectSection
-                key={project.id}
-                project={project}
-                sessions={projectSessions}
-                activeSessionId={activeSessionId}
-                onNewChat={() => onNewChat(project.id)}
-                onSelectSession={onSelectSession}
-                onDeleteSession={onDeleteSession}
-                onRenameSession={onRenameSession}
-                onDeleteProject={() => onDeleteProject(project.id)}
-                onRenameProject={(name) => onRenameProject(project.id, name)}
-                onImportCCSession={(ccSessionId) => onImportCCSession(project.id, ccSessionId)}
-                otherSpaces={otherSpaces}
-                onMoveToSpace={(spaceId) => onMoveProjectToSpace(project.id, spaceId)}
-                onReorderProject={(targetId) => onReorderProject(project.id, targetId)}
-              />
-            );
-          })}
+              return (
+                <ProjectSection
+                  key={project.id}
+                  project={project}
+                  sessions={projectSessions}
+                  activeSessionId={activeSessionId}
+                  onNewChat={() => onNewChat(project.id)}
+                  onSelectSession={onSelectSession}
+                  onDeleteSession={onDeleteSession}
+                  onRenameSession={onRenameSession}
+                  onDeleteProject={() => onDeleteProject(project.id)}
+                  onRenameProject={(name) => onRenameProject(project.id, name)}
+                  onImportCCSession={(ccSessionId) =>
+                    onImportCCSession(project.id, ccSessionId)
+                  }
+                  otherSpaces={otherSpaces}
+                  onMoveToSpace={(spaceId) =>
+                    onMoveProjectToSpace(project.id, spaceId)
+                  }
+                  onReorderProject={(targetId) =>
+                    onReorderProject(project.id, targetId)
+                  }
+                />
+              );
+            })}
 
-          {filteredProjects.length === 0 && (
-            <p className="px-2 py-8 text-center text-xs text-sidebar-foreground/40">
-              {projects.length === 0
-                ? "Add a project to get started"
-                : "No projects in this space"}
-            </p>
-          )}
+            {filteredProjects.length === 0 && (
+              <p className="px-2 py-8 text-center text-xs text-sidebar-foreground/40">
+                {projects.length === 0
+                  ? "Add a project to get started"
+                  : "No projects in this space"}
+              </p>
+            )}
           </div>
         </ScrollArea>
       </div>

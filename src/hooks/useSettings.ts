@@ -39,7 +39,7 @@ const MIN_SPLIT = 0.2;
 const MAX_SPLIT = 0.8;
 const DEFAULT_SPLIT = 0.5;
 
-const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
+const DEFAULT_MODEL = "claude-opus-4-6";
 const DEFAULT_PERMISSION_MODE = "plan";
 
 // ── Hook ──
