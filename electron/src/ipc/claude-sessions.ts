@@ -509,6 +509,29 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
+  ipcMain.handle("claude:set-model", async (_event, { sessionId, model }: { sessionId: string; model: string }) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      log("SET_MODEL", "ERROR: session " + sessionId.slice(0, 8) + " not found");
+      return { error: "Claude session not found" };
+    }
+    if (!session.queryHandle?.setModel) {
+      log("SET_MODEL", "ERROR: session=" + sessionId.slice(0, 8) + " setModel unsupported");
+      return { error: "Model switching is not supported by this Claude SDK version" };
+    }
+    try {
+      await session.queryHandle.setModel(model);
+      if (session.startOptions) {
+        session.startOptions.model = model;
+      }
+      log("SET_MODEL", "session=" + sessionId.slice(0, 8) + " model=" + model);
+      return { ok: true };
+    } catch (err) {
+      log("SET_MODEL_ERR", "session=" + sessionId.slice(0, 8) + " model=" + model + " " + errorMessage(err));
+      return { error: errorMessage(err) };
+    }
+  });
+
   ipcMain.on("claude:log", (_event, label: string, data: unknown) => {
     log(`UI:${label}`, data);
   });

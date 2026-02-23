@@ -1117,16 +1117,37 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     const session = sessionsRef.current.find((s) => s.id === id);
     if (!session) return;
 
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, model } : s)),
-    );
+    const persistModel = () => {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, model } : s)),
+      );
 
-    window.claude.sessions.load(session.projectId, id).then((data) => {
-      if (data) {
-        window.claude.sessions.save({ ...data, model });
-      }
-    }).catch(() => { /* session may have been deleted */ });
-  }, [eagerStartSession]);
+      window.claude.sessions.load(session.projectId, id).then((data) => {
+        if (data) {
+          window.claude.sessions.save({ ...data, model });
+        }
+      }).catch(() => { /* session may have been deleted */ });
+    };
+
+    const isLiveClaudeSession = (session.engine ?? "claude") === "claude"
+      && liveSessionIdsRef.current.has(id);
+
+    if (isLiveClaudeSession) {
+      claude.setModel(model).then((result) => {
+        if (result?.error) {
+          toast.error("Failed to switch model", { description: result.error });
+          return;
+        }
+        persistModel();
+      }).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error("Failed to switch model", { description: message });
+      });
+      return;
+    }
+
+    persistModel();
+  }, [claude.setModel, eagerStartSession]);
 
   const importCCSession = useCallback(
     async (projectId: string, ccSessionId: string) => {

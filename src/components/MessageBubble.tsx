@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useEffect, useState, createContext, useContext, type ReactNode } from "react";
+import { memo, useMemo, useRef, useEffect, useLayoutEffect, createContext, useContext, type ReactNode } from "react";
 import { AlertCircle, Clock, File, Folder, Info, RotateCcw, Undo2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -83,6 +83,7 @@ function renderWithMentions(text: string): ReactNode[] {
   });
 }
 
+/** Byte-level prefix match for detecting appended text vs mid-text rewrites. */
 function commonPrefixLength(a: string, b: string): number {
   const max = Math.min(a.length, b.length);
   let i = 0;
@@ -90,10 +91,135 @@ function commonPrefixLength(a: string, b: string): number {
   return i;
 }
 
+/** Walk down rightmost children to find the deepest last text node. */
+function getDeepLastTextNode(el: Node): Text | null {
+  for (let n: Node | null = el.lastChild; n; n = n.lastChild) {
+    if (n.nodeType === Node.TEXT_NODE) return n as Text;
+    // Skip empty element tails (e.g. <br/>) — try the previous sibling
+    if (!n.lastChild) {
+      const prev = n.previousSibling;
+      if (prev?.nodeType === Node.TEXT_NODE) return prev as Text;
+      if (prev) { n = prev; continue; }
+      return null;
+    }
+  }
+  return el.nodeType === Node.TEXT_NODE ? (el as Text) : null;
+}
 
-interface AnimatedChunk {
-  id: number;
-  text: string;
+/**
+ * Injects per-token fade-in animation into a ReactMarkdown container by
+ * splitting the trailing text node in `useLayoutEffect` (before paint).
+ *
+ * On every React commit the sequence is:
+ *  1. React updates text nodes with new content.
+ *  2. `useLayoutEffect` runs synchronously (before the browser paints):
+ *     a. Removes any previously injected `<span>` from the last frame.
+ *     b. Compares the last block element's `textContent` to its previous value.
+ *     c. If text was appended, splits the trailing text node into
+ *        [old text | <span class="stream-chunk-enter">new text</span>].
+ *  3. The browser paints — user sees old text at full opacity + new text fading in.
+ *
+ * Because cleanup and re-injection both happen before paint, the user never
+ * sees the intermediate React-only state. React's reconciler simply overwrites
+ * our truncated text node on the next commit (it still holds a valid ref to it).
+ */
+function useStreamingTextReveal(isStreaming: boolean | undefined) {
+  const proseRef = useRef<HTMLDivElement>(null);
+  const prevBlockTextRef = useRef("");
+  const prevLastBlockRef = useRef<Element | null>(null);
+  const injectedSpan = useRef<HTMLSpanElement | null>(null);
+
+  // Must run before paint so the user never sees un-animated text
+  useLayoutEffect(() => {
+    // Step 1: merge the injected span back into the preceding text node.
+    // When the content string is identical between renders (e.g. the rAF flush
+    // already set the final text before the `assistant` snapshot arrives),
+    // React's reconciler skips updating the text node — but we truncated it
+    // last frame. Merging restores the full value so no text is lost.
+    if (injectedSpan.current) {
+      const span = injectedSpan.current;
+      const prev = span.previousSibling;
+      if (prev && prev.nodeType === Node.TEXT_NODE) {
+        prev.textContent = (prev.textContent ?? "") + (span.textContent ?? "");
+      }
+      span.remove();
+      injectedSpan.current = null;
+    }
+
+    if (!isStreaming || !proseRef.current) {
+      prevBlockTextRef.current = "";
+      prevLastBlockRef.current = null;
+      return;
+    }
+
+    const container = proseRef.current;
+
+    // Step 2: identify the last animatable block (skip code blocks / not-prose)
+    let lastBlock: Element | null = null;
+    for (let i = container.children.length - 1; i >= 0; i--) {
+      const child = container.children[i] as HTMLElement;
+      if (child.classList?.contains("not-prose")) continue;
+      if (child.tagName === "PRE") continue;
+      lastBlock = child;
+      break;
+    }
+    if (!lastBlock) return;
+
+    // Detect when the active block changes (new paragraph appeared)
+    if (lastBlock !== prevLastBlockRef.current) {
+      prevLastBlockRef.current = lastBlock;
+      prevBlockTextRef.current = ""; // all text in the new block is "new"
+    }
+
+    const blockText = lastBlock.textContent ?? "";
+    const prevText = prevBlockTextRef.current;
+    prevBlockTextRef.current = blockText;
+
+    // Only animate pure appends — if text shrank or changed in the middle
+    // (e.g. markdown syntax closing), skip this frame gracefully.
+    if (blockText.length <= prevText.length) return;
+    const prefixLen = commonPrefixLength(prevText, blockText);
+    if (prefixLen < prevText.length) return;
+
+    const addedChars = blockText.length - prefixLen;
+    if (addedChars <= 0) return;
+
+    // Step 3: find the deepest last text node inside the block
+    const textNode = getDeepLastTextNode(lastBlock);
+    if (!textNode || !textNode.parentNode) return;
+
+    const nodeText = textNode.textContent ?? "";
+    const splitAt = Math.max(0, nodeText.length - addedChars);
+    const newPart = nodeText.slice(splitAt);
+    if (!newPart) return;
+
+    // Truncate the React-owned text node and append an animated span
+    textNode.textContent = nodeText.slice(0, splitAt);
+    const span = document.createElement("span");
+    span.className = "stream-chunk-enter";
+    span.textContent = newPart;
+    textNode.parentNode.insertBefore(span, textNode.nextSibling);
+    injectedSpan.current = span;
+  });
+
+  // Final cleanup when streaming ends
+  useEffect(() => {
+    if (!isStreaming) {
+      if (injectedSpan.current) {
+        const span = injectedSpan.current;
+        const prev = span.previousSibling;
+        if (prev && prev.nodeType === Node.TEXT_NODE) {
+          prev.textContent = (prev.textContent ?? "") + (span.textContent ?? "");
+        }
+        span.remove();
+        injectedSpan.current = null;
+      }
+      prevBlockTextRef.current = "";
+      prevLastBlockRef.current = null;
+    }
+  }, [isStreaming]);
+
+  return proseRef;
 }
 
 interface MessageBubbleProps {
@@ -106,6 +232,16 @@ interface MessageBubbleProps {
 }
 
 export const MessageBubble = memo(function MessageBubble({ message, isContinuation, onRevert, onFullRevert }: MessageBubbleProps) {
+  // All hooks must be called before any early returns (Rules of Hooks)
+  const isUser = message.role === "user";
+  const time = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
+  const displayContent = useMemo(() => isUser ? (message.displayContent ?? stripFileContext(message.content)) : message.content, [isUser, message.content, message.displayContent]);
+
+  // Per-token fade-in animation via DOM surgery in useLayoutEffect.
+  // Always renders ReactMarkdown (real-time markdown parsing) — the hook
+  // splits trailing text nodes into [old | animated-new] before each paint.
+  const proseRef = useStreamingTextReveal(message.role === "assistant" ? message.isStreaming : undefined);
+
   if (message.role === "system") {
     const isError = message.isError;
     return (
@@ -120,61 +256,6 @@ export const MessageBubble = memo(function MessageBubble({ message, isContinuati
       </div>
     );
   }
-
-  const isUser = message.role === "user";
-  // toLocaleTimeString() is slow (~0.5ms) — memoize since timestamp never changes
-  const time = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
-  // Prefer pre-computed displayContent; fall back to regex stripping for old persisted sessions
-  const displayContent = useMemo(() => isUser ? (message.displayContent ?? stripFileContext(message.content)) : message.content, [isUser, message.content, message.displayContent]);
-
-  // Streaming chunk queue for assistant text.
-  // Keeps each chunk in its own span so earlier fades are not interrupted.
-  const prevStreamContentRef = useRef(message.content);
-  const nextChunkIdRef = useRef(0);
-  const [streamBaseText, setStreamBaseText] = useState(message.content);
-  const [streamChunks, setStreamChunks] = useState<AnimatedChunk[]>([]);
-
-  useEffect(() => {
-    const curr = message.content;
-    const prev = prevStreamContentRef.current;
-    prevStreamContentRef.current = curr;
-
-    if (!message.isStreaming) {
-      setStreamBaseText(curr);
-      setStreamChunks([]);
-      return;
-    }
-
-    if (!prev) {
-      setStreamBaseText("");
-      setStreamChunks(curr ? [{ id: nextChunkIdRef.current++, text: curr }] : []);
-      return;
-    }
-
-    const prefixLen = commonPrefixLength(prev, curr);
-    const appendedLen = curr.length - prefixLen;
-
-    if (appendedLen <= 0) {
-      setStreamBaseText(curr);
-      setStreamChunks([]);
-      return;
-    }
-
-    const changedInMiddle = prefixLen < prev.length;
-    if (changedInMiddle) {
-      setStreamBaseText(curr);
-      setStreamChunks([]);
-      return;
-    }
-
-    const appended = curr.slice(prev.length);
-    if (!appended) return;
-
-    setStreamChunks((chunks) => [
-      ...chunks,
-      { id: nextChunkIdRef.current++, text: appended },
-    ]);
-  }, [message.content, message.isStreaming]);
 
   if (isUser) {
     const checkpointId = message.checkpointId;
@@ -259,23 +340,14 @@ export const MessageBubble = memo(function MessageBubble({ message, isContinuati
               />
             )}
             {message.content ? (
-              message.isStreaming ? (
-                <div className="max-w-none whitespace-pre-wrap text-sm leading-6 text-foreground">
-                  {streamBaseText}
-                  {streamChunks.map((chunk) => (
-                    <span key={chunk.id} className="stream-chunk-enter">{chunk.text}</span>
-                  ))}
-                </div>
-              ) : (
-                <div className="prose prose-invert prose-sm max-w-none text-foreground">
-                  <ReactMarkdown
-                    remarkPlugins={REMARK_PLUGINS}
-                    components={MD_COMPONENTS}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
-              )
+              <div ref={proseRef} className="prose prose-invert prose-sm max-w-none text-foreground">
+                <ReactMarkdown
+                  remarkPlugins={REMARK_PLUGINS}
+                  components={MD_COMPONENTS}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </div>
             ) : message.isStreaming && !message.thinking ? (
               <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground/40" />
             ) : null}

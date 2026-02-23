@@ -4,6 +4,7 @@ type QueryHandle = AsyncGenerator & {
   close: () => void;
   interrupt: () => Promise<void>;
   setPermissionMode: (mode: string) => Promise<void>;
+  setModel?: (model?: string) => Promise<void>;
   mcpServerStatus?: () => Promise<unknown[]>;
   reconnectMcpServer?: (serverName: string) => Promise<void>;
   supportedModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>;

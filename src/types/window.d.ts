@@ -80,6 +80,10 @@ declare global {
         sessionId: string,
         permissionMode: string,
       ) => Promise<{ ok?: boolean; error?: string }>;
+      setModel: (
+        sessionId: string,
+        model: string,
+      ) => Promise<{ ok?: boolean; error?: string }>;
       projects: {
         list: () => Promise<Project[]>;
         create: (spaceId?: string) => Promise<Project | null>;

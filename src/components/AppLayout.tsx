@@ -26,6 +26,7 @@ import { ChangesPanel } from "./ChangesPanel";
 import { SettingsView } from "./SettingsView";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
+import { resolveModelValue } from "@/lib/model-utils";
 import { isMac } from "@/lib/utils";
 import type { TodoItem, ImageAttachment, Space, SpaceColor, AgentDefinition, AcpPermissionBehavior } from "@/types";
 
@@ -428,14 +429,17 @@ export function AppLayout() {
     };
   }, [spaceManager.activeSpace]);
 
-  // Sync model from loaded session
+  // Sync model from loaded session (canonical runtime names -> picker values)
   useEffect(() => {
-    if (!manager.activeSessionId || manager.isDraft) return;
+    if (!manager.activeSessionId || manager.isDraft || manager.supportedModels.length === 0) return;
     const session = manager.sessions.find((s) => s.id === manager.activeSessionId);
-    if (session?.model && session.model !== settings.model) {
-      settings.setModel(session.model);
+    if (!session?.model) return;
+
+    const syncedModel = resolveModelValue(session.model, manager.supportedModels) ?? session.model;
+    if (syncedModel !== settings.model) {
+      settings.setModel(syncedModel);
     }
-  }, [manager.activeSessionId, manager.isDraft, manager.sessions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [manager.activeSessionId, manager.isDraft, manager.sessions, manager.supportedModels, settings.model, settings.setModel]);
 
   // Sync selectedAgent when switching to a different session
   useEffect(() => {

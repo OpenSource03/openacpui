@@ -36,6 +36,7 @@ import {
 import type { ImageAttachment, ContextUsage, AgentDefinition, ACPConfigOption, ModelInfo, AcpPermissionBehavior } from "@/types";
 import { flattenConfigOptions } from "@/types/acp";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { resolveModelValue } from "@/lib/model-utils";
 
 const ACP_PERMISSION_BEHAVIORS = [
   { id: "ask" as const, label: "Ask", description: "Show permission prompt" },
@@ -241,7 +242,8 @@ export const InputBar = memo(function InputBar({
     ? supportedModels.map((m) => ({ id: m.value, label: m.displayName, description: m.description }))
     : [];
   const modelsLoading = modelList.length === 0;
-  const selectedModel = modelList.find((m) => m.id === model) ?? modelList[0];
+  const resolvedModelId = resolveModelValue(model, supportedModels ?? []);
+  const selectedModel = modelList.find((m) => m.id === (resolvedModelId ?? model)) ?? modelList[0];
   const selectedMode =
     PERMISSION_MODES.find((m) => m.id === permissionMode) ?? PERMISSION_MODES[0];
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
@@ -893,7 +895,7 @@ export const InputBar = memo(function InputBar({
                         <DropdownMenuItem
                           key={m.id}
                           onClick={() => onModelChange(m.id)}
-                          className={m.id === model ? "bg-accent" : ""}
+                          className={m.id === (resolvedModelId ?? model) ? "bg-accent" : ""}
                         >
                           <div>
                             <div>{m.label}</div>
@@ -910,8 +912,7 @@ export const InputBar = memo(function InputBar({
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
-                      className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                      disabled={isProcessing}
+                      className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
                     >
                       <Shield className="h-3 w-3" />
                       {selectedMode.label}
@@ -933,7 +934,8 @@ export const InputBar = memo(function InputBar({
 
                 <button
                   onClick={() => onThinkingChange(!thinking)}
-                  className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
+                  disabled={isProcessing}
+                  className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50 ${
                     thinking
                       ? "text-foreground bg-muted/40"
                       : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
@@ -958,9 +960,8 @@ export const InputBar = memo(function InputBar({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={onCompact}
-                      disabled={isProcessing}
-                      className={`flex items-center justify-center rounded-full p-0.5 transition-colors hover:bg-muted/40 disabled:opacity-40 disabled:pointer-events-none ${getContextColor(percent)}`}
+                      onClick={() => { if (!isProcessing) onCompact?.(); }}
+                      className={`flex items-center justify-center rounded-full p-0.5 transition-colors hover:bg-muted/40 ${isProcessing ? "opacity-40 cursor-default" : ""} ${getContextColor(percent)}`}
                     >
                       <svg width="20" height="20" viewBox="0 0 20 20" className={isCompacting ? "animate-spin" : "-rotate-90"}>
                         <circle

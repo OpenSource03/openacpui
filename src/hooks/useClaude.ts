@@ -133,13 +133,14 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     const allText = buffer.current.getAllText();
     const allThinking = buffer.current.getAllThinking();
     const { thinkingComplete } = buffer.current;
+    // Capture messageId now — message_stop may clear it before React runs the updater
+    const capturedMessageId = buffer.current.messageId;
     setMessages((prev) => {
-      const streamId = buffer.current.messageId;
-      const target = streamId
-        ? prev.find((m) => m.id === streamId)
+      const target = capturedMessageId
+        ? prev.find((m) => m.id === capturedMessageId)
         : prev.findLast((m) => m.role === "assistant" && m.isStreaming);
       if (!target) return prev;
-      if (!streamId) buffer.current.messageId = target.id;
+      if (!capturedMessageId) buffer.current.messageId = target.id;
       const contentChanged = allText !== target.content;
       const thinkingChanged = allThinking && allThinking !== (target.thinking ?? "");
       const thinkingCompleteChanged = thinkingComplete && !target.thinkingComplete;
@@ -375,10 +376,11 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
             case "message_delta": {
               flushNow();
+              // Capture messageId now — message_stop may clear it before React runs the updater
+              const capturedId = buffer.current.messageId;
               setMessages((prev) => {
-                const streamId = buffer.current.messageId;
-                const target = streamId
-                  ? prev.find((m) => m.id === streamId)
+                const target = capturedId
+                  ? prev.find((m) => m.id === capturedId)
                   : prev.findLast((m) => m.role === "assistant" && m.isStreaming);
                 if (!target) return prev;
                 if (!target.content.trim() && !target.thinking) {
@@ -437,6 +439,10 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
                 ...target,
                 content: textContent || target.content,
                 thinking: thinkingContent || target.thinking || undefined,
+                // When the text snapshot arrives, streaming is effectively complete —
+                // clear isStreaming so markdown renders immediately instead of
+                // depending solely on message_delta (which can race with resetStreaming).
+                ...(textContent ? { isStreaming: false } : {}),
                 ...(thinkingContent ? { thinkingComplete: true } : {}),
               };
               if (!merged.content.trim() && !merged.thinking) {
@@ -621,6 +627,14 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               );
             }
           }
+
+          // Safety net: clear isStreaming on any messages still marked as streaming —
+          // the turn is complete, nothing should remain in streaming state.
+          setMessages((prev) => {
+            const hasStreaming = prev.some((m) => m.isStreaming);
+            if (!hasStreaming) return prev;
+            return prev.map((m) => m.isStreaming ? { ...m, isStreaming: false } : m);
+          });
 
           resetStreaming();
           break;
@@ -819,6 +833,15 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     }
   }, []);
 
+  const setModel = useCallback(async (model: string) => {
+    if (!sessionIdRef.current) return { error: "No session" };
+    const result = await window.claude.setModel(sessionIdRef.current, model);
+    if (result?.ok) {
+      setSessionInfo((prev) => prev ? { ...prev, model } : prev);
+    }
+    return result;
+  }, []);
+
   const compact = useCallback(async () => {
     if (!sessionIdRef.current) return;
     setIsCompacting(true);
@@ -897,6 +920,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     pendingPermission,
     respondPermission,
     setPermissionMode,
+    setModel,
     mcpServerStatuses,
     refreshMcpStatus,
     reconnectMcpServer,
