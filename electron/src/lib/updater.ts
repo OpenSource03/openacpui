@@ -167,7 +167,9 @@ export function initAutoUpdater(
  * Falls back to glob-matching if the exact version-based name isn't found.
  */
 function findUpdateZip(): string | null {
-  const cacheDir = path.join(app.getPath("userData"), "..", "Caches", "open-acp-ui-updater", "pending");
+  // electron-updater stores downloads in ~/Library/Caches/open-acp-ui-updater/pending/
+  // app.getPath("appData") = ~/Library/Application Support, so go up one to ~/Library/
+  const cacheDir = path.join(path.dirname(app.getPath("appData")), "Caches", "open-acp-ui-updater", "pending");
   if (!fs.existsSync(cacheDir)) return null;
 
   // Try exact match first (e.g. OpenACP-UI-0.6.1-arm64-mac.zip)
