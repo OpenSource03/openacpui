@@ -36,6 +36,7 @@ import * as terminalIpc from "./ipc/terminal";
 import * as gitIpc from "./ipc/git";
 import * as agentRegistryIpc from "./ipc/agent-registry";
 import * as acpSessionsIpc from "./ipc/acp-sessions";
+import * as codexSessionsIpc from "./ipc/codex-sessions";
 import * as mcpIpc from "./ipc/mcp";
 import * as settingsIpc from "./ipc/settings";
 
@@ -148,6 +149,7 @@ terminalIpc.register(getMainWindow);
 gitIpc.register();
 agentRegistryIpc.register();
 acpSessionsIpc.register(getMainWindow);
+codexSessionsIpc.register(getMainWindow);
 mcpIpc.register();
 settingsIpc.register();
 
@@ -291,6 +293,9 @@ app.on("window-all-closed", () => {
     entry.process?.kill();
   }
   acpSessions.clear();
+
+  log("CLEANUP", "Stopping all Codex sessions");
+  codexSessionsIpc.stopAll();
 
   for (const [terminalId, term] of terminals) {
     log("CLEANUP", `Killing terminal ${terminalId.slice(0, 8)}`);

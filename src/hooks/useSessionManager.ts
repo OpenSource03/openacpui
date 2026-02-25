@@ -1,24 +1,71 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import type { ChatSession, UIMessage, PersistedSession, Project, ClaudeEvent, SystemInitEvent, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, McpServerConfig, ModelInfo, AcpPermissionBehavior } from "../types";
+import type { ChatSession, UIMessage, PersistedSession, Project, ClaudeEvent, SystemInitEvent, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, McpServerConfig, ModelInfo, AcpPermissionBehavior, EngineId } from "../types";
 import { toMcpStatusState } from "../types/ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "../types/acp";
 import { normalizeToolInput as acpNormalizeToolInput, pickAutoResponseOption } from "../lib/acp-adapter";
 import { useClaude } from "./useClaude";
 import { useACP } from "./useACP";
+import { useCodex } from "./useCodex";
 import { BackgroundSessionStore } from "../lib/background-session-store";
 import { buildSdkContent } from "../lib/protocol";
 
 interface StartOptions {
   model?: string;
   permissionMode?: string;
-  engine?: "claude" | "acp";
+  engine?: EngineId;
   agentId?: string;
   /** Cached config options from previous sessions — shown before session starts */
   cachedConfigOptions?: ACPConfigOption[];
 }
 
 const DRAFT_ID = "__draft__";
+interface CodexModelSummary {
+  id: string;
+  displayName: string;
+  description: string;
+  supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }>;
+  defaultReasoningEffort: string;
+  isDefault?: boolean;
+}
+
+function pickCodexModel(
+  requestedModel: string | undefined,
+  models: CodexModelSummary[],
+): string | undefined {
+  const requested = typeof requestedModel === "string" ? requestedModel.trim() : "";
+  if (requested.length > 0 && models.some((m) => m.id === requested)) {
+    return requested;
+  }
+  return models.find((m) => m.isDefault)?.id ?? models[0]?.id;
+}
+
+function normalizeCodexModels(rawModels: unknown[]): CodexModelSummary[] {
+  const models: CodexModelSummary[] = [];
+  for (const raw of rawModels) {
+    const model = raw as Record<string, unknown>;
+    if (typeof model.id !== "string") continue;
+    const supportedReasoningEfforts = Array.isArray(model.supportedReasoningEfforts)
+      ? model.supportedReasoningEfforts
+        .map((entry) => entry as Record<string, unknown>)
+        .filter((entry): entry is { reasoningEffort: string; description: string } =>
+          typeof entry.reasoningEffort === "string" && typeof entry.description === "string",
+        )
+      : [];
+    models.push({
+      id: model.id,
+      displayName: typeof model.displayName === "string" ? model.displayName : model.id,
+      description: typeof model.description === "string" ? model.description : "",
+      supportedReasoningEfforts,
+      defaultReasoningEffort:
+        typeof model.defaultReasoningEffort === "string"
+          ? model.defaultReasoningEffort
+          : "medium",
+      isDefault: model.isDefault === true,
+    });
+  }
+  return models;
+}
 
 export function useSessionManager(projects: Project[], acpPermissionBehavior: AcpPermissionBehavior = "ask", onSpaceChange?: (spaceId: string) => void) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -50,21 +97,30 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   const acpAgentIdRef = useRef<string | null>(null);
   // ACP-side session ID — persisted so we can call session/load on revival after restart
   const acpAgentSessionIdRef = useRef<string | null>(null);
+  // Codex thread ID — persisted for thread/resume on revival
+  const codexThreadIdRef = useRef<string | null>(null);
+  // Raw Codex model data — carries effort options per model for the effort dropdown
+  const [codexRawModels, setCodexRawModels] = useState<CodexModelSummary[]>([]);
+  const codexRawModelsRef = useRef(codexRawModels);
+  codexRawModelsRef.current = codexRawModels;
 
   // Determine which engine the active session uses
-  const activeEngine = activeSessionId === DRAFT_ID
+  const activeEngine: EngineId = activeSessionId === DRAFT_ID
     ? (startOptions.engine ?? "claude")
     : (sessions.find(s => s.id === activeSessionId)?.engine ?? "claude");
   const isACP = activeEngine === "acp";
+  const isCodex = activeEngine === "codex";
 
-  const claudeSessionId = (!isACP && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
-  const acpSessionId = (isACP && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
+  const claudeSessionId = (activeEngine === "claude" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
+  const acpSessionId = (activeEngine === "acp" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
+  const codexSessionId = (activeEngine === "codex" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
 
-  const claude = useClaude({ sessionId: claudeSessionId, initialMessages: isACP ? [] : initialMessages, initialMeta: isACP ? null : initialMeta, initialPermission: isACP ? null : initialPermission });
+  const claude = useClaude({ sessionId: claudeSessionId, initialMessages: activeEngine === "claude" ? initialMessages : [], initialMeta: activeEngine === "claude" ? initialMeta : null, initialPermission: activeEngine === "claude" ? initialPermission : null });
   const acp = useACP({ sessionId: acpSessionId, initialMessages: isACP ? initialMessages : [], initialConfigOptions: isACP ? initialConfigOptions : [], initialMeta: isACP ? initialMeta : null, initialPermission: isACP ? initialPermission : null, initialRawAcpPermission: isACP ? initialRawAcpPermission : null, acpPermissionBehavior });
+  const codex = useCodex({ sessionId: codexSessionId, initialMessages: isCodex ? initialMessages : [], initialMeta: isCodex ? initialMeta : null, initialPermission: isCodex ? initialPermission : null });
 
   // Pick the active engine's state
-  const engine = isACP ? acp : claude;
+  const engine = isCodex ? codex : isACP ? acp : claude;
   const { messages, totalCost, sessionInfo } = engine;
 
   const liveSessionIdsRef = useRef<Set<string>>(new Set());
@@ -206,6 +262,38 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     }
   }, []);
 
+  // Load Codex models ahead of first message so the model picker is usable in draft mode.
+  const prefetchCodexModels = useCallback(async (preferredModel?: string) => {
+    try {
+      const result = await window.claude.codex.listModels();
+      const models = normalizeCodexModels(result.models ?? []);
+      if (models.length === 0) return;
+
+      setCodexRawModels(models);
+      codex.setCodexModels(models.map((m) => ({
+        value: m.id,
+        displayName: m.displayName,
+        description: m.description,
+      })));
+
+      const selected = pickCodexModel(preferredModel, models);
+      const selectedModel = selected
+        ? models.find((m) => m.id === selected)
+        : undefined;
+      if (selectedModel?.defaultReasoningEffort) {
+        codex.setCodexEffort(selectedModel.defaultReasoningEffort);
+      }
+
+      setStartOptions((prev) => {
+        if ((prev.engine ?? "claude") !== "codex") return prev;
+        if (!selected || prev.model === selected) return prev;
+        return { ...prev, model: selected };
+      });
+    } catch {
+      // Model prefetch is optional — draft session can still start on first send.
+    }
+  }, [codex.setCodexEffort, codex.setCodexModels]);
+
   // Probe MCP servers ourselves (for engines that don't report status, e.g. ACP)
   const probeMcpServers = useCallback(async (projectId: string, overrideServers?: McpServerConfig[]) => {
     const servers = overrideServers ?? await window.claude.mcp.list(projectId);
@@ -346,9 +434,11 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
     const unsubExit = window.claude.onExit((data) => handleSessionExit(data._sessionId));
     const unsubAcpExit = window.claude.acp.onExit((data: { _sessionId: string; code: number | null }) => handleSessionExit(data._sessionId));
+    const unsubCodexExit = window.claude.codex.onExit((data) => handleSessionExit(data._sessionId));
     return () => {
       unsubExit();
       unsubAcpExit();
+      unsubCodexExit();
     };
   }, []);
 
@@ -430,7 +520,27 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       backgroundStoreRef.current.handleACPTurnComplete(sid);
     });
 
-    return () => { unsub(); unsubAcp(); unsubBgPerm(); unsubBgAcpPerm(); unsubBgAcpTurn(); };
+    // Route Codex events for non-active sessions to the background store
+    const unsubCodex = window.claude.codex.onEvent((event) => {
+      const sid = event._sessionId;
+      if (!sid || sid === activeSessionIdRef.current) return;
+      backgroundStoreRef.current.handleCodexEvent(event);
+    });
+
+    // Route Codex approval requests for non-active sessions — auto-decline for now
+    const unsubCodexApproval = window.claude.codex.onApprovalRequest((data) => {
+      const sid = data._sessionId;
+      if (!sid || sid === activeSessionIdRef.current) return;
+      // Auto-decline background Codex approvals (user must switch to the session)
+      backgroundStoreRef.current.setPermission(sid, {
+        requestId: String(data.rpcId),
+        toolName: data.method.includes("commandExecution") ? "Bash" : "Edit",
+        toolInput: {},
+        toolUseId: data.itemId,
+      });
+    });
+
+    return () => { unsub(); unsubAcp(); unsubBgPerm(); unsubBgAcpPerm(); unsubBgAcpTurn(); unsubCodex(); unsubCodexApproval(); };
   }, []);
 
   // Load sessions for ALL projects
@@ -459,7 +569,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
   // AI-generated title via background utility prompt (SDK Haiku or ACP utility session)
   const generateSessionTitle = useCallback(
-    async (sessionId: string, message: string, projectPath: string, engine?: "claude" | "acp") => {
+    async (sessionId: string, message: string, projectPath: string, engine?: EngineId) => {
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionId ? { ...s, titleGenerating: true } : s,
@@ -536,6 +646,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         engine: session.engine,
         ...(session.agentId ? { agentId: session.agentId } : {}),
         ...(session.agentSessionId ? { agentSessionId: session.agentSessionId } : {}),
+        ...(session.engine === "codex" && codexThreadIdRef.current ? { codexThreadId: codexThreadIdRef.current } : {}),
       };
       window.claude.sessions.save(data);
     }, 2000);
@@ -617,7 +728,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
     const sessionEngine = sessionsRef.current.find((s) => s.id === activeId)?.engine ?? "claude";
     // Pick the correct engine's setMessages to avoid stale closure
-    const targetSetMessages = sessionEngine === "acp" ? acp.setMessages : claude.setMessages;
+    const targetSetMessages = sessionEngine === "codex" ? codex.setMessages : sessionEngine === "acp" ? acp.setMessages : claude.setMessages;
 
     // Clear isQueued flag on the message already in chat
     targetSetMessages((prev) =>
@@ -641,6 +752,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
     if (sessionEngine === "acp") {
       acp.sendRaw(next.text, next.images).catch(handleSendError);
+    } else if (sessionEngine === "codex") {
+      codex.send(next.text, next.images as undefined).catch(handleSendError);
     } else {
       claude.sendRaw(next.text, next.images).then((ok) => {
         if (!ok) handleSendError();
@@ -667,6 +780,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       engine: session.engine,
       ...(session.agentId ? { agentId: session.agentId } : {}),
       ...(session.agentSessionId ? { agentSessionId: session.agentSessionId } : {}),
+      ...(session.engine === "codex" && codexThreadIdRef.current ? { codexThreadId: codexThreadIdRef.current } : {}),
     };
     await window.claude.sessions.save(data);
   }, []);
@@ -742,9 +856,9 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       // Remove any leftover pending DRAFT_ID session from a previous failed ACP start
       setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
 
-      // Eager start for Claude engine (fire-and-forget)
       const draftEngine = options?.engine ?? "claude";
-      if (draftEngine !== "acp") {
+      if (draftEngine === "claude") {
+        // Eager start for Claude engine (fire-and-forget)
         eagerStartSession(projectId, options);
         // Set immediate "pending" statuses while SDK connects
         window.claude.mcp.list(projectId).then(servers => {
@@ -755,12 +869,16 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
             })));
           }
         }).catch(() => { /* IPC failure */ });
-      } else {
+      } else if (draftEngine === "acp") {
         // ACP: no eager session — probe servers ourselves for preliminary status
         probeMcpServers(projectId);
+      } else {
+        // Codex: no eager start; prefetch model list for the picker.
+        setDraftMcpStatuses([]);
+        prefetchCodexModels(options?.model);
       }
     },
-    [saveCurrentSession, seedBackgroundStore, eagerStartSession, abandonEagerSession, clearQueue],
+    [saveCurrentSession, seedBackgroundStore, eagerStartSession, abandonEagerSession, clearQueue, prefetchCodexModels, probeMcpServers],
   );
 
   const materializingRef = useRef(false);
@@ -782,6 +900,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       console.log("[materializeDraft] engine=%s agentId=%s project=%s", draftEngine, options.agentId, getProjectCwd(project));
 
       let sessionId: string;
+      let sessionModel = options.model;
       let reusedPreStarted = false;
 
       // Load per-project MCP servers to pass to the session
@@ -880,6 +999,77 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
           ? draftMcpStatusesRef.current
           : mcpServers.map(s => ({ name: s.name, status: "connected" as const }))
         );
+      } else if (draftEngine === "codex") {
+        // Codex app-server path
+        setSessions(prev => [{
+          id: DRAFT_ID,
+          projectId: project.id,
+          title: "New Chat",
+          createdAt: Date.now(),
+          lastMessageAt: Date.now(),
+          totalCost: 0,
+          isActive: true,
+          engine: "codex" as const,
+          agentId: options.agentId ?? "codex",
+        }, ...prev.map(s => ({ ...s, isActive: false }))]);
+
+        const draftModel = pickCodexModel(options.model, codexRawModelsRef.current);
+        const result = await window.claude.codex.start({
+          cwd: getProjectCwd(project),
+          ...(draftModel ? { model: draftModel } : {}),
+        });
+
+        if (result.error || !result.sessionId) {
+          const errorMsg = result.error || "Failed to start Codex session";
+          const failedId = `failed-codex-${Date.now()}`;
+          const now = Date.now();
+          const errorMessages: UIMessage[] = [
+            { id: `user-${now}`, role: "user" as const, content: text, timestamp: now, ...(images?.length ? { images } : {}), ...(displayText ? { displayContent: displayText } : {}) },
+            { id: `system-error-${now}`, role: "system" as const, content: errorMsg, isError: true, timestamp: now },
+          ];
+          setSessions(prev => prev.map(s => s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s));
+          setInitialMessages(errorMessages);
+          setInitialMeta({ isProcessing: false, isConnected: false, sessionInfo: null, totalCost: 0 });
+          setActiveSessionId(failedId);
+          setDraftProjectId(null);
+          window.claude.sessions.save({ id: failedId, projectId: project.id, title: "New Chat", createdAt: Date.now(), messages: errorMessages, totalCost: 0, engine: "codex" });
+          materializingRef.current = false;
+          return "";
+        }
+
+        sessionId = result.sessionId;
+        codexThreadIdRef.current = result.threadId ?? null;
+        let resolvedCodexModel = result.selectedModel;
+
+        // Store Codex models for the model picker (map from Codex Model → our ModelInfo)
+        if (result.models && Array.isArray(result.models)) {
+          const models = normalizeCodexModels(result.models);
+          if (models.length > 0) {
+            codex.setCodexModels(models.map((m) => ({
+              value: m.id,
+              displayName: m.displayName,
+              description: m.description,
+            })));
+            setCodexRawModels(models);
+            const selectedId = pickCodexModel(result.selectedModel ?? options.model, models);
+            const selectedModel = selectedId
+              ? models.find((m) => m.id === selectedId)
+              : undefined;
+            resolvedCodexModel = selectedId ?? resolvedCodexModel;
+            if (selectedModel?.defaultReasoningEffort) {
+              codex.setCodexEffort(selectedModel.defaultReasoningEffort);
+            }
+          }
+        }
+        if (!resolvedCodexModel) {
+          resolvedCodexModel = draftModel;
+        }
+        sessionModel = resolvedCodexModel ?? sessionModel;
+
+        // If auth is required, show auth dialog (handled by UI layer via codex:auth_required event)
+        if (result.needsAuth) {
+          // Session is alive but waiting for auth — UI will render CodexAuthDialog
+        }
       } else {
         // Claude SDK path — reuse pre-started session if available
         const preStarted = preStartedSessionIdRef.current;
@@ -933,7 +1123,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         title: "New Chat",
         createdAt: now,
         lastMessageAt: now,
-        model: options.model,
+        model: sessionModel,
         totalCost: 0,
         isActive: true,
         titleGenerating: true,
@@ -941,6 +1131,9 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         ...(draftEngine === "acp" && options.agentId ? {
           agentId: options.agentId,
           agentSessionId: acpAgentSessionIdRef.current ?? undefined,
+        } : {}),
+        ...(draftEngine === "codex" ? {
+          agentId: options.agentId ?? "codex",
         } : {}),
       };
 
@@ -982,7 +1175,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       materializingRef.current = false;
       return sessionId;
     },
-    [findProject, generateSessionTitle],
+    [findProject, generateSessionTitle, codex.setCodexModels, codex.setCodexEffort],
   );
 
   const switchSession = useCallback(
@@ -1070,7 +1263,9 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       const session = sessionsRef.current.find((s) => s.id === id);
       if (!session) return;
       if (liveSessionIdsRef.current.has(id)) {
-        if (session.engine === "acp") {
+        if (session.engine === "codex") {
+          await window.claude.codex.stop(id);
+        } else if (session.engine === "acp") {
           await window.claude.acp.stop(id);
         } else {
           await window.claude.stop(id);
@@ -1111,8 +1306,18 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     const id = activeSessionIdRef.current;
     if (!id) return;
 
+    const applyCodexDefaultEffort = (modelId: string) => {
+      const codexModel = codexRawModelsRef.current.find((entry) => entry.id === modelId);
+      if (codexModel?.defaultReasoningEffort) {
+        codex.setCodexEffort(codexModel.defaultReasoningEffort);
+      }
+    };
+
     if (id === DRAFT_ID) {
       setStartOptions((prev) => ({ ...prev, model }));
+      if ((startOptionsRef.current.engine ?? "claude") === "codex") {
+        applyCodexDefaultEffort(model);
+      }
       // Model change requires session restart — stop eager session and re-start
       if (preStartedSessionIdRef.current) {
         const oldId = preStartedSessionIdRef.current;
@@ -1156,6 +1361,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
     const isLiveClaudeSession = (session.engine ?? "claude") === "claude"
       && liveSessionIdsRef.current.has(id);
+    const isLiveCodexSession = (session.engine ?? "claude") === "codex"
+      && liveSessionIdsRef.current.has(id);
 
     if (isLiveClaudeSession) {
       claude.setModel(model).then((result) => {
@@ -1171,8 +1378,26 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       return;
     }
 
+    if (isLiveCodexSession) {
+      window.claude.codex.setModel(id, model).then((result) => {
+        if (result?.error) {
+          toast.error("Failed to switch model", { description: result.error });
+          return;
+        }
+        applyCodexDefaultEffort(model);
+        persistModel();
+      }).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error("Failed to switch model", { description: message });
+      });
+      return;
+    }
+
+    if ((session.engine ?? "claude") === "codex") {
+      applyCodexDefaultEffort(model);
+    }
     persistModel();
-  }, [claude.setModel, eagerStartSession]);
+  }, [claude.setModel, codex.setCodexEffort, eagerStartSession]);
 
   const importCCSession = useCallback(
     async (projectId: string, ccSessionId: string) => {
@@ -1226,11 +1451,31 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     [findProject, saveCurrentSession, seedBackgroundStore, switchSession],
   );
 
-  const setDraftAgent = useCallback((engine: "claude" | "acp", agentId: string, cachedConfigOptions?: ACPConfigOption[]) => {
+  const setDraftAgent = useCallback((engine: EngineId, agentId: string, cachedConfigOptions?: ACPConfigOption[]) => {
     setStartOptions((prev) => ({ ...prev, engine, agentId }));
     // Load cached config options so dropdowns show "last known" values during draft
     setInitialConfigOptions(cachedConfigOptions ?? []);
-  }, []);
+    if (engine === "codex") {
+      prefetchCodexModels(startOptionsRef.current.model);
+    }
+  }, [prefetchCodexModels]);
+
+  // Ensure Codex model metadata is available even before first turn.
+  useEffect(() => {
+    if (activeEngine !== "codex") return;
+    if (codex.codexModels.length > 0) return;
+    const preferredModel = activeSessionId === DRAFT_ID
+      ? startOptions.model
+      : sessions.find((s) => s.id === activeSessionId)?.model;
+    prefetchCodexModels(preferredModel);
+  }, [
+    activeEngine,
+    activeSessionId,
+    sessions,
+    startOptions.model,
+    codex.codexModels.length,
+    prefetchCodexModels,
+  ]);
 
   const setActivePermissionMode = useCallback((permissionMode: string) => {
     const id = activeSessionIdRef.current;
@@ -1326,6 +1571,86 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       }
     },
     [findProject, acp.setMessages, acp.setIsProcessing],
+  );
+
+  /** Revive a dead Codex session — spawn new app-server + thread/resume */
+  const reviveCodexSession = useCallback(
+    async (text: string, images?: ImageAttachment[]) => {
+      const oldId = activeSessionIdRef.current;
+      if (!oldId || oldId === DRAFT_ID) return;
+      const session = sessionsRef.current.find((s) => s.id === oldId);
+      if (!session) return;
+      const project = findProject(session.projectId);
+      if (!project) return;
+
+      // Load persisted session to get codexThreadId
+      let codexThreadId: string | undefined;
+      try {
+        const persisted = await window.claude.sessions.load(session.projectId, oldId);
+        codexThreadId = persisted?.codexThreadId;
+      } catch { /* ignore */ }
+
+      if (!codexThreadId) {
+        codex.setMessages((prev) => [...prev, {
+          id: `system-error-${Date.now()}`,
+          role: "system" as const,
+          content: "Codex session cannot be resumed (no thread ID). Please start a new session.",
+          isError: true,
+          timestamp: Date.now(),
+        }]);
+        return;
+      }
+
+      const result = await window.claude.codex.resume({
+        cwd: getProjectCwd(project),
+        threadId: codexThreadId,
+        model: session.model,
+      });
+
+      if (result.error || !result.sessionId) {
+        codex.setMessages((prev) => [...prev, {
+          id: `system-error-${Date.now()}`,
+          role: "system" as const,
+          content: result.error || "Failed to resume Codex session.",
+          isError: true,
+          timestamp: Date.now(),
+        }]);
+        return;
+      }
+
+      const newId = result.sessionId;
+      liveSessionIdsRef.current.add(newId);
+
+      setSessions((prev) => prev.map((s) =>
+        s.id === oldId ? { ...s, id: newId } : s,
+      ));
+      setInitialMessages(messagesRef.current);
+      setInitialMeta({ isProcessing: false, isConnected: true, sessionInfo: null, totalCost: totalCostRef.current });
+      setActiveSessionId(newId);
+
+      // Small delay to let hook pick up new sessionId
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      codex.setMessages((prev) => [...prev, {
+        id: `user-${Date.now()}`,
+        role: "user" as const,
+        content: text,
+        timestamp: Date.now(),
+        ...(images?.length ? { images } : {}),
+      }]);
+      codex.setIsProcessing(true);
+      const sendResult = await window.claude.codex.send(newId, text, images, codex.codexEffort);
+      if (sendResult?.error) {
+        codex.setMessages((prev) => [...prev, {
+          id: `system-error-${Date.now()}`,
+          role: "system" as const,
+          content: `Unable to send message: ${sendResult.error}`,
+          isError: true,
+          timestamp: Date.now(),
+        }]);
+        codex.setIsProcessing(false);
+      }
+    },
+    [findProject, codex.setMessages, codex.setIsProcessing, codex.codexEffort],
   );
 
   const reviveSession = useCallback(
@@ -1488,6 +1813,47 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
           return;
         }
 
+        if (draftEngine === "codex") {
+          const sessionId = await materializeDraft(text, images, displayText);
+          if (!sessionId) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+
+          codex.setMessages((prev) => [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: "user",
+              content: text,
+              timestamp: Date.now(),
+              ...(images?.length ? { images } : {}),
+              ...(displayText ? { displayContent: displayText } : {}),
+            },
+          ]);
+          codex.setIsProcessing(true);
+
+          const sendResult = await window.claude.codex.send(
+            sessionId,
+            text,
+            images as unknown[],
+            codex.codexEffort,
+          );
+          if (sendResult?.error) {
+            liveSessionIdsRef.current.delete(sessionId);
+            codex.setMessages((prev) => [
+              ...prev,
+              {
+                id: `system-send-error-${Date.now()}`,
+                role: "system",
+                content: `Unable to send message: ${sendResult.error}`,
+                timestamp: Date.now(),
+                isError: true,
+              },
+            ]);
+            codex.setIsProcessing(false);
+          }
+          return;
+        }
+
         // Claude SDK path
         const sessionId = await materializeDraft(text);
         if (!sessionId) return;
@@ -1549,6 +1915,17 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         return;
       }
 
+      if (activeSessionEngine === "codex") {
+        // Codex sessions: send through Codex hook if live
+        if (liveSessionIdsRef.current.has(activeId)) {
+          await codex.send(text, images as undefined);
+          return;
+        }
+        // Codex session dead — attempt revival via thread/resume
+        await reviveCodexSession(text, images);
+        return;
+      }
+
       // Claude SDK path
       if (liveSessionIdsRef.current.has(activeId)) {
         const sent = await claude.send(text, images, displayText);
@@ -1561,7 +1938,22 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         return;
       }
     },
-    [claude.send, claude.setMessages, acp.send, acp.setMessages, acp.setIsProcessing, engine.setMessages, materializeDraft, reviveSession, enqueueMessage],
+    [
+      claude.send,
+      claude.setMessages,
+      acp.send,
+      acp.setMessages,
+      acp.setIsProcessing,
+      codex.send,
+      codex.setMessages,
+      codex.setIsProcessing,
+      codex.codexEffort,
+      materializeDraft,
+      reviveSession,
+      reviveAcpSession,
+      reviveCodexSession,
+      enqueueMessage,
+    ],
   );
 
   const deselectSession = useCallback(async () => {
@@ -1732,13 +2124,13 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     compact: engine.compact,
     acpConfigOptions: acp.configOptions,
     setACPConfig: acp.setConfig,
-    mcpServerStatuses: isACP
+    mcpServerStatuses: isACP || isCodex
       ? (acpMcpStatuses.length > 0 ? acpMcpStatuses : draftMcpStatuses)
       : (claude.mcpServerStatuses.length > 0 ? claude.mcpServerStatuses : draftMcpStatuses),
     mcpStatusPreliminary: isDraft && draftMcpStatuses.length > 0 && (
-      isACP ? acpMcpStatuses.length === 0 : claude.mcpServerStatuses.length === 0
+      isACP || isCodex ? acpMcpStatuses.length === 0 : claude.mcpServerStatuses.length === 0
     ),
-    refreshMcpStatus: isACP
+    refreshMcpStatus: isACP || isCodex
       ? (() => Promise.resolve())
       : (preStartedSessionId && isDraft)
         ? (async () => {
@@ -1765,6 +2157,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
             const servers = await window.claude.mcp.list(session.projectId);
             await restartAcpSession(servers);
           }
+      : isCodex
+        ? async (_name: string) => { /* Codex MCP reconnect: not yet implemented */ }
       : (preStartedSessionId && isDraft)
         ? (async (name: string) => {
             const result = await window.claude.mcpReconnect(preStartedSessionId, name);
@@ -1780,7 +2174,9 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
             }
           })
         : claude.reconnectMcpServer,
-    supportedModels: claude.supportedModels.length > 0 ? claude.supportedModels : cachedModels,
+    supportedModels: isCodex
+      ? codex.codexModels
+      : claude.supportedModels.length > 0 ? claude.supportedModels : cachedModels,
     restartWithMcpServers: isACP
       ? isDraft
         ? async (servers: McpServerConfig[]) => {
@@ -1793,6 +2189,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
             // ACP live: stop + restart session with updated MCP servers
             await restartAcpSession(servers);
           }
+      : isCodex
+        ? async (_servers: McpServerConfig[]) => { /* Codex MCP restart: not yet implemented */ }
       : (preStartedSessionId && isDraft)
         ? async (_servers: McpServerConfig[]) => {
             // Claude eager draft: stop old eager session and start fresh
@@ -1806,8 +2204,12 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
             }
           }
         : claude.restartWithMcpServers,
-    // File revert: only supported by Claude SDK engine (ACP has no native checkpoint support)
-    revertFiles: isACP ? undefined : claude.revertFiles,
-    fullRevert: isACP ? undefined : fullRevertSession,
+    // File revert: only supported by Claude SDK engine
+    revertFiles: activeEngine === "claude" ? claude.revertFiles : undefined,
+    fullRevert: activeEngine === "claude" ? fullRevertSession : undefined,
+    // Codex reasoning effort
+    codexEffort: codex.codexEffort,
+    setCodexEffort: codex.setCodexEffort,
+    codexRawModels,
   };
 }

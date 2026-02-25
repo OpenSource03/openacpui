@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { UIMessage, PermissionRequest, SessionInfo, ContextUsage, ImageAttachment, AcpPermissionBehavior } from "@/types";
+import type { UIMessage, PermissionRequest, SessionInfo, ContextUsage, ImageAttachment, AcpPermissionBehavior, PermissionBehavior } from "@/types";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "@/types/acp";
 import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, pickAutoResponseOption } from "@/lib/acp-adapter";
 
@@ -372,7 +372,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   }, [sessionId]);
 
   const respondPermission = useCallback(async (
-    behavior: "allow" | "deny",
+    behavior: PermissionBehavior,
     _updatedInput?: Record<string, unknown>,
     _newPermissionMode?: string,
   ) => {

@@ -16,6 +16,7 @@ import type {
   ModelInfo,
   McpServerStatus,
   McpServerConfig,
+  PermissionBehavior,
 } from "../types";
 import { toMcpStatusState } from "../types/ui";
 import { StreamingBuffer } from "../lib/streaming-buffer";
@@ -763,7 +764,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   }, [flushNow, resetStreaming]);
 
   const respondPermission = useCallback(
-    async (behavior: "allow" | "deny", updatedInput?: Record<string, unknown>, newPermissionMode?: string) => {
+    async (behavior: PermissionBehavior, updatedInput?: Record<string, unknown>, newPermissionMode?: string) => {
       if (!pendingPermission || !sessionIdRef.current) return;
       await window.claude.respondPermission(
         sessionIdRef.current,

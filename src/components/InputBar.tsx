@@ -33,7 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ImageAttachment, ContextUsage, AgentDefinition, ACPConfigOption, ModelInfo, AcpPermissionBehavior } from "@/types";
+import type { ImageAttachment, ContextUsage, AgentDefinition, ACPConfigOption, ModelInfo, AcpPermissionBehavior, EngineId } from "@/types";
 import { flattenConfigOptions } from "@/types/acp";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { resolveModelValue } from "@/lib/model-utils";
@@ -117,8 +117,13 @@ interface InputBarProps {
   acpPermissionBehavior?: AcpPermissionBehavior;
   onAcpPermissionBehaviorChange?: (behavior: AcpPermissionBehavior) => void;
   supportedModels?: ModelInfo[];
+  /** Codex reasoning effort — per-model configurable effort level */
+  codexEffort?: string;
+  onCodexEffortChange?: (effort: string) => void;
+  /** Codex models carry their supported effort levels — passed through for the effort dropdown */
+  codexModelData?: Array<{ id: string; supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }>; defaultReasoningEffort: string; isDefault?: boolean }>;
   /** Non-null when session is active (not draft) — engine is locked and cross-engine agents show "Opens new chat" */
-  lockedEngine?: "claude" | "acp" | null;
+  lockedEngine?: EngineId | null;
   /** Non-null when an ACP session is active — switching to a different ACP agent opens new chat */
   lockedAgentId?: string | null;
   /** Number of messages currently queued for sending */
@@ -214,6 +219,9 @@ export const InputBar = memo(function InputBar({
   acpPermissionBehavior,
   onAcpPermissionBehaviorChange,
   supportedModels,
+  codexEffort,
+  onCodexEffortChange,
+  codexModelData,
   lockedEngine,
   lockedAgentId,
   queuedCount = 0,
@@ -244,10 +252,22 @@ export const InputBar = memo(function InputBar({
     : [];
   const modelsLoading = modelList.length === 0;
   const resolvedModelId = resolveModelValue(model, supportedModels ?? []);
-  const selectedModel = modelList.find((m) => m.id === (resolvedModelId ?? model)) ?? modelList[0];
+  const preferredModelId = resolvedModelId ?? model;
+  const selectedModel = modelList.find((m) => m.id === preferredModelId) ?? modelList[0];
+  const selectedModelId = selectedModel?.id ?? preferredModelId;
   const selectedMode =
     PERMISSION_MODES.find((m) => m.id === permissionMode) ?? PERMISSION_MODES[0];
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
+  const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
+
+  // Codex: find the effort options for the currently selected model
+  const codexCurrentModel = codexModelData?.find((m) => m.id === selectedModelId)
+    ?? codexModelData?.find((m) => m.isDefault)
+    ?? codexModelData?.[0];
+  const codexEffortOptions = codexCurrentModel?.supportedReasoningEfforts ?? [];
+  const codexActiveEffort = codexEffortOptions.some((opt) => opt.reasoningEffort === codexEffort)
+    ? codexEffort
+    : codexCurrentModel?.defaultReasoningEffort ?? codexEffort ?? "medium";
 
   // Fetch file list when projectPath changes
   useEffect(() => {
@@ -803,7 +823,101 @@ export const InputBar = memo(function InputBar({
               </DropdownMenu>
             )}
 
-            {isACPAgent ? (
+            {isCodexAgent ? (
+              /* Codex controls — model, effort, permission mode */
+              <>
+                {modelsLoading ? (
+                  <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading models…
+                  </div>
+                ) : (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                        disabled={isProcessing}
+                      >
+                        {selectedModel?.label}
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {modelList.map((m) => (
+                        <DropdownMenuItem
+                          key={m.id}
+                          onClick={() => onModelChange(m.id)}
+                          className={m.id === selectedModelId ? "bg-accent" : ""}
+                        >
+                          <div>
+                            <div>{m.label}</div>
+                            {m.description && (
+                              <div className="text-[10px] text-muted-foreground">{m.description}</div>
+                            )}
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* Codex reasoning effort dropdown */}
+                {codexEffortOptions.length > 0 && onCodexEffortChange && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                        disabled={isProcessing}
+                      >
+                        <Brain className="h-3 w-3" />
+                        {codexActiveEffort}
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {codexEffortOptions.map((opt) => (
+                        <DropdownMenuItem
+                          key={opt.reasoningEffort}
+                          onClick={() => onCodexEffortChange(opt.reasoningEffort)}
+                          className={opt.reasoningEffort === codexActiveEffort ? "bg-accent" : ""}
+                        >
+                          <div>
+                            <div className="capitalize">{opt.reasoningEffort}</div>
+                            {opt.description && (
+                              <div className="text-[10px] text-muted-foreground">{opt.description}</div>
+                            )}
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* Codex permission mode — reuse Claude's dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                    >
+                      <Shield className="h-3 w-3" />
+                      {selectedMode.label}
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {PERMISSION_MODES.map((m) => (
+                      <DropdownMenuItem
+                        key={m.id}
+                        onClick={() => onPermissionModeChange(m.id)}
+                        className={m.id === permissionMode ? "bg-accent" : ""}
+                      >
+                        {m.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : isACPAgent ? (
               /* ACP agent controls — permission behavior + dynamic config dropdowns */
               <>
                 {/* ACP permission behavior dropdown */}
@@ -896,7 +1010,7 @@ export const InputBar = memo(function InputBar({
                         <DropdownMenuItem
                           key={m.id}
                           onClick={() => onModelChange(m.id)}
-                          className={m.id === (resolvedModelId ?? model) ? "bg-accent" : ""}
+                          className={m.id === selectedModelId ? "bg-accent" : ""}
                         >
                           <div>
                             <div>{m.label}</div>

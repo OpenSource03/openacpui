@@ -11,6 +11,9 @@ import type {
   SubagentToolStep,
 } from "../types";
 import type { ACPSessionEvent, ACPPermissionEvent } from "../types/acp";
+import type { CodexSessionEvent } from "../types/codex";
+import { codexItemToToolName, codexItemToToolInput, codexItemToToolResult } from "./codex-adapter";
+import type { CodexThreadItem } from "../types/codex";
 import {
   getParentId,
   extractTextContent,
@@ -472,6 +475,106 @@ export class BackgroundSessionStore {
     for (const msg of state.messages) {
       if (msg.role === "tool_call" && !msg.toolResult && !msg.toolError) {
         msg.toolResult = { status: "completed" };
+      }
+    }
+  }
+
+  // ── Codex background event handling ──
+
+  /** Handle a Codex notification for a background (non-active) session. */
+  handleCodexEvent(event: CodexSessionEvent): void {
+    const sessionId = event._sessionId;
+    if (!sessionId) return;
+
+    const state = this.getOrCreate(sessionId);
+    state.isConnected = true;
+    const { method, params } = event;
+
+    switch (method) {
+      case "turn/started":
+        state.isProcessing = true;
+        this.onProcessingChange?.(sessionId, true);
+        break;
+
+      case "turn/completed":
+        this.finalizeACPStreamingMsg(state); // reuse — same pattern
+        state.isProcessing = false;
+        this.onProcessingChange?.(sessionId, false);
+        break;
+
+      case "item/started": {
+        const item = (params as Record<string, unknown>).item as CodexThreadItem | undefined;
+        if (!item) break;
+        if (item.type === "agentMessage") {
+          this.ensureACPStreamingMsg(state); // reuse streaming msg pattern
+        } else {
+          const toolName = codexItemToToolName(item);
+          if (toolName) {
+            this.finalizeACPStreamingMsg(state);
+            const msgId = `codex-tool-bg-${item.id}`;
+            state.parentToolMap.set(item.id, msgId);
+            state.messages.push({
+              id: msgId,
+              role: "tool_call",
+              content: "",
+              toolName,
+              toolInput: codexItemToToolInput(item),
+              timestamp: Date.now(),
+            });
+          }
+        }
+        break;
+      }
+
+      case "item/completed": {
+        const item = (params as Record<string, unknown>).item as CodexThreadItem | undefined;
+        if (!item) break;
+        if (item.type === "agentMessage") {
+          const text = (item as Record<string, unknown>).text as string | undefined;
+          const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
+          if (target && text) target.content = text;
+          this.finalizeACPStreamingMsg(state);
+        } else {
+          const msgId = state.parentToolMap.get(item.id);
+          if (msgId) {
+            const msg = state.messages.find(m => m.id === msgId);
+            if (msg) {
+              const result = codexItemToToolResult(item);
+              if (result) msg.toolResult = result;
+              const isError =
+                (item.type === "commandExecution" && (item.status === "failed" || item.status === "declined")) ||
+                (item.type === "fileChange" && (item.status === "failed" || item.status === "declined")) ||
+                (item.type === "mcpToolCall" && item.status === "failed");
+              if (isError) msg.toolError = true;
+            }
+            state.parentToolMap.delete(item.id);
+          }
+        }
+        break;
+      }
+
+      case "item/agentMessage/delta": {
+        const delta = (params as Record<string, unknown>).delta as string | undefined;
+        if (delta) {
+          this.ensureACPStreamingMsg(state);
+          const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
+          if (target) {
+            if (target.thinking && !target.thinkingComplete) target.thinkingComplete = true;
+            target.content += delta;
+          }
+        }
+        break;
+      }
+
+      case "item/reasoning/summaryTextDelta":
+      case "item/reasoning/textDelta": {
+        const delta = (params as Record<string, unknown>).delta as string | undefined;
+        if (delta) {
+          this.ensureACPStreamingMsg(state);
+          const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
+          if (target) target.thinking = (target.thinking ?? "") + delta;
+        }
+        break;
       }
     }
   }

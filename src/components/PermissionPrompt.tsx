@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ShieldAlert, Check, X, Send, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { PermissionRequest } from "@/types";
+import type { PermissionRequest, RespondPermissionFn } from "@/types";
 
 const TOOL_LABELS: Record<string, string> = {
   Write: "Create a file",
@@ -32,7 +32,9 @@ interface Question {
 
 interface PermissionPromptProps {
   request: PermissionRequest;
-  onRespond: (behavior: "allow" | "deny", updatedInput?: Record<string, unknown>, newPermissionMode?: string) => void;
+  onRespond: RespondPermissionFn;
+  /** When true, show a third "Allow for Session" button (Codex engine) */
+  showAcceptForSession?: boolean;
 }
 
 // --- ExitPlanMode: let user choose which permission mode to switch to ---
@@ -218,7 +220,7 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
 
 // --- Default tool permission prompt ---
 
-export function PermissionPrompt({ request, onRespond }: PermissionPromptProps) {
+export function PermissionPrompt({ request, onRespond, showAcceptForSession }: PermissionPromptProps) {
   if (request.toolName === "ExitPlanMode") {
     return <ExitPlanModePrompt request={request} onRespond={onRespond} />;
   }
@@ -255,6 +257,17 @@ export function PermissionPrompt({ request, onRespond }: PermissionPromptProps) 
             <X className="h-3.5 w-3.5" />
             Deny
           </Button>
+          {showAcceptForSession && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onRespond("allowForSession")}
+              className="h-8 gap-1.5 text-xs"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Allow for Session
+            </Button>
+          )}
           <Button
             size="sm"
             onClick={() => onRespond("allow")}

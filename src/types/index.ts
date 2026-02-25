@@ -65,6 +65,14 @@ export type {
 } from "./acp";
 export { flattenConfigOptions } from "./acp";
 
+export type { EngineId, EngineHookState, PermissionBehavior, RespondPermissionFn } from "./engine";
+
+export type {
+  CodexSessionEvent,
+  CodexApprovalRequest,
+  CodexExitEvent,
+} from "./codex";
+
 export type {
   RegistryAgent,
   RegistryData,

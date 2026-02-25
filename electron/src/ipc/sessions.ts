@@ -13,7 +13,7 @@ interface SessionMeta {
   lastMessageAt: number;
   model?: string;
   totalCost?: number;
-  engine?: "claude" | "acp";
+  engine?: "claude" | "acp" | "codex";
 }
 
 interface SearchResult {

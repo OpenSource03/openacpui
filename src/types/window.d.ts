@@ -7,6 +7,9 @@ import type {
   AppSettings,
 } from "./ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
+import type { EngineId, PermissionBehavior } from "./engine";
+import type { CodexSessionEvent, CodexApprovalRequest, CodexExitEvent } from "./codex";
+import type { Model as CodexModel } from "./codex-protocol/v2/Model";
 
 interface SessionListItem {
   id: string;
@@ -17,7 +20,7 @@ interface SessionListItem {
   lastMessageAt: number;
   model?: string;
   totalCost: number;
-  engine?: "claude" | "acp";
+  engine?: EngineId;
 }
 
 declare global {
@@ -52,7 +55,7 @@ declare global {
       generateTitle: (
         message: string,
         cwd?: string,
-        engine?: "claude" | "acp",
+        engine?: EngineId,
         sessionId?: string,
       ) => Promise<{ title?: string; error?: string }>;
       log: (label: string, data: unknown) => void;
@@ -73,7 +76,7 @@ declare global {
       respondPermission: (
         sessionId: string,
         requestId: string,
-        behavior: "allow" | "deny",
+        behavior: PermissionBehavior,
         toolUseId: string,
         toolInput: Record<string, unknown>,
         newPermissionMode?: string,
@@ -151,7 +154,7 @@ declare global {
         log: (cwd: string, count?: number) => Promise<GitLogEntry[]>;
         generateCommitMessage: (
           cwd: string,
-          engine?: "claude" | "acp",
+          engine?: EngineId,
           sessionId?: string,
         ) => Promise<{ message?: string; error?: string }>;
       };
@@ -187,6 +190,35 @@ declare global {
         onPermissionRequest: (callback: (data: ACPPermissionEvent) => void) => () => void;
         onTurnComplete: (callback: (data: ACPTurnCompleteEvent) => void) => () => void;
         onExit: (callback: (data: { _sessionId: string; code: number | null; error?: string }) => void) => () => void;
+      };
+      codex: {
+        start: (options: { cwd: string; model?: string; approvalPolicy?: string; personality?: string }) =>
+          Promise<{
+            sessionId?: string;
+            threadId?: string;
+            models?: CodexModel[];
+            selectedModel?: string;
+            account?: unknown;
+            needsAuth?: boolean;
+            error?: string;
+          }>;
+        send: (sessionId: string, text: string, images?: unknown[], effort?: string) =>
+          Promise<{ turnId?: string; error?: string }>;
+        stop: (sessionId: string) => Promise<void>;
+        interrupt: (sessionId: string) => Promise<{ error?: string }>;
+        respondApproval: (sessionId: string, rpcId: number, decision: string, acceptSettings?: unknown) =>
+          Promise<void>;
+        compact: (sessionId: string) => Promise<{ error?: string }>;
+        listModels: () => Promise<{ models: CodexModel[]; error?: string }>;
+        authStatus: () => Promise<{ account: unknown; requiresOpenaiAuth: boolean }>;
+        login: (sessionId: string, type: string, apiKey?: string) => Promise<unknown>;
+        resume: (options: { cwd: string; threadId: string; model?: string }) =>
+          Promise<{ sessionId?: string; threadId?: string; error?: string }>;
+        setModel: (sessionId: string, model: string) => Promise<{ error?: string }>;
+        version: () => Promise<{ version?: string; error?: string }>;
+        onEvent: (callback: (data: CodexSessionEvent) => void) => () => void;
+        onApprovalRequest: (callback: (data: CodexApprovalRequest) => void) => () => void;
+        onExit: (callback: (data: CodexExitEvent) => void) => () => void;
       };
       mcp: {
         list: (projectId: string) => Promise<McpServerConfig[]>;

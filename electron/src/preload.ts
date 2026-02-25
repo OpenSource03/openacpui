@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld("claude", {
     ipcRenderer.invoke("claude:restart-session", { sessionId, mcpServers }),
   readFile: (filePath: string) => ipcRenderer.invoke("file:read", filePath),
   openInEditor: (filePath: string, line?: number, editor?: string) => ipcRenderer.invoke("file:open-in-editor", { filePath, line, editor }),
-  generateTitle: (message: string, cwd?: string, engine?: "claude" | "acp", sessionId?: string) =>
+  generateTitle: (message: string, cwd?: string, engine?: string, sessionId?: string) =>
     ipcRenderer.invoke("claude:generate-title", { message, cwd, engine, sessionId }),
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
@@ -102,7 +102,7 @@ contextBridge.exposeInMainWorld("claude", {
     fetch: (cwd: string) => ipcRenderer.invoke("git:fetch", cwd),
     diffFile: (cwd: string, file: string, staged: boolean) => ipcRenderer.invoke("git:diff-file", { cwd, file, staged }),
     log: (cwd: string, count?: number) => ipcRenderer.invoke("git:log", { cwd, count }),
-    generateCommitMessage: (cwd: string, engine?: "claude" | "acp", sessionId?: string) =>
+    generateCommitMessage: (cwd: string, engine?: string, sessionId?: string) =>
       ipcRenderer.invoke("git:generate-commit-message", { cwd, engine, sessionId }),
   },
   terminal: {
@@ -158,6 +158,41 @@ contextBridge.exposeInMainWorld("claude", {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on("acp:exit", listener);
       return () => ipcRenderer.removeListener("acp:exit", listener);
+    },
+  },
+  codex: {
+    start: (options: { cwd: string; model?: string; approvalPolicy?: string; personality?: string }) =>
+      ipcRenderer.invoke("codex:start", options),
+    send: (sessionId: string, text: string, images?: unknown[], effort?: string) =>
+      ipcRenderer.invoke("codex:send", { sessionId, text, images, effort }),
+    stop: (sessionId: string) => ipcRenderer.invoke("codex:stop", sessionId),
+    interrupt: (sessionId: string) => ipcRenderer.invoke("codex:interrupt", sessionId),
+    respondApproval: (sessionId: string, rpcId: number, decision: string, acceptSettings?: unknown) =>
+      ipcRenderer.invoke("codex:approval_response", { sessionId, rpcId, decision, acceptSettings }),
+    compact: (sessionId: string) => ipcRenderer.invoke("codex:compact", sessionId),
+    listModels: () => ipcRenderer.invoke("codex:list-models"),
+    authStatus: () => ipcRenderer.invoke("codex:auth-status"),
+    login: (sessionId: string, type: string, apiKey?: string) =>
+      ipcRenderer.invoke("codex:login", { sessionId, type, apiKey }),
+    resume: (options: { cwd: string; threadId: string; model?: string }) =>
+      ipcRenderer.invoke("codex:resume", options),
+    setModel: (sessionId: string, model: string) =>
+      ipcRenderer.invoke("codex:set-model", { sessionId, model }),
+    version: () => ipcRenderer.invoke("codex:version"),
+    onEvent: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("codex:event", listener);
+      return () => ipcRenderer.removeListener("codex:event", listener);
+    },
+    onApprovalRequest: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("codex:approval_request", listener);
+      return () => ipcRenderer.removeListener("codex:approval_request", listener);
+    },
+    onExit: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("codex:exit", listener);
+      return () => ipcRenderer.removeListener("codex:exit", listener);
     },
   },
   mcp: {

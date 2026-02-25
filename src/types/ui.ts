@@ -1,5 +1,6 @@
 import type { ToolUseResult } from "./protocol";
 import type { ACPConfigOption } from "./acp";
+import type { EngineId } from "./engine";
 
 export type PreferredEditor = "auto" | "cursor" | "code" | "zed";
 export type VoiceDictationMode = "native" | "whisper";
@@ -149,7 +150,7 @@ export interface ChatSession {
   /** A background session has a pending permission request (tool approval, etc.) */
   hasPendingPermission?: boolean;
   titleGenerating?: boolean;
-  engine?: "claude" | "acp";
+  engine?: EngineId;
   agentSessionId?: string;
   agentId?: string;
 }
@@ -162,11 +163,13 @@ export interface PersistedSession {
   messages: UIMessage[];
   model?: string;
   totalCost: number;
-  engine?: "claude" | "acp";
+  engine?: EngineId;
   /** ACP-side session ID (from `session/new` response) — needed to call `session/load` on revival */
   agentSessionId?: string;
   /** ACP agent ID — needed to spawn the right binary on revival */
   agentId?: string;
+  /** Codex thread ID — needed for `thread/resume` on revival */
+  codexThreadId?: string;
 }
 
 export interface PermissionRequest {
@@ -224,7 +227,7 @@ export interface ContextUsage {
 export interface AgentDefinition {
   id: string;
   name: string;
-  engine: "claude" | "acp";
+  engine: EngineId;
   binary?: string;
   args?: string[];
   env?: Record<string, string>;

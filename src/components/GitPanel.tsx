@@ -35,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useGitStatus, type RepoState } from "@/hooks/useGitStatus";
-import type { GitFileChange, GitFileGroup, GitBranch, GitRepoInfo } from "@/types";
+import type { GitFileChange, GitFileGroup, GitBranch, GitRepoInfo, EngineId } from "@/types";
 
 interface GitPanelProps {
   cwd?: string;
@@ -44,7 +44,7 @@ interface GitPanelProps {
   selectedWorktreePath?: string;
   onSelectWorktreePath?: (path: string | null) => void;
   /** Active session engine — used to route commit message generation */
-  activeEngine?: "claude" | "acp";
+  activeEngine?: EngineId;
   /** Active session ID — used for ACP utility prompts */
   activeSessionId?: string | null;
 }
@@ -520,7 +520,7 @@ function RepoSection({ repoState, git, collapsed: collapsedProp, onToggleCollaps
   git: GitActions;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
-  activeEngine?: "claude" | "acp";
+  activeEngine?: EngineId;
   activeSessionId?: string | null;
 }) {
   const { repo, status, branches, log } = repoState;

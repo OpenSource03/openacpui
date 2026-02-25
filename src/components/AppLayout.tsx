@@ -486,7 +486,20 @@ export function AppLayout() {
       if (agent && selectedAgent?.id !== agent.id) {
         setSelectedAgent(agent);
       }
-    } else if (session.engine !== "acp" && selectedAgent !== null) {
+      return;
+    }
+
+    if (session.engine === "codex") {
+      const codexAgent = (session.agentId
+        ? agents.find((a) => a.id === session.agentId)
+        : undefined) ?? agents.find((a) => a.engine === "codex");
+      if (codexAgent && selectedAgent?.id !== codexAgent.id) {
+        setSelectedAgent(codexAgent);
+      }
+      return;
+    }
+
+    if (selectedAgent !== null) {
       setSelectedAgent(null);
     }
   }, [manager.activeSessionId, manager.isDraft, manager.sessions, agents]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -933,6 +946,9 @@ export function AppLayout() {
                     acpPermissionBehavior={settings.acpPermissionBehavior}
                     onAcpPermissionBehaviorChange={settings.setAcpPermissionBehavior}
                     supportedModels={manager.supportedModels}
+                    codexEffort={manager.codexEffort}
+                    onCodexEffortChange={manager.setCodexEffort}
+                    codexModelData={manager.codexRawModels}
                     lockedEngine={lockedEngine}
                     lockedAgentId={lockedAgentId}
                   />

@@ -2,10 +2,12 @@ import fs from "fs";
 import path from "path";
 import { app } from "electron";
 
+export type EngineId = "claude" | "acp" | "codex";
+
 export interface AgentDefinition {
   id: string;
   name: string;
-  engine: "claude" | "acp";
+  engine: EngineId;
   binary?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -29,8 +31,19 @@ const BUILTIN_CLAUDE: AgentDefinition = {
   icon: "brain",
 };
 
+const BUILTIN_CODEX: AgentDefinition = {
+  id: "codex",
+  name: "Codex",
+  engine: "codex",
+  builtIn: true,
+  icon: "zap",
+};
+
+const BUILTIN_IDS = new Set([BUILTIN_CLAUDE.id, BUILTIN_CODEX.id]);
+
 const agents = new Map<string, AgentDefinition>();
 agents.set(BUILTIN_CLAUDE.id, BUILTIN_CLAUDE);
+agents.set(BUILTIN_CODEX.id, BUILTIN_CODEX);
 
 function getConfigPath(): string {
   return path.join(app.getPath("userData"), "openacpui-data", "agents.json");
@@ -40,7 +53,7 @@ export function loadUserAgents(): void {
   try {
     const data = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
     for (const agent of data) {
-      if (agent.id !== "claude-code") agents.set(agent.id, agent);
+      if (!BUILTIN_IDS.has(agent.id)) agents.set(agent.id, agent);
     }
   } catch {
     /* no config yet */
@@ -56,7 +69,7 @@ export function listAgents(): AgentDefinition[] {
 }
 
 export function saveAgent(agent: AgentDefinition): void {
-  if (agent.id === "claude-code") return; // Protect built-in
+  if (BUILTIN_IDS.has(agent.id)) return; // Protect built-in agents
   if (!agent.id?.trim() || !agent.name?.trim()) throw new Error("Agent must have id and name");
   if (agent.engine === "acp" && !agent.binary?.trim()) throw new Error("ACP agents require a binary");
   agents.set(agent.id, agent);
@@ -64,7 +77,7 @@ export function saveAgent(agent: AgentDefinition): void {
 }
 
 export function deleteAgent(id: string): void {
-  if (id === "claude-code") return;
+  if (BUILTIN_IDS.has(id)) return;
   agents.delete(id);
   persistUserAgents();
 }
