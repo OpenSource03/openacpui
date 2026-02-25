@@ -299,10 +299,11 @@ Always search the web when needed for up-to-date API references, Electron APIs, 
 - Examples from repo: `feat: git worktree management, ACP utility sessions, and streaming UI overhaul`, `fix: build both mac arches in one job to prevent latest-mac.yml race`
 
 **Version bumping**:
-1. Bump `version` in `package.json` (electron-builder uses this, NOT the git tag)
-2. Commit: `chore: bump version to X.Y.Z`
-3. Tag: `git tag vX.Y.Z HEAD && git push origin vX.Y.Z`
-4. Create release: `gh release create vX.Y.Z --title "..." --notes "..."`
+1. Check for latest `@anthropic-ai/claude-agent-sdk` version and update in `package.json` if newer
+2. Bump `version` in `package.json` (electron-builder uses this, NOT the git tag)
+3. Commit: `chore: bump version to X.Y.Z`
+4. Tag: `git tag vX.Y.Z HEAD && git push origin vX.Y.Z`
+5. Create release: `gh release create vX.Y.Z --title "..." --notes "..."`
 
 ## Coding Conventions
 

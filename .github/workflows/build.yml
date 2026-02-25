@@ -124,6 +124,9 @@ jobs:
             !release/**/*.blockmap
           retention-days: 30
 
+  # Linux: can't use --x64 --arm64 in one invocation (AppImage builder tries to
+  # access cross-arch vendor binaries that don't exist in the other arch's staging
+  # dir). Build sequentially, then merge latest-linux.yml before publishing.
   build-linux:
     needs: [prepare-release]
     if: ${{ always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
@@ -152,15 +155,52 @@ jobs:
       - name: Build app
         run: pnpm build
 
-      - name: Package (linux x64 + arm64)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Package (linux x64)
         run: >
           pnpm exec electron-builder
-          --linux
-          --x64 --arm64
+          --linux --x64
           --config electron-builder.config.js
-          --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          --publish never
+
+      - name: Save x64 update manifest
+        run: cp release/*/latest-linux.yml latest-linux-x64.yml 2>/dev/null || true
+
+      - name: Package (linux arm64)
+        run: >
+          pnpm exec electron-builder
+          --linux --arm64
+          --config electron-builder.config.js
+          --publish never
+
+      - name: Merge update manifests
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          DIR="release/${VERSION}"
+          # arm64 build overwrites latest-linux.yml — merge x64 entries back in
+          if [ -f "latest-linux-x64.yml" ] && [ -f "${DIR}/latest-linux.yml" ]; then
+            yq eval-all '
+              select(fileIndex == 0).files += select(fileIndex == 1).files
+              | select(fileIndex == 0)
+            ' latest-linux-x64.yml "${DIR}/latest-linux.yml" > "${DIR}/latest-linux-merged.yml"
+            mv "${DIR}/latest-linux-merged.yml" "${DIR}/latest-linux.yml"
+          elif [ -f "latest-linux-x64.yml" ]; then
+            cp latest-linux-x64.yml "${DIR}/latest-linux.yml"
+          fi
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME}"
+          DIR="release/${VERSION}"
+          for file in "${DIR}"/*.AppImage "${DIR}"/*.deb "${DIR}"/latest-linux.yml; do
+            if [ -f "$file" ]; then
+              echo "Uploading: $(basename "$file")"
+              gh release upload "$TAG" "$file" --clobber || true
+            fi
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -151,8 +151,8 @@ module.exports = {
   // --- Linux ---
   linux: {
     target: [
-      { target: "AppImage", arch: ["x64", "arm64"] },
-      { target: "deb", arch: ["x64", "arm64"] },
+      { target: "AppImage" },
+      { target: "deb" },
     ],
     category: "Development",
     icon: "build/icon.png",
