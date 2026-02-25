@@ -47,7 +47,7 @@ OpenACP UI supports three execution engines:
 
 | Engine | Protocol | Requirements |
 |--------|----------|--------------|
-| **Claude Code** | Anthropic Agent SDK | Anthropic API key |
+| **Claude Code** | Anthropic Agent SDK | Claude account (subscription or API key) |
 | **Codex** | JSON-RPC app-server | Codex CLI in PATH + OpenAI API key or ChatGPT account |
 | **ACP agents** | Agent Client Protocol | Agent-specific (see registry) |
 
