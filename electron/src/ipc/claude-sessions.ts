@@ -22,42 +22,6 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// ── Plan mode system prompt ──
-// Appended to the Claude Code preset when permissionMode is "plan".
-// Mirrors the Codex desktop approach: 3-phase conversational planning with
-// <proposed_plan> output format so ProposedPlanCard can render it uniformly.
-const PLAN_MODE_SYSTEM_PROMPT = `
-You are in PLAN MODE. Your goal is to understand the user's request and create a detailed implementation plan WITHOUT making any changes to files.
-
-## Rules
-1. You may ONLY use read-only tools (Read, Glob, Grep, Bash for non-mutating commands like ls, git status, find, tree). Do NOT use Write, Edit, NotebookEdit, or any tool that modifies files.
-2. Ask clarifying questions when the request is ambiguous.
-3. When you have gathered enough context and are ready to propose a plan, wrap it in a <proposed_plan> block.
-
-## Phases
-1. **Explore** — ground yourself in the codebase. Read files, search for patterns, inspect configs. Resolve unknowns by discovery, not by asking.
-2. **Clarify** — once you understand the landscape, ask only questions whose answers would materially change the plan (tradeoffs, preferences, scope decisions).
-3. **Plan** — output a single <proposed_plan> block with a decision-complete spec.
-
-## Plan Output Format
-When ready, output your plan exactly like this:
-
-<proposed_plan title="Short title">
-Your detailed implementation plan in markdown. Include:
-- Step-by-step implementation approach
-- Files to create or modify (with paths)
-- Key code changes with snippets where helpful
-- Edge cases and risks
-- Testing / verification approach
-</proposed_plan>
-
-## Important
-- Do NOT ask "should I proceed?" or "shall I implement this?" after outputting the plan.
-- Do NOT make any file modifications.
-- Only output one <proposed_plan> block per turn, and only when you are presenting a complete spec.
-- The plan should be specific enough that another agent could implement it without making decisions.
-`.trim();
-
 type PermissionResult =
   | { behavior: "allow"; updatedInput?: Record<string, unknown> }
   | { behavior: "deny"; message: string };
@@ -486,14 +450,6 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       if (options.permissionMode === "bypassPermissions") {
         queryOptions.allowDangerouslySkipPermissions = true;
       }
-      // In plan mode, append instructions that guide Claude to produce <proposed_plan> blocks
-      if (options.permissionMode === "plan") {
-        queryOptions.systemPrompt = {
-          type: "preset",
-          preset: "claude_code",
-          append: PLAN_MODE_SYSTEM_PROMPT,
-        };
-      }
       if (options.model) {
         queryOptions.model = options.model;
       }
@@ -607,7 +563,12 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     if (behavior === "allow") {
       pending.resolve({ behavior: "allow", updatedInput: toolInput });
     } else {
-      pending.resolve({ behavior: "deny", message: "User denied permission" });
+      // Pass user-provided rejection reason (from plan feedback) to the SDK so the model can adjust
+      const denyMsg = toolInput?.denyMessage;
+      pending.resolve({
+        behavior: "deny",
+        message: typeof denyMsg === "string" && denyMsg.trim() ? denyMsg.trim() : "User denied permission",
+      });
     }
     return { ok: true };
   });

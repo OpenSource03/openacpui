@@ -46,6 +46,14 @@ const EXIT_PLAN_MODES = [
 ] as const;
 
 function ExitPlanModePrompt({ request, onRespond }: PermissionPromptProps) {
+  const [feedback, setFeedback] = useState("");
+  const hasFeedback = feedback.trim().length > 0;
+
+  const submitFeedback = () => {
+    if (!hasFeedback) return;
+    onRespond("deny", { denyMessage: feedback.trim() });
+  };
+
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
       <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/55 shadow-lg backdrop-blur-lg">
@@ -72,16 +80,39 @@ function ExitPlanModePrompt({ request, onRespond }: PermissionPromptProps) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end border-t border-border/40 px-3 py-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onRespond("deny")}
-            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-            Stay in Plan
-          </Button>
+        <div className="flex flex-col gap-2 border-t border-border/40 px-3 py-2.5">
+          <input
+            type="text"
+            placeholder="Give feedback to refine the plan..."
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitFeedback();
+              if (e.key === "Escape") setFeedback("");
+            }}
+            className="w-full rounded-md border border-border/40 bg-transparent px-2.5 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus-visible:border-border"
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onRespond("deny")}
+              className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+              Stay in Plan
+            </Button>
+            {hasFeedback && (
+              <Button
+                size="sm"
+                onClick={submitFeedback}
+                className="h-8 gap-1.5 text-xs"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Send Feedback
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>

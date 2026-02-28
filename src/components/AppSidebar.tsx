@@ -635,10 +635,7 @@ function SessionItem({
           <MessageSquare className="h-3 w-3 shrink-0 text-sidebar-foreground/50" />
         )}
         {session.titleGenerating ? (
-          <span className="flex items-center gap-1.5 text-sidebar-foreground/60">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            <span className="italic">Generating title...</span>
-          </span>
+          <span className="text-sidebar-foreground/60 italic">Generating title...</span>
         ) : (
           <span className="min-w-0 truncate">{session.title}</span>
         )}

@@ -828,7 +828,36 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
       // sessionInfo.permissionMode changes away from "plan".
       if (pendingPermission?.toolName === "ExitPlanMode") {
         setPendingPermission(null);
-        if (behavior !== "deny" && _newPermissionMode) {
+
+        if (behavior === "deny") {
+          // Send user feedback as a plan-mode message so Codex refines the plan
+          const denyMessage = typeof _updatedInput?.denyMessage === "string"
+            ? _updatedInput.denyMessage.trim() : "";
+          if (denyMessage) {
+            const model = sessionInfo?.model?.trim() || sessionModelRef.current?.trim();
+            if (!model) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: nextId("err"),
+                  role: "system",
+                  content: "Codex plan mode is enabled, but no model is selected. Select a Codex model and try again.",
+                  timestamp: Date.now(),
+                  isError: true,
+                },
+              ]);
+              return;
+            }
+            const planCollabMode: CollaborationMode = {
+              mode: "plan",
+              settings: { model, reasoning_effort: null, developer_instructions: null },
+            };
+            await send(denyMessage, undefined, undefined, planCollabMode);
+          }
+          return;
+        }
+
+        if (_newPermissionMode) {
           const model = sessionInfo?.model?.trim() || sessionModelRef.current?.trim();
           if (!model) {
             setMessages((prev) => [

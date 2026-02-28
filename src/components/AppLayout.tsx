@@ -272,14 +272,6 @@ export function AppLayout() {
     await manager.interrupt();
   }, [manager.interrupt]);
 
-  // "Implement this plan" — exits plan mode and sends a short instruction.
-  // The plan is already in the conversation context so no need to repeat it.
-  const handleImplementPlan = useCallback(async (_planContent: string) => {
-    settings.setPlanMode(false);
-    manager.setActivePlanMode(false);
-    await manager.send("Implement the plan.");
-  }, [settings, manager.setActivePlanMode, manager.send]);
-
   // Wrap session selection to also close settings view
   const handleSelectSession = useCallback(
     (sessionId: string) => {
@@ -987,7 +979,6 @@ export function AppLayout() {
                 onRevert={manager.isConnected && manager.revertFiles ? manager.revertFiles : undefined}
                 onFullRevert={manager.isConnected && manager.fullRevert ? manager.fullRevert : undefined}
                 onViewTurnChanges={handleViewTurnChanges}
-                onImplementPlan={handleImplementPlan}
               />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-24 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
@@ -1175,6 +1166,7 @@ export function AppLayout() {
                     <FilesPanel
                       messages={manager.messages}
                       cwd={activeProjectPath}
+                      activeEngine={manager.activeSession?.engine}
                       onScrollToToolCall={setScrollToMessageId}
                     />
                   ),

@@ -25,11 +25,9 @@ interface ChatViewProps {
   onFullRevert?: (checkpointId: string) => void;
   /** Called when user clicks "View changes" on an inline turn summary */
   onViewTurnChanges?: (turnIndex: number) => void;
-  /** Called when user clicks "Implement this plan" on a ProposedPlanCard */
-  onImplementPlan?: (planContent: string) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onImplementPlan }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef(0);
@@ -252,7 +250,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
                   isContinuation={continuationIds.has(msg.id)}
                   onRevert={onRevert}
                   onFullRevert={onFullRevert}
-                  onImplementPlan={msg.role === "assistant" ? onImplementPlan : undefined}
                 />
               </div>
               {turnSummary && (
@@ -270,7 +267,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
             <div className="flex items-center gap-1.5 text-xs">
               <Minus className="h-3 w-3 text-foreground/40" />
               <TextShimmer as="span" className="italic opacity-60" duration={1.8} spread={1.5}>
-                Thinking...
+                Planning next moves
               </TextShimmer>
             </div>
           </div>

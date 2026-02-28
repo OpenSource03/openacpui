@@ -1,10 +1,10 @@
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useEffect, useState } from "react";
 import { Eye, Pencil, Plus, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OpenInEditorButton } from "./OpenInEditorButton";
-import type { UIMessage } from "@/types";
+import type { EngineId, UIMessage } from "@/types";
 
 type AccessType = "read" | "modified" | "created";
 
@@ -151,7 +151,7 @@ function formatRanges(file: FileAccess): string | null {
   return parts.join(", ");
 }
 
-function extractFiles(messages: UIMessage[], cwd?: string): FileAccess[] {
+function extractFiles(messages: UIMessage[], cwd?: string, includeClaudeMd = false): FileAccess[] {
   const fileMap = new Map<string, FileAccess>();
 
   const recordAccess = (
@@ -223,8 +223,8 @@ function extractFiles(messages: UIMessage[], cwd?: string): FileAccess[] {
     }
   }
 
-  // CLAUDE.md is always loaded by the CLI — ensure it's visible
-  if (cwd) {
+  // CLAUDE.md is loaded by Claude CLI even when no explicit tool call exists.
+  if (includeClaudeMd && cwd) {
     const claudeMdPath = `${cwd}/CLAUDE.md`;
     if (!fileMap.has(claudeMdPath)) {
       fileMap.set(claudeMdPath, {
@@ -258,15 +258,44 @@ function getRelativePath(fullPath: string, cwd?: string): { fileName: string; di
 interface FilesPanelProps {
   messages: UIMessage[];
   cwd?: string;
+  activeEngine?: EngineId;
   onScrollToToolCall?: (messageId: string) => void;
 }
 
 export const FilesPanel = memo(function FilesPanel({
   messages,
   cwd,
+  activeEngine,
   onScrollToToolCall,
 }: FilesPanelProps) {
-  const files = useMemo(() => extractFiles(messages, cwd), [messages, cwd]);
+  const [hasClaudeMd, setHasClaudeMd] = useState(false);
+
+  useEffect(() => {
+    if (activeEngine !== "claude" || !cwd) {
+      setHasClaudeMd(false);
+      return;
+    }
+
+    let cancelled = false;
+    window.claude
+      .readFile(`${cwd}/CLAUDE.md`)
+      .then((result) => {
+        if (cancelled) return;
+        setHasClaudeMd(Boolean(!result.error && result.content != null));
+      })
+      .catch(() => {
+        if (!cancelled) setHasClaudeMd(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEngine, cwd]);
+
+  const files = useMemo(
+    () => extractFiles(messages, cwd, activeEngine === "claude" && hasClaudeMd),
+    [messages, cwd, activeEngine, hasClaudeMd],
+  );
 
   const handleClick = useCallback(
     (filePath: string) => {

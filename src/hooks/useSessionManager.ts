@@ -188,6 +188,21 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   const lastMessageSyncSessionRef = useRef<string | null>(null);
   const codexEffortRef = useRef(codex.codexEffort);
   codexEffortRef.current = codex.codexEffort;
+  // Tracks whether current Codex effort was explicitly chosen by the user.
+  const codexEffortManualOverrideRef = useRef(false);
+  const setCodexEffortFromUser = useCallback((effort: string) => {
+    codexEffortManualOverrideRef.current = true;
+    codex.setCodexEffort(effort);
+  }, [codex.setCodexEffort]);
+  const applyCodexModelDefaultEffort = useCallback((effort: string | undefined) => {
+    if (!effort || codexEffortManualOverrideRef.current) return;
+    codex.setCodexEffort(effort);
+  }, [codex.setCodexEffort]);
+  const resetCodexEffortToModelDefault = useCallback((effort: string | undefined) => {
+    if (!effort) return;
+    codexEffortManualOverrideRef.current = false;
+    codex.setCodexEffort(effort);
+  }, [codex.setCodexEffort]);
   // Track ACP permission behavior for background session auto-response
   const acpPermissionBehaviorRef = useRef<AcpPermissionBehavior>(acpPermissionBehavior);
   acpPermissionBehaviorRef.current = acpPermissionBehavior;
@@ -323,9 +338,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       const selectedModel = selected
         ? models.find((m) => m.id === selected)
         : undefined;
-      if (selectedModel?.defaultReasoningEffort) {
-        codex.setCodexEffort(selectedModel.defaultReasoningEffort);
-      }
+      applyCodexModelDefaultEffort(selectedModel?.defaultReasoningEffort);
 
       setStartOptions((prev) => {
         if ((prev.engine ?? "claude") !== "codex") return prev;
@@ -335,7 +348,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     } catch {
       // Model prefetch is optional — draft session can still start on first send.
     }
-  }, [codex.setCodexEffort, codex.setCodexModels]);
+  }, [applyCodexModelDefaultEffort, codex.setCodexModels]);
 
   // Probe MCP servers ourselves (for engines that don't report status, e.g. ACP)
   const probeMcpServers = useCallback(async (projectId: string, overrideServers?: McpServerConfig[]) => {
@@ -1188,9 +1201,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
               ? models.find((m) => m.id === selectedId)
               : undefined;
             resolvedCodexModel = selectedId ?? resolvedCodexModel;
-            if (selectedModel?.defaultReasoningEffort) {
-              codex.setCodexEffort(selectedModel.defaultReasoningEffort);
-            }
+            applyCodexModelDefaultEffort(selectedModel?.defaultReasoningEffort);
           }
         }
         if (!resolvedCodexModel) {
@@ -1309,7 +1320,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       materializingRef.current = false;
       return sessionId;
     },
-    [findProject, generateSessionTitle, codex.setCodexModels, codex.setCodexEffort],
+    [applyCodexModelDefaultEffort, findProject, generateSessionTitle, codex.setCodexModels],
   );
 
   const switchSession = useCallback(
@@ -1443,9 +1454,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
     const applyCodexDefaultEffort = (modelId: string) => {
       const codexModel = codexRawModelsRef.current.find((entry) => entry.id === modelId);
-      if (codexModel?.defaultReasoningEffort) {
-        codex.setCodexEffort(codexModel.defaultReasoningEffort);
-      }
+      resetCodexEffortToModelDefault(codexModel?.defaultReasoningEffort);
     };
 
     if (id === DRAFT_ID) {
@@ -1536,7 +1545,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       applyCodexDefaultEffort(model);
     }
     persistModel();
-  }, [claude.setModel, codex.setCodexEffort, eagerStartSession, abandonEagerSession]);
+  }, [claude.setModel, resetCodexEffortToModelDefault, eagerStartSession, abandonEagerSession]);
 
   const importCCSession = useCallback(
     async (projectId: string, ccSessionId: string) => {
@@ -1878,7 +1887,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         newId,
         text,
         imageAttachmentsToCodexInputs(images),
-        codex.codexEffort,
+        codexEffortRef.current,
         codexCollabMode,
       );
       if (sendResult?.error) {
@@ -1892,7 +1901,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         codex.setIsProcessing(false);
       }
     },
-    [findProject, codex.setMessages, codex.setIsProcessing, codex.codexEffort],
+    [findProject, codex.setMessages, codex.setIsProcessing],
   );
 
   const reviveSession = useCallback(
@@ -2096,7 +2105,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
             sessionId,
             text,
             imageAttachmentsToCodexInputs(images),
-            codex.codexEffort,
+            codexEffortRef.current,
             codexCollabMode,
           );
           if (sendResult?.error) {
@@ -2226,7 +2235,6 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       codex.send,
       codex.setMessages,
       codex.setIsProcessing,
-      codex.codexEffort,
       materializeDraft,
       reviveSession,
       reviveAcpSession,
@@ -2493,7 +2501,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     fullRevert: activeEngine === "claude" ? fullRevertSession : undefined,
     // Codex reasoning effort
     codexEffort: codex.codexEffort,
-    setCodexEffort: codex.setCodexEffort,
+    setCodexEffort: setCodexEffortFromUser,
     codexRawModels,
     // Codex plan steps (from turn/plan/updated events — separate from Claude's TodoWrite tool)
     codexTodoItems: codex.todoItems,

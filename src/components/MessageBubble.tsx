@@ -13,11 +13,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { guessLanguage } from "@/lib/languages";
-import { extractProposedPlan, getPrePlanContent, hasPartialPlanTag } from "@/lib/plan-parser";
 import type { UIMessage } from "@/types";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { CopyButton } from "./CopyButton";
-import { ProposedPlanCard } from "./ProposedPlanCard";
 
 // Stable references to avoid re-creating on every render
 const REMARK_PLUGINS = [remarkGfm];
@@ -303,42 +301,20 @@ interface MessageBubbleProps {
   onRevert?: (checkpointId: string) => void;
   /** Called when user clicks "Revert files + chat" — restores files AND truncates conversation */
   onFullRevert?: (checkpointId: string) => void;
-  /** Called when user clicks "Implement this plan" on a ProposedPlanCard */
-  onImplementPlan?: (planContent: string) => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, showThinking = true, isContinuation, onRevert, onFullRevert, onImplementPlan }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, showThinking = true, isContinuation, onRevert, onFullRevert }: MessageBubbleProps) {
   // All hooks must be called before any early returns (Rules of Hooks)
   const isUser = message.role === "user";
   const time = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
   const displayContent = useMemo(() => isUser ? (message.displayContent ?? stripFileContext(message.content)) : message.content, [isUser, message.content, message.displayContent]);
-
-  // Detect <proposed_plan> blocks in assistant messages (works for both Claude and Codex)
-  const plan = useMemo(
-    () => (message.role === "assistant" ? extractProposedPlan(message.content) : null),
-    [message.role, message.content],
-  );
-  const prePlanContent = useMemo(
-    () => (plan ? getPrePlanContent(message.content) : null),
-    [plan, message.content],
-  );
-  const isStreamingPlan = message.role === "assistant" && !!message.isStreaming && hasPartialPlanTag(message.content);
-  // For streaming plans, extract the partial content inside the open tag for ProposedPlanCard
-  const streamingPlan = useMemo(() => {
-    if (!isStreamingPlan) return null;
-    // Extract content after the opening <proposed_plan ...> tag
-    const tagMatch = /<proposed_plan(?:\s+title="([^"]*)")?\s*>(.*)$/s.exec(message.content);
-    if (!tagMatch) return null;
-    return { title: tagMatch[1] || "Plan", content: tagMatch[2].trim(), raw: message.content };
-  }, [isStreamingPlan, message.content]);
 
   // Per-token fade-in animation via DOM surgery in useLayoutEffect.
   // Always renders ReactMarkdown (real-time markdown parsing) — the hook
   // splits trailing text nodes into [old | animated-new] before each paint.
   const proseRef = useStreamingTextReveal(
     message.role === "assistant" ? message.isStreaming : undefined,
-    // When a plan block exists, only animate the pre-plan content
-    message.role === "assistant" ? (prePlanContent ?? message.content) : "",
+    message.role === "assistant" ? message.content : "",
   );
 
   if (message.role === "system") {
@@ -438,29 +414,7 @@ export const MessageBubble = memo(function MessageBubble({ message, showThinking
                 thinkingComplete={message.thinkingComplete}
               />
             )}
-            {/* When a <proposed_plan> block is found, split into pre-plan markdown + plan card */}
-            {plan ? (
-              <>
-                {prePlanContent ? (
-                  <div ref={proseRef} className="prose prose-invert prose-sm max-w-none text-foreground">
-                    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MD_COMPONENTS}>
-                      {prePlanContent}
-                    </ReactMarkdown>
-                  </div>
-                ) : null}
-                <ProposedPlanCard
-                  plan={plan}
-                  onImplement={onImplementPlan}
-                  isStreaming={false}
-                />
-              </>
-            ) : isStreamingPlan && streamingPlan ? (
-              // Streaming plan: render the ProposedPlanCard in streaming mode
-              <ProposedPlanCard
-                plan={streamingPlan}
-                isStreaming={true}
-              />
-            ) : message.content ? (
+            {message.content ? (
               <div ref={proseRef} className="prose prose-invert prose-sm max-w-none text-foreground">
                 <ReactMarkdown
                   remarkPlugins={REMARK_PLUGINS}
@@ -490,8 +444,7 @@ export const MessageBubble = memo(function MessageBubble({ message, showThinking
   prev.showThinking === next.showThinking &&
   prev.isContinuation === next.isContinuation &&
   prev.onRevert === next.onRevert &&
-  prev.onFullRevert === next.onFullRevert &&
-  prev.onImplementPlan === next.onImplementPlan,
+  prev.onFullRevert === next.onFullRevert,
 );
 
 /**
