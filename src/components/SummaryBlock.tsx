@@ -77,7 +77,7 @@ export const SummaryBlock = memo(function SummaryBlock({ message }: SummaryBlock
       </button>
       {isOpen && hasContent && (
         <div className="mt-1 rounded-lg border border-border/30 bg-muted/20 px-4 py-3">
-          <div className="prose prose-invert prose-sm max-w-none text-muted-foreground wrap-break-word">
+          <div className="prose dark:prose-invert prose-sm max-w-none text-muted-foreground wrap-break-word">
             <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>
               {message.content}
             </ReactMarkdown>

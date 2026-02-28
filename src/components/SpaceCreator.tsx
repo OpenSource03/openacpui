@@ -306,6 +306,7 @@ export function SpaceCreator({ open, onOpenChange, editingSpace, onSave }: Space
                         gradientHue: useGradient
                           ? (preset.hue + 120) % 360
                           : undefined,
+                        opacity: color.opacity, // preserve current opacity on preset click
                       });
                     }}
                     className={`h-7 w-7 rounded-full transition-all hover:scale-110 ${
@@ -398,6 +399,23 @@ export function SpaceCreator({ open, onOpenChange, editingSpace, onSave }: Space
                 />
               </div>
             )}
+
+            {/* Opacity slider — controls island background transparency */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Opacity</span>
+                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+                  {Math.round((color.opacity ?? 1) * 100)}%
+                </span>
+              </div>
+              <Slider
+                min={0.2}
+                max={1}
+                step={0.05}
+                value={[color.opacity ?? 1]}
+                onValueChange={([opacity]) => setColor({ ...color, opacity })}
+              />
+            </div>
           </div>
         </div>
 

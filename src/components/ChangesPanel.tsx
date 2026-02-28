@@ -2,10 +2,12 @@ import { memo, useState, useMemo, useEffect, useCallback } from "react";
 import { Pencil, Plus, FileDiff, FileText, ChevronRight } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DiffViewer } from "./DiffViewer";
 import { OpenInEditorButton } from "./OpenInEditorButton";
 import { getLanguageFromPath } from "@/lib/languages";
+import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
 import {
   extractTurnSummaries,
   extractAllFileChanges,
@@ -17,7 +19,7 @@ import type { UIMessage } from "@/types";
 // ── Constants ──
 
 const CHANGE_ICON = { modified: Pencil, created: Plus } as const;
-const CHANGE_COLOR = { modified: "text-amber-400", created: "text-emerald-400" } as const;
+const CHANGE_COLOR = { modified: "text-amber-600 dark:text-amber-400", created: "text-emerald-600 dark:text-emerald-400" } as const;
 
 const WRITE_SYNTAX_STYLE: React.CSSProperties = {
   margin: 0,
@@ -25,10 +27,11 @@ const WRITE_SYNTAX_STYLE: React.CSSProperties = {
   fontSize: "11px",
   padding: "10px 12px",
   background: "transparent",
+  textShadow: "none",
 };
 
 const WRITE_LINE_NUMBER_STYLE: React.CSSProperties = {
-  color: "rgba(255,255,255,0.2)",
+  color: "var(--line-number-color)",
   fontSize: "10px",
   minWidth: "2em",
   paddingRight: "1em",
@@ -40,6 +43,8 @@ const WRITE_LINE_NUMBER_STYLE: React.CSSProperties = {
 function WritePreview({ change }: { change: FileChange }) {
   const language = getLanguageFromPath(change.filePath);
   const content = change.content ?? "";
+  const resolvedTheme = useResolvedThemeClass();
+  const syntaxStyle = resolvedTheme === "dark" ? oneDark : oneLight;
 
   if (!content) {
     return (
@@ -51,17 +56,17 @@ function WritePreview({ change }: { change: FileChange }) {
 
   return (
     <div className="flex flex-col overflow-hidden h-full">
-      <div className="group/write flex items-center gap-3 px-3 py-1.5 bg-foreground/[0.04] border-b border-border/40 shrink-0">
-        <Plus className="h-3.5 w-3.5 text-emerald-400 shrink-0" strokeWidth={2} />
+      <div className="group/write flex items-center gap-3 px-3 py-1.5 bg-muted/70 dark:bg-foreground/[0.04] border-b border-border/40 shrink-0">
+        <Plus className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2} />
         <span className="text-foreground/80 truncate flex-1 text-xs font-mono">
           {change.filePath}
         </span>
         <OpenInEditorButton filePath={change.filePath} className="group-hover/write:text-foreground/25" />
       </div>
-      <div className="overflow-y-auto flex-1 min-h-0 font-mono text-[12px] leading-[1.55] bg-black/20">
+      <div className="overflow-y-auto flex-1 min-h-0 font-mono text-[12px] leading-[1.55] bg-muted/55 dark:bg-foreground/[0.06]">
         <SyntaxHighlighter
           language={language}
-          style={oneDark}
+          style={syntaxStyle}
           customStyle={WRITE_SYNTAX_STYLE}
           showLineNumbers
           lineNumberStyle={WRITE_LINE_NUMBER_STYLE}

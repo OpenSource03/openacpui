@@ -61,7 +61,7 @@ export const ChatHeader = memo(function ChatHeader({
 
   return (
     <div
-      className={`pointer-events-auto drag-region flex h-8 items-center gap-3 px-3 ${
+      className={`chat-header pointer-events-auto drag-region flex h-8 items-center gap-3 px-3 ${
         !sidebarOpen && isMac ? "ps-[78px]" : ""
       }`}
     >

@@ -13,6 +13,7 @@ import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { CodexRpcClient } from "../lib/codex-rpc";
 import { getCodexBinaryPath, getCodexVersion } from "../lib/codex-binary";
+import { getAppSetting } from "../lib/app-settings";
 
 // ── Session state ──
 
@@ -29,9 +30,10 @@ interface CodexSession {
 
 const codexSessions = new Map<string, CodexSession>();
 function getAppServerClientInfo(): { name: string; title: string; version: string } {
+  const clientName = getAppSetting("codexClientName") || "Harnss";
   return {
-    name: "harnss",
-    title: "Harnss",
+    name: clientName,
+    title: clientName,
     version: app.getVersion(),
   };
 }

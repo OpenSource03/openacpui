@@ -15,7 +15,7 @@
   "main": "electron/dist/main.js",
   "scripts": {
     "build:electron": "tsup --config tsup.electron.config.ts",
-    "dev": "concurrently \"vite\" \"pnpm build:electron --watch\" \"node scripts/delay.js 3 && electron .\"",
+    "dev": "concurrently \"vite\" \"pnpm build:electron --watch\" \"node scripts/delay.js 3 && ELECTRON_ENABLE_LOGGING=1 electron .\"",
     "build": "pnpm build:electron && vite build",
     "start": "electron .",
     "dist": "pnpm build && electron-builder --config electron-builder.config.js",

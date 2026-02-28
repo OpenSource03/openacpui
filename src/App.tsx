@@ -4,6 +4,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/AppLayout";
 
 export function App() {
+  // Guard: if the preload script failed, window.claude won't exist.
+  // Throwing here lets the ErrorBoundary show a visible message instead of a blank window.
+  if (!window.claude) {
+    throw new Error(
+      "window.claude is not available — the preload script likely failed to load. " +
+      "Check the Electron console for errors.",
+    );
+  }
+
   useEffect(() => {
     window.claude.getGlassEnabled().then((enabled) => {
       if (enabled) {

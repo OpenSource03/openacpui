@@ -52,6 +52,7 @@ export type {
   McpServerConfig,
   McpServerStatusState,
   McpServerStatus,
+  ThemeOption,
 } from "./ui";
 
 export type {

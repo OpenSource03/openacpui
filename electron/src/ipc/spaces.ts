@@ -9,7 +9,7 @@ interface Space {
   name: string;
   icon: string;
   iconType: string;
-  color: { hue: number; chroma: number };
+  color: { hue: number; chroma: number; gradientHue?: number; opacity?: number };
   createdAt: number;
   order: number;
 }

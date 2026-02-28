@@ -1,4 +1,5 @@
 import { app } from "electron";
+import { getAppSetting } from "./app-settings";
 
 type QueryHandle = AsyncGenerator & {
   close: () => void;
@@ -39,12 +40,14 @@ export async function getSDK(): Promise<QueryFn> {
 }
 
 /**
- * Environment variables that identify Harnss to the Claude backend.
+ * Environment variables that identify the app to the Claude backend.
  * The SDK reads CLAUDE_AGENT_SDK_CLIENT_APP and includes it in the User-Agent header,
- * letting Anthropic distinguish Harnss sessions from CLI / other clients.
+ * letting Anthropic distinguish sessions from CLI / other clients.
+ * Uses the custom client name from settings (defaults to "Harnss").
  */
 export function clientAppEnv(): Record<string, string> {
-  return { CLAUDE_AGENT_SDK_CLIENT_APP: `harnss/${app.getVersion()}` };
+  const clientName = getAppSetting("codexClientName") || "Harnss";
+  return { CLAUDE_AGENT_SDK_CLIENT_APP: `${clientName}/${app.getVersion()}` };
 }
 
 /**

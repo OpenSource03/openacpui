@@ -43,12 +43,13 @@ const SYNTAX_STYLE: React.CSSProperties = {
   margin: 0,
   borderRadius: 0,
   background: "transparent",
+  textShadow: "none",
   fontSize: "12px",
   padding: "12px",
 };
 
 /** Override oneDark's background on the inner <code> element */
-const CODE_TAG_PROPS = { style: { background: "transparent" } };
+const CODE_TAG_PROPS = { style: { background: "transparent", textShadow: "none" } };
 
 /** Strip `<file path="...">...</file>` and `<folder path="...">...</folder>` context blocks from user messages */
 function stripFileContext(text: string): string {
@@ -415,7 +416,10 @@ export const MessageBubble = memo(function MessageBubble({ message, showThinking
               />
             )}
             {message.content ? (
-              <div ref={proseRef} className="prose prose-invert prose-sm max-w-none text-foreground">
+              <div
+                ref={proseRef}
+                className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
+              >
                 <ReactMarkdown
                   remarkPlugins={REMARK_PLUGINS}
                   components={MD_COMPONENTS}

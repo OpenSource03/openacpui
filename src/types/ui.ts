@@ -4,6 +4,7 @@ import type { EngineId } from "./engine";
 
 export type PreferredEditor = "auto" | "cursor" | "code" | "zed";
 export type VoiceDictationMode = "native" | "whisper";
+export type ThemeOption = "light" | "dark" | "system";
 
 // ── Notification settings ──
 
@@ -33,12 +34,15 @@ export interface AppSettings {
   voiceDictation: VoiceDictationMode;
   /** Per-event notification and sound configuration */
   notifications: NotificationSettings;
+  /** Custom client name sent to Codex servers during handshake (default: "Harnss") */
+  codexClientName: string;
 }
 
 export interface SpaceColor {
   hue: number;           // OKLCh hue 0-360
   chroma: number;        // OKLCh chroma 0-0.4
   gradientHue?: number;  // Optional second hue for gradient
+  opacity?: number;      // Island background opacity 0.2-1, defaults to 1.0
 }
 
 export interface Space {

@@ -7,19 +7,24 @@ import {
   Cpu,
   Keyboard,
   Info,
+  Wrench,
+  Palette,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { AgentSettings } from "@/components/settings/AgentSettings";
+import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { GeneralSettings } from "@/components/settings/GeneralSettings";
 import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
+import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
-import type { AgentDefinition } from "@/types";
+import { isMac } from "@/lib/utils";
+import type { AgentDefinition, ThemeOption } from "@/types";
 import type { NotificationSettings } from "@/types/ui";
 
 // ── Section definitions ──
 
-type SettingsSection = "general" | "notifications" | "agents" | "mcp" | "models" | "shortcuts" | "about";
+type SettingsSection = "general" | "appearance" | "notifications" | "agents" | "mcp" | "models" | "shortcuts" | "advanced" | "about";
 
 interface NavItem {
   id: SettingsSection;
@@ -29,11 +34,13 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "general", label: "General", icon: SlidersHorizontal },
+  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "agents", label: "ACP Agents", icon: Bot },
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "models", label: "Models", icon: Cpu },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+  { id: "advanced", label: "Advanced", icon: Wrench },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -45,6 +52,7 @@ interface AppSettings {
   preferredEditor: "auto" | "cursor" | "code" | "zed";
   voiceDictation: "native" | "whisper";
   notifications: NotificationSettings;
+  codexClientName: string;
 }
 
 // ── Props ──
@@ -54,6 +62,14 @@ interface SettingsViewProps {
   agents: AgentDefinition[];
   onSaveAgent: (agent: AgentDefinition) => Promise<{ ok?: boolean; error?: string }>;
   onDeleteAgent: (id: string) => Promise<{ ok?: boolean; error?: string }>;
+  theme: ThemeOption;
+  onThemeChange: (t: ThemeOption) => void;
+  islandLayout: boolean;
+  onIslandLayoutChange: (enabled: boolean) => void;
+  transparency: boolean;
+  onTransparencyChange: (enabled: boolean) => void;
+  glassSupported: boolean;
+  sidebarOpen?: boolean;
 }
 
 // ── Component ──
@@ -63,6 +79,14 @@ export const SettingsView = memo(function SettingsView({
   agents,
   onSaveAgent,
   onDeleteAgent,
+  theme,
+  onThemeChange,
+  islandLayout,
+  onIslandLayoutChange,
+  transparency,
+  onTransparencyChange,
+  glassSupported,
+  sidebarOpen = false,
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
 
@@ -99,6 +123,18 @@ export const SettingsView = memo(function SettingsView({
             onUpdateAppSettings={updateAppSettings}
           />
         );
+      case "appearance":
+        return (
+          <AppearanceSettings
+            theme={theme}
+            onThemeChange={onThemeChange}
+            islandLayout={islandLayout}
+            onIslandLayoutChange={onIslandLayoutChange}
+            transparency={transparency}
+            onTransparencyChange={onTransparencyChange}
+            glassSupported={glassSupported}
+          />
+        );
       case "notifications":
         return (
           <NotificationsSettings
@@ -132,6 +168,13 @@ export const SettingsView = memo(function SettingsView({
             icon={Keyboard}
           />
         );
+      case "advanced":
+        return (
+          <AdvancedSettings
+            appSettings={appSettings}
+            onUpdateAppSettings={updateAppSettings}
+          />
+        );
       case "about":
         return (
           <PlaceholderSection
@@ -143,44 +186,49 @@ export const SettingsView = memo(function SettingsView({
       default:
         return null;
     }
-  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent]);
+  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, transparency, onTransparencyChange, glassSupported]);
 
   return (
-    <div className="island flex flex-1 overflow-hidden rounded-lg bg-background">
-      {/* Settings nav sidebar */}
-      <div className="flex w-[200px] shrink-0 flex-col border-e border-foreground/[0.06]">
-        {/* Header */}
-        <div className="flex items-center px-4 py-3">
-          <span className="text-sm font-semibold text-foreground">Settings</span>
-        </div>
-
-        {/* Nav items */}
-        <nav className="flex flex-1 flex-col gap-0.5 px-2 py-1">
-          {NAV_ITEMS.map((item) => {
-            const isActive = activeSection === item.id;
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveSection(item.id)}
-                className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${
-                  isActive
-                    ? "bg-foreground/[0.06] font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
-                }`}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
+    <div className="island flex flex-1 flex-col overflow-hidden rounded-lg bg-background">
+      <div
+        className={`drag-region flex h-10 shrink-0 items-center border-b border-foreground/[0.06] px-4 ${
+          !sidebarOpen && isMac ? "ps-[78px]" : ""
+        }`}
+      >
+        <span className="text-sm font-semibold text-foreground">Settings</span>
       </div>
 
-      {/* Content area — centered container with max width */}
-      <div className="flex min-w-0 flex-1 justify-center overflow-hidden">
-        <div className="flex h-full w-full max-w-3xl flex-col">
-          {renderSection()}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Settings nav sidebar */}
+        <div className="flex w-[200px] shrink-0 flex-col border-e border-foreground/[0.06]">
+          {/* Nav items */}
+          <nav className="flex flex-1 flex-col gap-0.5 px-2 py-2">
+            {NAV_ITEMS.map((item) => {
+              const isActive = activeSection === item.id;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveSection(item.id)}
+                  className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${
+                    isActive
+                      ? "bg-foreground/[0.06] font-medium text-foreground"
+                      : "text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Content area — centered container with max width */}
+        <div className="flex min-w-0 flex-1 justify-center overflow-hidden">
+          <div className="flex h-full w-full max-w-3xl flex-col">
+            {renderSection()}
+          </div>
         </div>
       </div>
     </div>

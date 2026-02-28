@@ -27,10 +27,12 @@ import {
 } from "@/components/ui/collapsible";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { UIMessage, SubagentToolStep, TodoItem } from "@/types";
 import { getLanguageFromPath, INLINE_HIGHLIGHT_STYLE, INLINE_CODE_TAG_STYLE } from "@/lib/languages";
+import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
 import { DiffViewer } from "./DiffViewer";
 import { UnifiedPatchViewer } from "./UnifiedPatchViewer";
 import { OpenInEditorButton } from "./OpenInEditorButton";
@@ -46,10 +48,11 @@ const WRITE_SYNTAX_STYLE: React.CSSProperties = {
   fontSize: "11px",
   padding: "10px 12px",
   background: "transparent", // transparent so .island gradient border shows through
+  textShadow: "none",
 };
 
 const WRITE_LINE_NUMBER_STYLE: React.CSSProperties = {
-  color: "rgba(255,255,255,0.2)",
+  color: "var(--line-number-color)",
   fontSize: "10px",
   minWidth: "2em",
   paddingRight: "1em",
@@ -281,6 +284,8 @@ function ExpandedToolContent({ message }: { message: UIMessage }) {
 function BashContent({ message }: { message: UIMessage }) {
   const command = message.toolInput?.command;
   const result = message.toolResult;
+  const resolvedTheme = useResolvedThemeClass();
+  const syntaxStyle = resolvedTheme === "dark" ? oneDark : oneLight;
 
   return (
     <div className="space-y-1.5 text-xs">
@@ -289,7 +294,7 @@ function BashContent({ message }: { message: UIMessage }) {
           <span className="text-foreground/40 select-none">$ </span>
           <SyntaxHighlighter
             language="bash"
-            style={oneDark}
+            style={syntaxStyle}
             customStyle={INLINE_HIGHLIGHT_STYLE}
             codeTagProps={{ style: INLINE_CODE_TAG_STYLE }}
             PreTag="span"
@@ -311,6 +316,8 @@ function BashContent({ message }: { message: UIMessage }) {
 // ── Write: syntax-highlighted file content (or unified diff for Codex "wrote") ──
 
 function WriteContent({ message }: { message: UIMessage }) {
+  const resolvedTheme = useResolvedThemeClass();
+  const syntaxStyle = resolvedTheme === "dark" ? oneDark : oneLight;
   const filePath = String(
     message.toolInput?.file_path
       ?? message.toolResult?.filePath
@@ -342,16 +349,16 @@ function WriteContent({ message }: { message: UIMessage }) {
   if (!content) return <GenericContent message={message} />;
 
   return (
-    <div className="rounded-lg border border-border/50 overflow-hidden font-mono text-[12px] leading-[1.55] bg-black/20">
+    <div className="rounded-lg border border-border/50 overflow-hidden font-mono text-[12px] leading-[1.55] bg-muted/55 dark:bg-foreground/[0.06]">
       {/* Header — mirrors DiffViewer's file-path bar */}
-      <div className="group/write flex items-center gap-3 px-3 py-1.5 bg-foreground/[0.04] border-b border-border/40">
+      <div className="group/write flex items-center gap-3 px-3 py-1.5 bg-muted/70 dark:bg-foreground/[0.04] border-b border-border/40">
         <span className="text-foreground/80 truncate flex-1">{filePath.split("/").pop()}</span>
         <OpenInEditorButton filePath={filePath} className="group-hover/write:text-foreground/25" />
       </div>
       <div className="overflow-y-auto max-h-[32rem]">
         <SyntaxHighlighter
           language={language}
-          style={oneDark}
+          style={syntaxStyle}
           customStyle={WRITE_SYNTAX_STYLE}
           showLineNumbers
           lineNumberStyle={WRITE_LINE_NUMBER_STYLE}
@@ -569,7 +576,7 @@ function WebSearchContent({ message }: { message: UIMessage }) {
       {/* Markdown summary from the search */}
       {summary && (
         <div className="max-h-64 overflow-auto rounded-md bg-foreground/[0.03] px-3 py-2">
-          <div className="prose prose-invert prose-sm max-w-none text-foreground/60 text-[12px]">
+          <div className="prose dark:prose-invert prose-sm max-w-none text-foreground/60 text-[12px]">
             <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{summary.slice(0, 3000)}</ReactMarkdown>
           </div>
         </div>
@@ -604,7 +611,7 @@ function WebFetchContent({ message }: { message: UIMessage }) {
       )}
       {displayContent && (
         <div className="max-h-64 overflow-auto rounded-md bg-foreground/[0.03] px-3 py-2">
-          <div className="prose prose-invert prose-sm max-w-none text-foreground/60 text-[12px]">
+          <div className="prose dark:prose-invert prose-sm max-w-none text-foreground/60 text-[12px]">
             <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{displayContent}</ReactMarkdown>
           </div>
         </div>
@@ -768,7 +775,7 @@ function TaskResultBlock({ content }: { content: string | Array<{ type: string; 
             : undefined
         }
       >
-        <div className="prose prose-invert prose-sm max-w-none text-foreground">
+        <div className="prose dark:prose-invert prose-sm max-w-none text-foreground">
           <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>
             {formatted}
           </ReactMarkdown>
@@ -927,7 +934,7 @@ function ExitPlanModeContent({ message }: { message: UIMessage }) {
             : undefined
         }
       >
-        <div className="px-4 py-3 prose prose-invert prose-sm max-w-none text-foreground/80 text-[12.5px]">
+        <div className="px-4 py-3 prose dark:prose-invert prose-sm max-w-none text-foreground/80 text-[12.5px]">
           <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{plan}</ReactMarkdown>
         </div>
         {/* Fade overlay when collapsed and content is long */}

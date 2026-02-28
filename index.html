@@ -9,6 +9,17 @@
         background-color: transparent !important;
       }
     </style>
+    <!-- Apply theme class before first paint to prevent flash of wrong theme.
+         Runs after <html> exists but before CSS renders the first frame. -->
+    <script>
+      (function() {
+        var stored = localStorage.getItem("harnss-theme");
+        var isDark = true;
+        if (stored === "light") isDark = false;
+        else if (stored === "system") isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (!isDark) document.documentElement.classList.remove("dark");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

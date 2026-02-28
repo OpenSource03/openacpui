@@ -414,7 +414,7 @@ function JiraIssueDetail({ data }: { data: unknown }) {
       {descText && (
         <div className="border-t border-foreground/[0.06] px-3 py-2">
           <p className="text-[10px] text-foreground/30 mb-1 uppercase tracking-wider font-medium">Description</p>
-          <div className="prose prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
+          <div className="prose dark:prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
             <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>
               {descText}
             </ReactMarkdown>
@@ -801,7 +801,7 @@ function Context7LibraryList({ rawText }: { data: unknown; rawText?: string | nu
     // Fallback: render raw text if parsing fails
     if (text.trim()) {
       return (
-        <div className="prose prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
+        <div className="prose dark:prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
           <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{text}</ReactMarkdown>
         </div>
       );
@@ -939,7 +939,7 @@ function Context7DocsResult({ rawText, toolInput }: { data: unknown; toolInput: 
   if (snippets.length === 0) {
     if (text.trim()) {
       return (
-        <div className="prose prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
+        <div className="prose dark:prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
           <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{text}</ReactMarkdown>
         </div>
       );

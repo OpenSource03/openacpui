@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ToolId } from "@/components/ToolPicker";
-import type { AcpPermissionBehavior, EngineId } from "@/types";
+import type { AcpPermissionBehavior, EngineId, ThemeOption } from "@/types";
 
 // ── Helpers ──
 
@@ -69,6 +69,12 @@ const DEFAULT_TOOL_ORDER: ToolId[] = ["terminal", "git", "browser", "files", "mc
 
 export interface Settings {
   // Global
+  theme: ThemeOption;
+  setTheme: (t: ThemeOption) => void;
+  islandLayout: boolean;
+  setIslandLayout: (enabled: boolean) => void;
+  transparency: boolean;
+  setTransparency: (enabled: boolean) => void;
   planMode: boolean;
   setPlanMode: (enabled: boolean) => void;
   permissionMode: string;
@@ -190,6 +196,32 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
   const pid = projectId ?? "__none__";
 
   // ── Global settings ──
+
+  const [theme, setThemeRaw] = useState<ThemeOption>(() => {
+    const stored = localStorage.getItem("harnss-theme");
+    if (stored === "light" || stored === "dark" || stored === "system") return stored;
+    return "dark";
+  });
+  const setTheme = useCallback((t: ThemeOption) => {
+    setThemeRaw(t);
+    localStorage.setItem("harnss-theme", t);
+  }, []);
+
+  const [islandLayout, setIslandLayoutRaw] = useState(() =>
+    readBool("harnss-island-layout", true),
+  );
+  const setIslandLayout = useCallback((enabled: boolean) => {
+    setIslandLayoutRaw(enabled);
+    localStorage.setItem("harnss-island-layout", String(enabled));
+  }, []);
+
+  const [transparency, setTransparencyRaw] = useState(() =>
+    readBool("harnss-transparency", true),
+  );
+  const setTransparency = useCallback((enabled: boolean) => {
+    setTransparencyRaw(enabled);
+    localStorage.setItem("harnss-transparency", String(enabled));
+  }, []);
 
   const [planMode, setPlanModeRaw] = useState(() => {
     const stored = localStorage.getItem("harnss-plan-mode");
@@ -436,6 +468,12 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
   }, [pid]);
 
   return {
+    theme,
+    setTheme,
+    islandLayout,
+    setIslandLayout,
+    transparency,
+    setTransparency,
     planMode,
     setPlanMode,
     permissionMode,

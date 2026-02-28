@@ -446,7 +446,7 @@ function ProjectSection({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 text-sidebar-foreground/50 hover:text-sidebar-foreground opacity-0 transition-opacity group-hover:opacity-100"
+          className="h-6 w-6 shrink-0 text-sidebar-foreground/50 hover:text-sidebar-foreground hover:!bg-black/10 dark:hover:!bg-sidebar-accent/50 opacity-0 transition-opacity group-hover:opacity-100"
           onClick={onNewChat}
         >
           <SquarePen className="h-3.5 w-3.5" />
@@ -457,7 +457,7 @@ function ProjectSection({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 shrink-0 text-sidebar-foreground/50 hover:text-sidebar-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              className="h-6 w-6 shrink-0 text-sidebar-foreground/50 hover:text-sidebar-foreground hover:!bg-black/10 dark:hover:!bg-sidebar-accent/50 opacity-0 transition-opacity group-hover:opacity-100"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
@@ -647,7 +647,7 @@ function SessionItem({
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 w-5 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+              className="h-5 w-5 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:!bg-black/10 dark:hover:!bg-sidebar-accent/50"
             >
               <MoreHorizontal className="h-3 w-3" />
             </Button>

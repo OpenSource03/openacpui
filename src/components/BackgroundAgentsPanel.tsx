@@ -177,7 +177,7 @@ function AgentResult({ result }: { result: string }) {
   return (
     <div className="rounded-md bg-foreground/[0.03] px-2.5 py-1.5">
       <div
-        className={`prose prose-invert prose-xs max-w-none text-[11px] text-foreground/60 wrap-break-word
+        className={`prose dark:prose-invert prose-xs max-w-none text-[11px] text-foreground/60 wrap-break-word
           [&_p]:my-1 [&_p]:leading-relaxed
           [&_pre]:my-1 [&_pre]:rounded [&_pre]:bg-foreground/[0.04] [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:text-[10px]
           [&_code]:text-[10px] [&_code]:text-foreground/60

@@ -25,9 +25,13 @@ interface ChatViewProps {
   onFullRevert?: (checkpointId: string) => void;
   /** Called when user clicks "View changes" on an inline turn summary */
   onViewTurnChanges?: (turnIndex: number) => void;
+  /** Reports whether the chat is scrolled away from the top (scrollTop > 4px) */
+  onScrolledFromTop?: (scrolled: boolean) => void;
+  /** Reports smooth top-scroll transition progress [0..1] for header/fade blending */
+  onTopScrollProgress?: (progress: number) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef(0);
@@ -35,6 +39,14 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   const autoFollowRef = useRef(true);
   const suppressScrollTrackingRef = useRef(0);
   const settleTimersRef = useRef<number[]>([]);
+  // Ref avoids stale closure in the scroll handler
+  const onScrolledFromTopRef = useRef(onScrolledFromTop);
+  onScrolledFromTopRef.current = onScrolledFromTop;
+  const onTopScrollProgressRef = useRef(onTopScrollProgress);
+  onTopScrollProgressRef.current = onTopScrollProgress;
+  const topProgressRafRef = useRef<number | null>(null);
+  const pendingTopProgressRef = useRef(0);
+  const lastTopProgressRef = useRef(-1);
 
   // Throttled auto-scroll: instant during streaming.
   // Keeps following while user is pinned to bottom; unlocks only after manual upward scroll.
@@ -93,16 +105,43 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     );
     if (!viewport) return;
 
+    const flushTopProgress = () => {
+      topProgressRafRef.current = null;
+      const progress = pendingTopProgressRef.current;
+      const last = lastTopProgressRef.current;
+      if (last < 0 || Math.abs(progress - last) >= 0.01 || progress === 0 || progress === 1) {
+        lastTopProgressRef.current = progress;
+        onTopScrollProgressRef.current?.(progress);
+      }
+    };
+
     const updateAutoFollow = () => {
-      if (suppressScrollTrackingRef.current > 0) return;
       const { scrollTop, scrollHeight, clientHeight } = viewport;
+      // Always report scroll-from-top state (controls header shadow visibility)
+      onScrolledFromTopRef.current?.(scrollTop > 4);
+      // Smooth top ramp: slower range + smoothstep easing to avoid abrupt header/fade jumps.
+      const normalized = Math.max(0, Math.min(1, scrollTop / 96));
+      const easedProgress = normalized * normalized * (3 - 2 * normalized);
+      pendingTopProgressRef.current = easedProgress;
+      if (topProgressRafRef.current === null) {
+        topProgressRafRef.current = window.requestAnimationFrame(flushTopProgress);
+      }
+      // Auto-follow tracking is suppressed during programmatic scrolls to
+      // prevent them from unlocking sticky follow mode
+      if (suppressScrollTrackingRef.current > 0) return;
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
       autoFollowRef.current = distanceFromBottom < 40;
     };
 
     updateAutoFollow();
     viewport.addEventListener("scroll", updateAutoFollow, { passive: true });
-    return () => viewport.removeEventListener("scroll", updateAutoFollow);
+    return () => {
+      viewport.removeEventListener("scroll", updateAutoFollow);
+      if (topProgressRafRef.current !== null) {
+        window.cancelAnimationFrame(topProgressRafRef.current);
+        topProgressRafRef.current = null;
+      }
+    };
   }, [messages.length]);
 
   // Force-scroll to bottom on session switch, bypassing the proximity guard

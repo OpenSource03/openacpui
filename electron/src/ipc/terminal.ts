@@ -13,6 +13,7 @@ interface TerminalEntry {
   };
   cols: number;
   rows: number;
+  spaceId: string;
 }
 
 export const terminals = new Map<string, TerminalEntry>();
@@ -28,7 +29,7 @@ function getPty() {
 }
 
 export function register(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle("terminal:create", (_event, { cwd, cols, rows }: { cwd?: string; cols?: number; rows?: number }) => {
+  ipcMain.handle("terminal:create", (_event, { cwd, cols, rows, spaceId }: { cwd?: string; cols?: number; rows?: number; spaceId?: string } = {}) => {
     try {
       const pty = getPty();
       const isWin = process.platform === "win32";
@@ -45,7 +46,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
       });
 
-      terminals.set(terminalId, { pty: ptyProcess, cols: cols || 80, rows: rows || 24 });
+      terminals.set(terminalId, { pty: ptyProcess, cols: cols || 80, rows: rows || 24, spaceId: spaceId || "default" });
 
       ptyProcess.onData((data: string) => {
         safeSend(getMainWindow, "terminal:data", { terminalId, data });
@@ -91,6 +92,16 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       term.pty.kill();
       terminals.delete(terminalId);
       log("TERMINAL", `Destroyed terminal ${terminalId.slice(0, 8)}`);
+    }
+    return { ok: true };
+  });
+
+  ipcMain.handle("terminal:destroy-space", (_event, spaceId: string) => {
+    for (const [terminalId, term] of terminals.entries()) {
+      if (term.spaceId !== spaceId) continue;
+      term.pty.kill();
+      terminals.delete(terminalId);
+      log("TERMINAL", `Destroyed terminal ${terminalId.slice(0, 8)} for space ${spaceId}`);
     }
     return { ok: true };
   });

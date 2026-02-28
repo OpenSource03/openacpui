@@ -607,9 +607,10 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   const handleTokenUsage = useCallback((params: CodexTokenUsageNotification) => {
     const usage = params.tokenUsage;
     setContextUsage({
-      inputTokens: usage.total.inputTokens,
-      outputTokens: usage.total.outputTokens,
-      cacheReadTokens: usage.total.cachedInputTokens,
+      // Context meter should reflect current context pressure, not cumulative thread spend.
+      inputTokens: usage.last.inputTokens,
+      outputTokens: usage.last.outputTokens,
+      cacheReadTokens: usage.last.cachedInputTokens,
       cacheCreationTokens: 0,
       contextWindow: usage.modelContextWindow ?? 200_000,
     });

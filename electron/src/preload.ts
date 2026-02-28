@@ -1,13 +1,19 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
 
-// Apply platform + glass classes as early as possible (before React mounts)
-ipcRenderer.invoke("app:getGlassEnabled").then((enabled: boolean) => {
-  // Platform class for platform-specific CSS (e.g. hiding macOS traffic-light padding on Windows)
-  document.documentElement.classList.add(`platform-${process.platform}`);
-  if (enabled) {
-    document.documentElement.classList.add("glass-enabled");
-  }
-});
+// Early setup wrapped in try/catch so contextBridge.exposeInMainWorld always runs
+// even if DOM isn't ready or something else fails above it.
+try {
+  // Apply platform + glass classes as early as possible (before React mounts)
+  ipcRenderer.invoke("app:getGlassEnabled").then((enabled: boolean) => {
+    // Platform class for platform-specific CSS (e.g. hiding macOS traffic-light padding on Windows)
+    document.documentElement.classList.add(`platform-${process.platform}`);
+    if (enabled) {
+      document.documentElement.classList.add("glass-enabled");
+    }
+  });
+} catch (e) {
+  console.error("[preload] early setup failed:", e);
+}
 
 contextBridge.exposeInMainWorld("claude", {
   getGlassEnabled: () => ipcRenderer.invoke("app:getGlassEnabled"),
@@ -111,10 +117,11 @@ contextBridge.exposeInMainWorld("claude", {
       ipcRenderer.invoke("git:generate-commit-message", { cwd, engine, sessionId }),
   },
   terminal: {
-    create: (options: unknown) => ipcRenderer.invoke("terminal:create", options),
+    create: (options: { cwd?: string; cols?: number; rows?: number; spaceId?: string }) => ipcRenderer.invoke("terminal:create", options),
     write: (terminalId: string, data: string) => ipcRenderer.invoke("terminal:write", { terminalId, data }),
     resize: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke("terminal:resize", { terminalId, cols, rows }),
     destroy: (terminalId: string) => ipcRenderer.invoke("terminal:destroy", terminalId),
+    destroySpace: (spaceId: string) => ipcRenderer.invoke("terminal:destroy-space", spaceId),
     onData: (callback: (data: unknown) => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on("terminal:data", listener);

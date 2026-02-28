@@ -1,10 +1,12 @@
-import { useMemo, useState, useEffect, useCallback, memo } from "react";
+import { useMemo, useState, useEffect, useCallback, memo, type CSSProperties } from "react";
 import { diffLines, diffWords } from "diff";
 import { Copy, Check, ChevronDown } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { OpenInEditorButton } from "./OpenInEditorButton";
 import { getLanguageFromPath, INLINE_HIGHLIGHT_STYLE, INLINE_CODE_TAG_STYLE } from "@/lib/languages";
+import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
 
 // ── Types ──
 
@@ -38,6 +40,8 @@ interface WordHighlight {
   type: "added" | "removed" | "unchanged";
 }
 
+type PrismThemeStyle = Record<string, CSSProperties>;
+
 const CONTEXT_LINES = 3;
 
 // ── Inline syntax highlighting for diff lines ──
@@ -46,9 +50,11 @@ const CONTEXT_LINES = 3;
 const HighlightedCode = memo(function HighlightedCode({
   code,
   language,
+  syntaxStyle,
 }: {
   code: string;
   language: string;
+  syntaxStyle: PrismThemeStyle;
 }) {
   if (!code) return <>{" "}</>;
   if (language === "text") return <>{code}</>;
@@ -56,7 +62,7 @@ const HighlightedCode = memo(function HighlightedCode({
   return (
     <SyntaxHighlighter
       language={language}
-      style={oneDark}
+      style={syntaxStyle}
       customStyle={INLINE_HIGHLIGHT_STYLE}
       codeTagProps={{ style: INLINE_CODE_TAG_STYLE }}
       PreTag="span"
@@ -73,6 +79,8 @@ export function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHe
   const [fullFileContent, setFullFileContent] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
+  const resolvedTheme = useResolvedThemeClass();
+  const syntaxStyle = resolvedTheme === "dark" ? oneDark : oneLight;
 
   const fileName = filePath.split("/").pop() ?? filePath;
   const language = getLanguageFromPath(filePath);
@@ -130,20 +138,20 @@ export function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHe
   }, [newString]);
 
   return (
-    <div className={`overflow-hidden font-mono text-[12px] leading-[1.55] bg-black/20 ${
+    <div className={`overflow-hidden font-mono text-[12px] leading-[1.55] bg-muted/55 dark:bg-foreground/[0.06] ${
       fillHeight ? "flex flex-col h-full" : "rounded-lg border border-border/50"
     }`}>
       {/* Header */}
-      <div className="group/diff flex items-center gap-3 px-3 py-1.5 bg-foreground/[0.04] border-b border-border/40 shrink-0">
+      <div className="group/diff flex items-center gap-3 px-3 py-1.5 bg-muted/70 dark:bg-foreground/[0.04] border-b border-border/40 shrink-0">
         <span className="text-foreground/80 truncate flex-1">{fileName}</span>
         <OpenInEditorButton filePath={filePath} className="group-hover/diff:text-foreground/25" />
 
         <div className="flex items-center gap-1.5 text-[11px] shrink-0 tabular-nums">
           {stats.added > 0 && (
-            <span className="text-emerald-400">+{stats.added}</span>
+            <span className="text-emerald-700 dark:text-emerald-400">+{stats.added}</span>
           )}
           {stats.removed > 0 && (
-            <span className="text-red-400">-{stats.removed}</span>
+            <span className="text-red-700 dark:text-red-400">-{stats.removed}</span>
           )}
         </div>
 
@@ -153,7 +161,7 @@ export function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHe
           title="Copy new content"
         >
           {copied ? (
-            <Check className="h-3.5 w-3.5 text-emerald-400" />
+            <Check className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
@@ -170,7 +178,7 @@ export function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHe
               onExpand={() => expandSection(i)}
             />
           ) : (
-            <DiffLineRow key={i} line={line} language={language} />
+            <DiffLineRow key={i} line={line} language={language} syntaxStyle={syntaxStyle} />
           ),
         )}
       </div>
@@ -183,9 +191,11 @@ export function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHe
 function DiffLineRow({
   line,
   language,
+  syntaxStyle,
 }: {
   line: DiffLine;
   language: string;
+  syntaxStyle: PrismThemeStyle;
 }) {
   if (line.isGap) {
     return (
@@ -202,34 +212,34 @@ function DiffLineRow({
   // Left accent: thin colored border on changed lines
   const accentClass =
     line.type === "removed"
-      ? "border-s-2 border-s-red-500/70"
+      ? "border-s-2 border-s-red-500/80 dark:border-s-red-500/70"
       : line.type === "added"
-        ? "border-s-2 border-s-emerald-500/70"
+        ? "border-s-2 border-s-emerald-500/80 dark:border-s-emerald-500/70"
         : "border-s-2 border-s-transparent";
 
   const bgClass =
     line.type === "removed"
-      ? "bg-red-500/[0.12]"
+      ? "bg-red-500/15 dark:bg-red-500/[0.12]"
       : line.type === "added"
-        ? "bg-emerald-500/[0.14]"
+        ? "bg-emerald-500/16 dark:bg-emerald-500/[0.14]"
         : "";
 
   const oldNumClass =
     line.type === "removed"
-      ? "text-red-400/55"
-      : "text-muted-foreground/35";
+      ? "text-red-700/75 dark:text-red-400/55"
+      : "text-muted-foreground/55 dark:text-muted-foreground/35";
 
   const newNumClass =
     line.type === "added"
-      ? "text-emerald-400/55"
-      : "text-muted-foreground/35";
+      ? "text-emerald-700/75 dark:text-emerald-400/55"
+      : "text-muted-foreground/55 dark:text-muted-foreground/35";
 
   const contentClass =
     line.type === "removed"
-      ? "text-foreground/70"
+      ? "text-red-950/85 dark:text-foreground/70"
       : line.type === "added"
-        ? "text-foreground/85"
-        : "text-foreground/60";
+        ? "text-emerald-950/90 dark:text-foreground/85"
+        : "text-foreground/85 dark:text-foreground/60";
 
   return (
     <div className={`flex ${accentClass} ${bgClass}`}>
@@ -246,26 +256,24 @@ function DiffLineRow({
         {line.newLineNum ?? ""}
       </span>
       {/* Content — syntax highlighted with diff background colors */}
-      <span
-        className={`flex-1 px-3 py-px whitespace-pre-wrap wrap-break-word ${contentClass}`}
-      >
+      <span className={`flex-1 px-3 py-px whitespace-pre-wrap wrap-break-word ${contentClass}`}>
         {line.highlights ? (
           line.highlights.map((part, j) => (
             <span
               key={j}
               className={
                 part.type === "removed"
-                  ? "bg-red-400/30 rounded-[2px]"
+                  ? "bg-red-300/55 dark:bg-red-400/30 rounded-[2px]"
                   : part.type === "added"
-                    ? "bg-emerald-400/30 rounded-[2px]"
+                    ? "bg-emerald-300/55 dark:bg-emerald-400/30 rounded-[2px]"
                     : ""
               }
             >
-              <HighlightedCode code={part.value} language={language} />
+              <HighlightedCode code={part.value} language={language} syntaxStyle={syntaxStyle} />
             </span>
           ))
         ) : (
-          <HighlightedCode code={line.content} language={language} />
+          <HighlightedCode code={line.content} language={language} syntaxStyle={syntaxStyle} />
         )}
       </span>
     </div>
@@ -284,7 +292,7 @@ function CollapsedRow({
   return (
     <button
       onClick={onExpand}
-      className="flex w-full items-center justify-center gap-1 py-0.5 bg-foreground/[0.02] hover:bg-foreground/[0.05] transition-colors text-[10px] text-foreground/30 hover:text-foreground/50 border-s-2 border-s-transparent"
+      className="flex w-full items-center justify-center gap-1 py-0.5 bg-foreground/[0.02] hover:bg-foreground/[0.05] transition-colors text-[10px] text-foreground/45 dark:text-foreground/30 hover:text-foreground/60 dark:hover:text-foreground/50 border-s-2 border-s-transparent"
     >
       <ChevronDown className="h-2.5 w-2.5" />
       <span>

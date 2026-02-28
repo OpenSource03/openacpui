@@ -41,6 +41,8 @@ export interface AppSettings {
   voiceDictation: VoiceDictationMode;
   /** Per-event notification and sound configuration */
   notifications: NotificationSettings;
+  /** Custom client name sent to Codex servers during handshake (default: "Harnss") */
+  codexClientName: string;
 }
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
@@ -56,6 +58,7 @@ const DEFAULTS: AppSettings = {
   preferredEditor: "auto",
   voiceDictation: "native",
   notifications: NOTIFICATION_DEFAULTS,
+  codexClientName: "Harnss",
 };
 
 // ── Internal state ──

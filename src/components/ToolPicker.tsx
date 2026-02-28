@@ -110,7 +110,8 @@ export const ToolPicker = memo(function ToolPicker({ activeTools, onToggle, avai
   );
 
   return (
-    <div className="island flex h-full w-14 shrink-0 flex-col items-center rounded-lg bg-background pt-3 pb-3 gap-2">
+    <div className="island relative flex h-full w-14 shrink-0 flex-col items-center rounded-lg bg-background pt-3 pb-3 gap-2">
+      <div className="drag-region absolute inset-x-0 top-0 h-2" />
       {visibleContextual.length > 0 && (
         <>
           {visibleContextual.map((tool) => {

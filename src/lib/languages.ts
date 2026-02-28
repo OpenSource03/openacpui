@@ -98,6 +98,7 @@ export const INLINE_HIGHLIGHT_STYLE: CSSProperties = {
   margin: 0,
   padding: 0,
   background: "transparent",
+  textShadow: "none",
   display: "inline",
   fontSize: "inherit",
   lineHeight: "inherit",
@@ -109,4 +110,5 @@ export const INLINE_HIGHLIGHT_STYLE: CSSProperties = {
 export const INLINE_CODE_TAG_STYLE: CSSProperties = {
   whiteSpace: "inherit",
   background: "transparent",
+  textShadow: "none",
 };

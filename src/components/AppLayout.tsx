@@ -6,6 +6,8 @@ import { useSessionManager } from "@/hooks/useSessionManager";
 import { useSidebar } from "@/hooks/useSidebar";
 import { useSpaceManager } from "@/hooks/useSpaceManager";
 import { useSettings, normalizeRatios } from "@/hooks/useSettings";
+import { useTheme } from "@/hooks/useTheme";
+import { useSpaceTerminals } from "@/hooks/useSpaceTerminals";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
 import { ChatView } from "./ChatView";
@@ -50,6 +52,7 @@ export function AppLayout() {
     ? manager.activeSession.engine
     : (selectedAgent?.engine ?? "claude");
   const settings = useSettings(activeProjectId ?? null, settingsEngine);
+  const resolvedTheme = useTheme(settings.theme);
   const showThinking = settingsEngine === "claude" ? settings.thinking : true;
   const activeProjectPath = settings.gitCwd ?? activeProject?.path;
   const { agents, refresh: refreshAgents, saveAgent, deleteAgent } = useAgentRegistry();
@@ -111,6 +114,24 @@ export function AppLayout() {
 
   const [showSettings, setShowSettings] = useState(false);
 
+  // ── Glass/transparency support detection ──
+  const [glassSupported, setGlassSupported] = useState(false);
+  useEffect(() => {
+    window.claude.getGlassEnabled().then((enabled) => setGlassSupported(enabled));
+  }, []);
+
+  // Toggle the glass-enabled CSS class when the transparency setting changes.
+  // App.tsx adds the class on startup; this effect keeps it in sync with the toggle.
+  useEffect(() => {
+    if (!glassSupported) return;
+    const root = document.documentElement;
+    if (settings.transparency) {
+      root.classList.add("glass-enabled");
+    } else {
+      root.classList.remove("glass-enabled");
+    }
+  }, [settings.transparency, glassSupported]);
+
   // ── Notification settings (loaded from main-process AppSettings) ──
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
 
@@ -140,6 +161,7 @@ export function AppLayout() {
   const [isResizing, setIsResizing] = useState(false);
   // Focus turn index for the Changes panel (set by inline turn summary "View changes" click)
   const [changesPanelFocusTurn, setChangesPanelFocusTurn] = useState<number | undefined>();
+  const spaceTerminals = useSpaceTerminals();
 
   const hasProjects = projectManager.projects.length > 0;
 
@@ -330,6 +352,7 @@ export function AppLayout() {
     async (id: string) => {
       const deletedId = await spaceManager.deleteSpace(id);
       if (deletedId) {
+        await spaceTerminals.destroySpaceTerminals(deletedId);
         for (const p of projectManager.projects) {
           if (p.spaceId === deletedId) {
             await projectManager.updateProjectSpace(p.id, "default");
@@ -337,7 +360,7 @@ export function AppLayout() {
         }
       }
     },
-    [spaceManager.deleteSpace, projectManager.projects, projectManager.updateProjectSpace],
+    [spaceManager.deleteSpace, spaceTerminals, projectManager.projects, projectManager.updateProjectSpace],
   );
 
   const handleSaveSpace = useCallback(
@@ -373,13 +396,20 @@ export function AppLayout() {
     }
   }, []);
 
-  // Save current session as last-used for current space whenever it changes
+  // Save current session as last-used for its owning space whenever it changes.
+  // Use the session's project space (not the currently selected space), because
+  // space switching and session switching can be out of sync for one render.
   useEffect(() => {
     if (!manager.activeSessionId || manager.isDraft) return;
+    const active = manager.sessions.find((s) => s.id === manager.activeSessionId);
+    if (!active) return;
+    const project = projectManager.projects.find((p) => p.id === active.projectId);
+    if (!project) return;
+    const sessionSpaceId = project.spaceId || "default";
     const map = readLastSessionMap();
-    map[spaceManager.activeSpaceId] = manager.activeSessionId;
+    map[sessionSpaceId] = manager.activeSessionId;
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(map));
-  }, [manager.activeSessionId, manager.isDraft, spaceManager.activeSpaceId, readLastSessionMap]);
+  }, [manager.activeSessionId, manager.isDraft, manager.sessions, projectManager.projects, readLastSessionMap]);
 
   // When activeSpaceId changes, switch to last used session in that space
   useEffect(() => {
@@ -413,56 +443,101 @@ export function AppLayout() {
       }
     }
 
-    // Fall back to the most recent session in any project in this space
-    const spaceSessions = manager.sessions
-      .filter((s) => spaceProjectIds.has(s.projectId))
-      .sort((a, b) => (b.lastMessageAt ?? b.createdAt) - (a.lastMessageAt ?? a.createdAt));
-
-    if (spaceSessions.length > 0) {
-      manager.switchSession(spaceSessions[0].id);
+    // No remembered chat for this space: open a fresh draft chat in the space.
+    // If the space has no projects, we can't create a draft chat yet.
+    const firstProjectInSpace = projectManager.projects.find(
+      (p) => (p.spaceId || "default") === next,
+    );
+    if (firstProjectInSpace) {
+      void handleNewChat(firstProjectInSpace.id);
     } else {
-      // No sessions in this space — deselect
+      // No projects in this space — deselect
       manager.deselectSession();
     }
   }, [spaceManager.activeSpaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Space color tinting
+  // Space color tinting — overrides CSS variables to apply the active space's hue
+  // Light mode uses higher chroma and lower lightness so the tint is visible.
+  const TINT_VARS = [
+    "--space-hue", "--space-chroma",
+    "--background", "--accent", "--border",
+    "--muted", "--secondary", "--card", "--input",
+    "--sidebar", "--sidebar-accent",
+    "--island-overlay-bg", "--island-fill",
+  ];
+
   useEffect(() => {
     const space = spaceManager.activeSpace;
     const root = document.documentElement;
     const isGlass = root.classList.contains("glass-enabled");
 
     if (!space || space.color.chroma === 0) {
-      root.style.removeProperty("--space-hue");
-      root.style.removeProperty("--space-chroma");
-      root.style.removeProperty("--island-overlay-bg");
+      // Clear all tinted vars so the CSS base values take over
+      for (const v of TINT_VARS) root.style.removeProperty(v);
       setGlassOverlayStyle(null);
+
+      // Still apply opacity even for colorless (default) space
+      const opacity = space?.color.opacity;
+      if (opacity !== undefined && opacity < 1) {
+        const isDark = root.classList.contains("dark");
+        const bg = isDark ? `oklch(0.205 0 0 / ${opacity})` : `oklch(1 0 0 / ${opacity})`;
+        root.style.setProperty("--island-fill", bg);
+      } else {
+        root.style.removeProperty("--island-fill");
+      }
       return;
     }
 
     const { hue, chroma } = space.color;
+    const opacity = space.color.opacity ?? 1;
     root.style.setProperty("--space-hue", String(hue));
     root.style.setProperty("--space-chroma", String(chroma));
 
-    const bgChroma = Math.min(chroma, 0.008);
-    const accentChroma = Math.min(chroma, 0.015);
     const isDark = root.classList.contains("dark");
+    // Light mode needs higher chroma — tints are invisible at high lightness
+    const bgChroma    = isDark ? Math.min(chroma, 0.012) : Math.min(chroma, 0.02);
+    const accentChroma = isDark ? Math.min(chroma, 0.02)  : Math.min(chroma, 0.03);
 
     if (isDark) {
       root.style.setProperty("--background", `oklch(0.185 ${bgChroma} ${hue})`);
       root.style.setProperty("--accent", `oklch(0.3 ${accentChroma} ${hue})`);
-      root.style.setProperty("--border", `oklch(0.34 ${bgChroma} ${hue})`);
+      root.style.setProperty("--border", `oklch(0.36 ${bgChroma} ${hue})`);
+      root.style.setProperty("--muted", `oklch(0.3 ${accentChroma} ${hue})`);
+      root.style.setProperty("--secondary", `oklch(0.3 ${accentChroma} ${hue})`);
+      root.style.setProperty("--card", `oklch(0.22 ${bgChroma} ${hue})`);
+      root.style.setProperty("--input", `oklch(0.36 ${bgChroma} ${hue})`);
+      // Island fill with alpha for per-space opacity (--background stays opaque for gradient fades)
+      if (opacity < 1) {
+        root.style.setProperty("--island-fill", `oklch(0.185 ${bgChroma} ${hue} / ${opacity})`);
+      } else {
+        root.style.removeProperty("--island-fill");
+      }
       if (!isGlass) {
         root.style.setProperty("--sidebar", `oklch(0.175 ${bgChroma} ${hue})`);
         root.style.setProperty("--sidebar-accent", `oklch(0.28 ${accentChroma} ${hue})`);
       }
     } else {
-      root.style.setProperty("--background", `oklch(1 ${bgChroma} ${hue})`);
-      root.style.setProperty("--accent", `oklch(0.965 ${accentChroma} ${hue})`);
-      root.style.setProperty("--border", `oklch(0.922 ${bgChroma} ${hue})`);
+      // L=0.975 is perceptibly off-white — the sweet spot where chroma becomes visible
+      root.style.setProperty("--background", `oklch(0.975 ${bgChroma} ${hue})`);
+      root.style.setProperty("--accent", `oklch(0.945 ${accentChroma} ${hue})`);
+      root.style.setProperty("--border", `oklch(0.90 ${bgChroma} ${hue})`);
+      root.style.setProperty("--muted", `oklch(0.945 ${accentChroma} ${hue})`);
+      root.style.setProperty("--secondary", `oklch(0.945 ${accentChroma} ${hue})`);
+      root.style.setProperty("--card", `oklch(0.975 ${bgChroma} ${hue})`);
+      root.style.setProperty("--input", `oklch(0.90 ${bgChroma} ${hue})`);
+      // Island fill with alpha for per-space opacity
+      if (opacity < 1) {
+        root.style.setProperty("--island-fill", `oklch(0.975 ${bgChroma} ${hue} / ${opacity})`);
+      } else {
+        root.style.removeProperty("--island-fill");
+      }
       if (!isGlass) {
-        root.style.setProperty("--sidebar", `oklch(0.985 ${bgChroma} ${hue})`);
-        root.style.setProperty("--sidebar-accent", `oklch(0.965 ${accentChroma} ${hue})`);
+        root.style.setProperty("--sidebar", `oklch(0.96 ${bgChroma} ${hue})`);
+        root.style.setProperty("--sidebar-accent", `oklch(0.94 ${accentChroma} ${hue})`);
+      } else {
+        // Glass + light: semi-transparent white tinted with space hue
+        root.style.setProperty("--sidebar", `oklch(1 ${bgChroma} ${hue} / 0.45)`);
+        root.style.setProperty("--sidebar-accent", `oklch(0.965 ${accentChroma} ${hue} / 0.45)`);
       }
     }
 
@@ -470,7 +545,7 @@ export function AppLayout() {
     const c = Math.min(chroma, 0.15);
 
     if (isGlass) {
-      const a = isDark ? 0.08 : 0.05;
+      const a = 0.08; // equal opacity for both light and dark
       const bg = gradientHue !== undefined
         ? `linear-gradient(135deg, oklch(0.5 ${c} ${hue} / ${a}), oklch(0.5 ${c} ${gradientHue} / ${a}))`
         : `oklch(0.5 ${c} ${hue} / ${a})`;
@@ -480,7 +555,7 @@ export function AppLayout() {
     }
 
     if (gradientHue !== undefined) {
-      const a = isDark ? 0.07 : 0.05;
+      const a = 0.07; // equal opacity for both light and dark
       // Set CSS custom prop so .island::before picks up the gradient on ALL islands
       root.style.setProperty(
         "--island-overlay-bg",
@@ -491,11 +566,10 @@ export function AppLayout() {
     }
 
     return () => {
-      const vars = ["--space-hue", "--space-chroma", "--background", "--accent", "--border", "--sidebar", "--sidebar-accent", "--island-overlay-bg"];
-      for (const v of vars) root.style.removeProperty(v);
+      for (const v of TINT_VARS) root.style.removeProperty(v);
       setGlassOverlayStyle(null);
     };
-  }, [spaceManager.activeSpace]);
+  }, [spaceManager.activeSpace, resolvedTheme]);
 
   // Sync model from loaded session (canonical runtime names -> picker values)
   useEffect(() => {
@@ -623,26 +697,58 @@ export function AppLayout() {
 
   const contentRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
+  const chatIslandRef = useRef<HTMLDivElement>(null);
+  const lastTopScrollProgressRef = useRef(0);
+
+  // Reset on session change — new/blank chats start at scroll 0.
+  useEffect(() => {
+    lastTopScrollProgressRef.current = 0;
+    chatIslandRef.current?.style.setProperty("--chat-top-progress", "0");
+  }, [manager.activeSessionId]);
+
+  const handleTopScrollProgress = useCallback((progress: number) => {
+    const clamped = Math.max(0, Math.min(1, progress));
+    if (Math.abs(lastTopScrollProgressRef.current - clamped) < 0.005) return;
+    lastTopScrollProgressRef.current = clamped;
+    chatIslandRef.current?.style.setProperty("--chat-top-progress", clamped.toFixed(3));
+  }, []);
+
+  // Scroll fades should soften when the space itself is more transparent.
+  const spaceOpacity = spaceManager.activeSpace?.color.opacity ?? 1;
+  const chatFadeStrength = Math.max(0.2, Math.min(1, spaceOpacity));
 
   // ── Panel visibility flags (used by dynamic minWidth + clamping) ──
   const hasRightPanel = ((hasTodos && settings.activeTools.has("tasks")) || (hasAgents && settings.activeTools.has("agents"))) && !!manager.activeSessionId;
   const hasToolsColumn = (settings.activeTools.has("terminal") || settings.activeTools.has("browser") || settings.activeTools.has("git") || settings.activeTools.has("files") || settings.activeTools.has("mcp") || settings.activeTools.has("changes")) && !!manager.activeSessionId;
 
   // ── Dynamic Electron minimum window width ──
-  // Recalculates whenever panel visibility or sidebar state changes
+  // Recalculates whenever panel visibility, sidebar state, or layout mode changes
+  const isIsland = settings.islandLayout;
+  const margins = isIsland ? 16 : 0; // ms-2 + me-2 on contentRef (islands only)
+  const handleW = isIsland ? RESIZE_HANDLE_WIDTH : 1; // 8px pill vs 1px border
+  const pickerW = isIsland ? TOOL_PICKER_WIDTH : 56; // w-14 = 56px, no ms-2 in flat mode
+  const splitGap = isIsland ? 4 : 0.5; // gap subtracted from split height calcs
+  const chatSurfaceColor = isIsland
+    ? "var(--background)"
+    : "var(--island-fill, var(--background))";
+  const titlebarSurfaceColor = isIsland
+    ? chatSurfaceColor
+    : "color-mix(in oklab, var(--background) calc(var(--chat-top-progress, 0) * 80%), transparent)";
+  const topFadeBackground = `linear-gradient(to bottom, ${chatSurfaceColor}, transparent)`;
+  const bottomFadeBackground = `linear-gradient(to top, ${chatSurfaceColor}, transparent)`;
+
   useEffect(() => {
     const sidebarW = sidebar.isOpen ? 260 : 0;
-    const margins = 16; // ms-2 + me-2 on contentRef
     let minW = sidebarW + margins + MIN_CHAT_WIDTH;
 
     if (manager.activeSessionId) {
-      minW += TOOL_PICKER_WIDTH;
-      if (hasRightPanel) minW += MIN_PANEL_WIDTH + RESIZE_HANDLE_WIDTH;
-      if (hasToolsColumn) minW += MIN_TOOLS_WIDTH + RESIZE_HANDLE_WIDTH;
+      minW += pickerW;
+      if (hasRightPanel) minW += MIN_PANEL_WIDTH + handleW;
+      if (hasToolsColumn) minW += MIN_TOOLS_WIDTH + handleW;
     }
 
     window.claude.setMinWidth(Math.max(minW, 600));
-  }, [sidebar.isOpen, hasRightPanel, hasToolsColumn, manager.activeSessionId]);
+  }, [sidebar.isOpen, hasRightPanel, hasToolsColumn, manager.activeSessionId, margins, pickerW, handleW]);
 
   // When tools column becomes visible, fire resize so xterm terminals re-fit
   useEffect(() => {
@@ -666,9 +772,9 @@ export function AppLayout() {
       const onMouseMove = (ev: MouseEvent) => {
         // Dynamically cap so the chat always keeps MIN_CHAT_WIDTH
         const containerWidth = contentRef.current?.clientWidth ?? window.innerWidth;
-        let reserved = MIN_CHAT_WIDTH + TOOL_PICKER_WIDTH + RESIZE_HANDLE_WIDTH;
+        let reserved = MIN_CHAT_WIDTH + pickerW + handleW;
         if (toolsVisible) {
-          reserved += toolsPanelWidthRef.current + RESIZE_HANDLE_WIDTH;
+          reserved += toolsPanelWidthRef.current + handleW;
         }
         const dynamicMax = Math.max(MIN_PANEL_WIDTH, containerWidth - reserved);
 
@@ -687,7 +793,7 @@ export function AppLayout() {
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [settings],
+    [settings, pickerW, handleW],
   );
 
   // ── Tools panel resize ──
@@ -707,9 +813,9 @@ export function AppLayout() {
       const onMouseMove = (ev: MouseEvent) => {
         // Dynamically cap so the chat always keeps MIN_CHAT_WIDTH
         const containerWidth = contentRef.current?.clientWidth ?? window.innerWidth;
-        let reserved = MIN_CHAT_WIDTH + TOOL_PICKER_WIDTH + RESIZE_HANDLE_WIDTH;
+        let reserved = MIN_CHAT_WIDTH + pickerW + handleW;
         if (rightVisible) {
-          reserved += rightPanelWidthRef.current + RESIZE_HANDLE_WIDTH;
+          reserved += rightPanelWidthRef.current + handleW;
         }
         const dynamicMax = Math.max(MIN_TOOLS_WIDTH, containerWidth - reserved);
 
@@ -728,7 +834,7 @@ export function AppLayout() {
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [settings],
+    [settings, pickerW, handleW],
   );
 
   // ── Reactive panel clamping on window resize / project switch ──
@@ -743,9 +849,9 @@ export function AppLayout() {
       const hasRight = !!rightPanelRef.current;
       const hasTools = !!toolsColumnRef.current;
 
-      let reserved = MIN_CHAT_WIDTH + (manager.activeSessionId ? TOOL_PICKER_WIDTH : 0);
-      if (hasRight) reserved += RESIZE_HANDLE_WIDTH;
-      if (hasTools) reserved += RESIZE_HANDLE_WIDTH;
+      let reserved = MIN_CHAT_WIDTH + (manager.activeSessionId ? pickerW : 0);
+      if (hasRight) reserved += handleW;
+      if (hasTools) reserved += handleW;
 
       const available = containerW - reserved;
       let rw = hasRight ? rightPanelWidthRef.current : 0;
@@ -770,7 +876,7 @@ export function AppLayout() {
     // Also clamp immediately on mount / project switch
     clamp();
     return () => observer.disconnect();
-  }, [hasRightPanel, hasToolsColumn, manager.activeSessionId, activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasRightPanel, hasToolsColumn, manager.activeSessionId, activeProjectId, pickerW, handleW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Tools vertical split ratios ──
 
@@ -896,9 +1002,10 @@ export function AppLayout() {
   }, [manager.sessionInfo?.permissionMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { activeTools } = settings;
+  const activeSpaceTerminals = spaceTerminals.getSpaceState(spaceManager.activeSpaceId);
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-sidebar text-foreground">
+    <div className={`relative flex h-screen overflow-hidden bg-sidebar text-foreground${settings.islandLayout ? "" : " no-islands"}`}>
       {/* Glass tint overlay — sits behind content, tints the native transparency */}
       {glassOverlayStyle && (
         <div
@@ -938,23 +1045,46 @@ export function AppLayout() {
         onOpenSettings={() => setShowSettings(true)}
       />
 
-      <div ref={contentRef} className={`flex min-w-0 flex-1 ms-2 me-2 my-2 ${isResizing ? "select-none" : ""}`}>
+      <div ref={contentRef} className={`flex min-w-0 flex-1 ${settings.islandLayout ? "ms-2 me-2 my-2" : sidebar.isOpen ? "flat-divider-s" : ""} ${isResizing ? "select-none" : ""}`}>
         {showSettings && (
           <SettingsView
             onClose={() => setShowSettings(false)}
             agents={agents}
             onSaveAgent={saveAgent}
             onDeleteAgent={deleteAgent}
+            theme={settings.theme}
+            onThemeChange={settings.setTheme}
+            islandLayout={settings.islandLayout}
+            onIslandLayoutChange={settings.setIslandLayout}
+            transparency={settings.transparency}
+            onTransparencyChange={settings.setTransparency}
+            glassSupported={glassSupported}
+            sidebarOpen={sidebar.isOpen}
           />
         )}
         {/* Keep chat area mounted (hidden) when settings is open to avoid
             destroying/recreating the entire ChatView DOM tree on toggle */}
         <div className={showSettings ? "hidden" : "contents"}>
-        <div className="island relative flex min-w-[768px] flex-1 flex-col overflow-hidden rounded-lg bg-background">
+        <div
+          ref={chatIslandRef}
+          className="chat-island island relative flex min-w-[768px] flex-1 flex-col overflow-hidden rounded-lg bg-background"
+          style={{ "--chat-fade-strength": String(chatFadeStrength) } as React.CSSProperties}
+        >
           {manager.activeSessionId ? (
             <>
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-24 bg-gradient-to-b from-black to-transparent" />
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-10">
+              {/* Top fade: only visible when chat is scrolled down. Island mode uses dark shadow; flat mode fades content into bg */}
+              {/* Island: gradient starts at top-0 (behind header, subtle bleed). Flat: starts at top-10 (right below header) so full gradient is visible and strong. */}
+              <div
+                className={`pointer-events-none absolute inset-x-0 z-[5] ${isIsland ? "top-0 h-16" : "top-10 h-10"}`}
+                style={{
+                  opacity: "calc(var(--chat-fade-strength, 1) * var(--chat-top-progress, 0))",
+                  background: topFadeBackground,
+                }}
+              />
+              <div
+                className="chat-titlebar-bg pointer-events-none absolute inset-x-0 top-0 z-10"
+                style={{ background: titlebarSurfaceColor }}
+              >
                 <ChatHeader
                   sidebarOpen={sidebar.isOpen}
                   isProcessing={manager.isProcessing}
@@ -979,8 +1109,15 @@ export function AppLayout() {
                 onRevert={manager.isConnected && manager.revertFiles ? manager.revertFiles : undefined}
                 onFullRevert={manager.isConnected && manager.fullRevert ? manager.fullRevert : undefined}
                 onViewTurnChanges={handleViewTurnChanges}
+                onTopScrollProgress={handleTopScrollProgress}
               />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-24 bg-gradient-to-t from-black/60 to-transparent" />
+              <div
+                className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
+                style={{
+                  opacity: chatFadeStrength,
+                  background: bottomFadeBackground,
+                }}
+              />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
                 {manager.pendingPermission ? (
                   <PermissionPrompt
@@ -1025,9 +1162,10 @@ export function AppLayout() {
           ) : (
             <>
               <div
-                className={`drag-region flex h-12 items-center px-3 ${
+                className={`chat-titlebar-bg drag-region flex h-12 items-center px-3 ${
                   !sidebar.isOpen && isMac ? "ps-[78px]" : ""
                 }`}
+                style={{ background: titlebarSurfaceColor }}
               >
                 {!sidebar.isOpen && (
                   <Button
@@ -1050,9 +1188,9 @@ export function AppLayout() {
 
         {hasRightPanel && (
           <>
-            {/* Resize handle */}
+            {/* Resize handle — between chat and right panel */}
             <div
-              className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+              className="resize-col group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
               onMouseDown={handleResizeStart}
             >
               <div
@@ -1082,7 +1220,7 @@ export function AppLayout() {
                         className="island flex flex-col overflow-hidden rounded-lg bg-background"
                         style={
                           bothVisible
-                            ? { height: `calc(${settings.rightSplitRatio * 100}% - 4px)`, flexShrink: 0 }
+                            ? { height: `calc(${settings.rightSplitRatio * 100}% - ${splitGap}px)`, flexShrink: 0 }
                             : { flex: "1 1 0%", minHeight: 0 }
                         }
                       >
@@ -1091,7 +1229,7 @@ export function AppLayout() {
                     )}
                     {bothVisible && (
                       <div
-                        className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+                        className="resize-row group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
                         onMouseDown={handleRightSplitStart}
                       >
                         <div
@@ -1108,7 +1246,7 @@ export function AppLayout() {
                         className="island flex flex-col overflow-hidden rounded-lg bg-background"
                         style={
                           bothVisible
-                            ? { height: `calc(${(1 - settings.rightSplitRatio) * 100}% - 4px)`, flexShrink: 0 }
+                            ? { height: `calc(${(1 - settings.rightSplitRatio) * 100}% - ${splitGap}px)`, flexShrink: 0 }
                             : { flex: "1 1 0%", minHeight: 0 }
                         }
                       >
@@ -1129,7 +1267,7 @@ export function AppLayout() {
             {/* Resize handle — only visible when tools column is showing */}
             {hasToolsColumn && (
               <div
-                className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+                className="resize-col group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
                 onMouseDown={handleToolsResizeStart}
               >
                 <div
@@ -1149,7 +1287,17 @@ export function AppLayout() {
             >
               {(() => {
                 const toolComponents: Record<string, React.ReactNode> = {
-                  terminal: <ToolsPanel cwd={activeProjectPath} />,
+                  terminal: (
+                    <ToolsPanel
+                      spaceId={spaceManager.activeSpaceId}
+                      tabs={activeSpaceTerminals.tabs}
+                      activeTabId={activeSpaceTerminals.activeTabId}
+                      onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
+                      onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeProjectPath)}
+                      onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
+                      resolvedTheme={resolvedTheme}
+                    />
+                  ),
                   git: (
                     <GitPanel
                       cwd={activeProjectPath}
@@ -1216,7 +1364,7 @@ export function AppLayout() {
                       </div>
                       {isActive && activeIdx < count - 1 && (
                         <div
-                          className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+                          className="resize-row group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
                           onMouseDown={(e) => handleToolsSplitStart(e, activeIdx)}
                         >
                           <div
@@ -1238,7 +1386,7 @@ export function AppLayout() {
 
         {/* Tool picker — always visible */}
         {manager.activeSessionId && (
-          <div className="ms-2 shrink-0">
+          <div className={isIsland ? "ms-2 shrink-0" : "shrink-0 flat-divider-s"}>
             <ToolPicker activeTools={activeTools} onToggle={handleToggleTool} availableContextual={availableContextual} toolOrder={settings.toolOrder} onReorder={handleToolReorder} projectPath={activeProjectPath} />
           </div>
         )}

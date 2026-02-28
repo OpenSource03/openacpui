@@ -67,6 +67,7 @@
   --accent-foreground: oklch(0.205 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0.004 286.029);
+  --layout-divider: color-mix(in oklch, var(--border) 70%, var(--foreground) 30%);
   --input: oklch(0.922 0.004 286.029);
   --ring: oklch(0.705 0.015 286.029);
   --chart-1: oklch(0.646 0.222 41.116);
@@ -82,6 +83,7 @@
   --sidebar-accent-foreground: oklch(0.205 0.006 285.885);
   --sidebar-border: oklch(0.922 0.004 286.029);
   --sidebar-ring: oklch(0.705 0.015 286.029);
+  --line-number-color: rgba(0, 0, 0, 0.38);
 }
 
 .dark {
@@ -101,6 +103,7 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(0.40 0 0);
+  --layout-divider: var(--border);
   --input: oklch(0.40 0 0);
   --ring: oklch(0.64 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
@@ -116,6 +119,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.38 0 0);
   --sidebar-ring: oklch(0.64 0 0);
+  --line-number-color: rgba(255, 255, 255, 0.3);
 }
 
 @layer base {
@@ -141,9 +145,32 @@ html.glass-enabled #root {
 }
 
 .glass-enabled:not(.dark) {
-  --sidebar: transparent;
-  --sidebar-border: oklch(0.922 0.004 286.029 / 0.3);
-  --sidebar-accent: oklch(0.965 0.001 286.029 / 0.4);
+  /* Semi-transparent white overlay brightens the native glass to a frosted white */
+  --sidebar: oklch(1 0 0 / 0.45);
+  --sidebar-border: oklch(0 0 0 / 0.08);
+  --sidebar-accent: oklch(0.965 0.001 286.029 / 0.45);
+  /* White text on glass sidebar — native glass shows through dark, so sidebar
+     text should be light (like dark mode) regardless of the app theme.
+     Exceptions: search input and selected chat keep dark text (see below). */
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-ring: oklch(0.64 0 0);
+  /* Keep --sidebar-accent-foreground at light-mode default (dark text on
+     selected/active chat items) */
+}
+
+/* Elements on light backgrounds (search box, active chat) — reset to dark text/icons */
+.glass-enabled:not(.dark) .glass-outline,
+.glass-enabled:not(.dark) .bg-sidebar-accent {
+  --sidebar-foreground: oklch(0.145 0 0);
+}
+
+/* In glass mode, only the outermost bg-sidebar (AppLayout root) provides
+   the glass brightening overlay. Nested bg-sidebar elements stay transparent
+   to avoid double-stacking the semi-transparent color. */
+.glass-enabled .bg-sidebar .bg-sidebar {
+  background-color: transparent;
 }
 
 /* ── Island glass border — diagonal reflection ── */
@@ -165,6 +192,22 @@ html.glass-enabled #root {
       oklch(1 0 0 / 0.03) 70%,
       oklch(1 0 0 / 0.08) 88%,
       oklch(1 0 0 / 0.18) 100%
+    ) border-box;
+}
+
+/* Light mode glass: dark reflection gradient (white-on-white is invisible) */
+.glass-enabled:not(.dark) .island {
+  background:
+    linear-gradient(var(--island-fill, var(--background)) 0 0) padding-box,
+    linear-gradient(
+      135deg,
+      oklch(0 0 0 / 0.10) 0%,
+      oklch(0 0 0 / 0.04) 12%,
+      oklch(0 0 0 / 0.02) 30%,
+      transparent 50%,
+      oklch(0 0 0 / 0.02) 70%,
+      oklch(0 0 0 / 0.04) 88%,
+      oklch(0 0 0 / 0.08) 100%
     ) border-box;
 }
 
@@ -190,15 +233,99 @@ html.glass-enabled #root {
     linear-gradient(135deg, oklch(1 0 0 / 0.08), oklch(1 0 0 / 0.04) 50%, oklch(1 0 0 / 0.08)) border-box;
 }
 
+/* Light mode glass: dark outline gradient (mirrors .island light-mode fix) */
+.glass-enabled:not(.dark) .glass-outline {
+  background:
+    linear-gradient(var(--island-fill) 0 0) padding-box,
+    linear-gradient(135deg, oklch(0 0 0 / 0.06), oklch(0 0 0 / 0.03) 50%, oklch(0 0 0 / 0.06)) border-box;
+}
+
 /* Skip layout/paint for off-screen messages — large chats render instantly */
 .message-item {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
 }
 
-/* Pre-promote islands to GPU compositing layer — avoids first-interaction shader stutter */
+/* Keep text crisp in light mode: forced transform compositing can blur fonts.
+   Preserve the old GPU pre-promotion only in dark mode where it is less noticeable. */
 .island {
+  will-change: auto;
+}
+
+.dark .island {
   will-change: transform;
+}
+
+/* ── Flat layout: edge-to-edge sections with simple 1px borders ── */
+.no-islands .island {
+  border-radius: 0;
+  border: none;
+  background: var(--island-fill, var(--background));
+  will-change: auto;
+}
+
+.no-islands .island::before {
+  display: none;
+}
+
+/* Column resize handles become full-height 1px borders */
+.no-islands .resize-col {
+  width: 1px;
+  background: var(--layout-divider);
+  position: relative;
+}
+/* Invisible hit area for drag usability (7px wide) */
+.no-islands .resize-col::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+  z-index: 10;
+}
+.no-islands .resize-col > * {
+  display: none;
+}
+
+.no-islands .flat-divider-s {
+  border-inline-start: 1px solid var(--layout-divider);
+}
+
+/* Row resize handles become full-width 1px borders */
+.no-islands .resize-row {
+  height: 1px;
+  background: var(--layout-divider);
+  position: relative;
+}
+.no-islands .resize-row::after {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
+  z-index: 10;
+}
+.no-islands .resize-row > * {
+  display: none;
+}
+
+/* Flat mode: slightly taller chat header for more breathing room (h-8 → h-10, ~20% increase) */
+.no-islands .chat-header {
+  height: 2.5rem; /* 40px, up from 32px */
+}
+
+/* Flat mode: offset chat scrollbar so it starts below the header instead of disappearing behind it.
+   Radix scrollbar is position:absolute — override top + force bottom:0 so it stretches correctly. */
+.no-islands .chat-island [data-slot="scroll-area-scrollbar"][data-orientation="vertical"] {
+  top: 2.5rem !important; /* match .chat-header height */
+  bottom: 0 !important;
+  height: auto !important; /* override Tailwind h-full so top/bottom positioning works */
+}
+
+/* Title/drag bars: use opacity-aware fill in flat layout so they match the
+   active space opacity instead of staying fully opaque. */
+.chat-titlebar-bg {
+  background: var(--background);
+}
+
+.no-islands .chat-titlebar-bg {
+  background: var(--island-fill, var(--background));
 }
 
 /* Frameless window: draggable title bar regions */
@@ -313,4 +440,3 @@ html.platform-win32 .drag-region {
 /* Defensive scrollbar hiding for overflow containers (InputBar toolbar fallback) */
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
-

@@ -170,10 +170,11 @@ declare global {
         ) => Promise<{ message?: string; error?: string }>;
       };
       terminal: {
-        create: (options: { cwd?: string; cols?: number; rows?: number }) => Promise<{ terminalId?: string; error?: string }>;
+        create: (options: { cwd?: string; cols?: number; rows?: number; spaceId?: string }) => Promise<{ terminalId?: string; error?: string }>;
         write: (terminalId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
         resize: (terminalId: string, cols: number, rows: number) => Promise<{ ok?: boolean; error?: string }>;
         destroy: (terminalId: string) => Promise<{ ok?: boolean }>;
+        destroySpace: (spaceId: string) => Promise<{ ok?: boolean }>;
         onData: (callback: (data: { terminalId: string; data: string }) => void) => () => void;
         onExit: (callback: (data: { terminalId: string; exitCode: number }) => void) => () => void;
       };
