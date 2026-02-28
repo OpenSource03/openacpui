@@ -35,6 +35,7 @@ import { UpdateBanner } from "./UpdateBanner";
 
 interface AppSidebarProps {
   isOpen: boolean;
+  islandLayout: boolean;
   projects: Project[];
   sessions: ChatSession[];
   activeSessionId: string | null;
@@ -104,6 +105,7 @@ function groupSessionsByDate(sessions: ChatSession[]): SessionGroup[] {
 
 export const AppSidebar = memo(function AppSidebar({
   isOpen,
+  islandLayout,
   projects,
   sessions,
   activeSessionId,
@@ -267,6 +269,7 @@ export const AppSidebar = memo(function AppSidebar({
               return (
                 <ProjectSection
                   key={project.id}
+                  islandLayout={islandLayout}
                   project={project}
                   sessions={projectSessions}
                   activeSessionId={activeSessionId}
@@ -319,6 +322,7 @@ export const AppSidebar = memo(function AppSidebar({
 });
 
 function ProjectSection({
+  islandLayout,
   project,
   sessions,
   activeSessionId,
@@ -334,6 +338,7 @@ function ProjectSection({
   onReorderProject,
   defaultChatLimit,
 }: {
+  islandLayout: boolean;
   project: Project;
   sessions: ChatSession[];
   activeSessionId: string | null;
@@ -534,6 +539,7 @@ function ProjectSection({
               {group.sessions.map((session) => (
                 <SessionItem
                   key={session.id}
+                  islandLayout={islandLayout}
                   session={session}
                   isActive={session.id === activeSessionId}
                   onSelect={() => onSelectSession(session.id)}
@@ -572,12 +578,14 @@ function ProjectSection({
 }
 
 function SessionItem({
+  islandLayout,
   session,
   isActive,
   onSelect,
   onDelete,
   onRename,
 }: {
+  islandLayout: boolean;
   session: ChatSession;
   isActive: boolean;
   onSelect: () => void;
@@ -652,7 +660,14 @@ function SessionItem({
               <MoreHorizontal className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuContent
+            align="end"
+            className={
+              islandLayout
+                ? "w-36 border-none bg-transparent shadow-[0_14px_34px_-10px_color-mix(in_oklab,var(--foreground)_40%,transparent)]"
+                : "w-36"
+            }
+          >
             <DropdownMenuItem
               onClick={() => {
                 setEditTitle(session.title);

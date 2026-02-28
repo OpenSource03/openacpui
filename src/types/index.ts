@@ -15,6 +15,9 @@ export type {
   ToolUseResult,
   ResultEvent,
   ModelUsageEntry,
+  TaskStartedEvent,
+  TaskProgressEvent,
+  TaskNotificationEvent,
   ClaudeEvent,
   AuthStatusEvent,
 } from "./protocol";
@@ -36,6 +39,7 @@ export type {
   CCSessionInfo,
   BackgroundAgent,
   BackgroundAgentActivity,
+  BackgroundAgentUsage,
   ImageAttachment,
   ContextUsage,
   AppSettings,
@@ -71,6 +75,7 @@ export type { EngineId, EngineHookState, PermissionBehavior, RespondPermissionFn
 export type {
   CodexSessionEvent,
   CodexApprovalRequest,
+  CodexServerRequest,
   CodexExitEvent,
 } from "./codex";
 

@@ -29,6 +29,16 @@ interface CodexSession {
 }
 
 const codexSessions = new Map<string, CodexSession>();
+const SUPPORTED_SERVER_REQUESTS = new Set([
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/tool/requestUserInput",
+]);
+
+function isSupportedServerRequestMethod(method: string): boolean {
+  return SUPPORTED_SERVER_REQUESTS.has(method);
+}
+
 function getAppServerClientInfo(): { name: string; title: string; version: string } {
   const clientName = getAppSetting("codexClientName") || "Harnss";
   return {
@@ -246,10 +256,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             "codex",
             `[srvreq:${internalId.slice(0, 8)}] ${msg.method} id=${msg.id}`,
           );
-          if (
-            msg.method === "item/commandExecution/requestApproval" ||
-            msg.method === "item/fileChange/requestApproval"
-          ) {
+          if (isSupportedServerRequestMethod(msg.method)) {
             safeSend(getMainWindow, "codex:approval_request", {
               _sessionId: internalId,
               rpcId: msg.id,
@@ -461,7 +468,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       _,
       data: {
         sessionId: string;
-        rpcId: number;
+        rpcId: string | number;
         decision: string;
         acceptSettings?: { forSession?: boolean };
       },
@@ -472,6 +479,41 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const result: Record<string, unknown> = { decision: data.decision };
       if (data.acceptSettings) result.acceptSettings = data.acceptSettings;
       session.rpc.respondToServer(data.rpcId, result);
+    },
+  );
+
+  // ─── codex:user_input_response ───
+  ipcMain.handle(
+    "codex:user_input_response",
+    async (
+      _,
+      data: {
+        sessionId: string;
+        rpcId: string | number;
+        answers: Record<string, { answers: string[] }>;
+      },
+    ) => {
+      const session = codexSessions.get(data.sessionId);
+      if (!session) return;
+      session.rpc.respondToServer(data.rpcId, { answers: data.answers });
+    },
+  );
+
+  // ─── codex:server_request_error ───
+  ipcMain.handle(
+    "codex:server_request_error",
+    async (
+      _,
+      data: {
+        sessionId: string;
+        rpcId: string | number;
+        code: number;
+        message: string;
+      },
+    ) => {
+      const session = codexSessions.get(data.sessionId);
+      if (!session) return;
+      session.rpc.respondToServerError(data.rpcId, data.code, data.message);
     },
   );
 
@@ -652,10 +694,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             "codex",
             `[srvreq:${internalId.slice(0, 8)}] ${msg.method} id=${msg.id}`,
           );
-          if (
-            msg.method === "item/commandExecution/requestApproval" ||
-            msg.method === "item/fileChange/requestApproval"
-          ) {
+          if (isSupportedServerRequestMethod(msg.method)) {
             safeSend(getMainWindow, "codex:approval_request", {
               _sessionId: internalId,
               rpcId: msg.id,

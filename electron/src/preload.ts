@@ -180,8 +180,12 @@ contextBridge.exposeInMainWorld("claude", {
       ipcRenderer.invoke("codex:send", { sessionId, text, images, effort, collaborationMode }),
     stop: (sessionId: string) => ipcRenderer.invoke("codex:stop", sessionId),
     interrupt: (sessionId: string) => ipcRenderer.invoke("codex:interrupt", sessionId),
-    respondApproval: (sessionId: string, rpcId: number, decision: string, acceptSettings?: unknown) =>
+    respondApproval: (sessionId: string, rpcId: string | number, decision: string, acceptSettings?: unknown) =>
       ipcRenderer.invoke("codex:approval_response", { sessionId, rpcId, decision, acceptSettings }),
+    respondUserInput: (sessionId: string, rpcId: string | number, answers: Record<string, { answers: string[] }>) =>
+      ipcRenderer.invoke("codex:user_input_response", { sessionId, rpcId, answers }),
+    respondServerRequestError: (sessionId: string, rpcId: string | number, code: number, message: string) =>
+      ipcRenderer.invoke("codex:server_request_error", { sessionId, rpcId, code, message }),
     compact: (sessionId: string) => ipcRenderer.invoke("codex:compact", sessionId),
     listModels: () => ipcRenderer.invoke("codex:list-models"),
     authStatus: () => ipcRenderer.invoke("codex:auth-status"),

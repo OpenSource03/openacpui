@@ -6,11 +6,12 @@
  */
 
 import type { ServerNotification as CodexServerNotification } from "./codex-protocol/ServerNotification";
+import type { ToolRequestUserInputQuestion as CodexToolRequestUserInputQuestion } from "./codex-protocol/v2/ToolRequestUserInputQuestion";
 
 // ── Generated protocol types ──
 
 export type { CodexServerNotification };
-export type { ServerRequest as CodexServerRequest } from "./codex-protocol/ServerRequest";
+export type { ServerRequest as CodexProtocolServerRequest } from "./codex-protocol/ServerRequest";
 export type { ClientRequest as CodexClientRequest } from "./codex-protocol/ClientRequest";
 export type { ClientNotification as CodexClientNotification } from "./codex-protocol/ClientNotification";
 export type { InitializeParams as CodexInitializeParams } from "./codex-protocol/InitializeParams";
@@ -73,6 +74,7 @@ export type { FileUpdateChange as CodexFileUpdateChange } from "./codex-protocol
 export type { CommandExecutionStatus as CodexCommandExecutionStatus } from "./codex-protocol/v2/CommandExecutionStatus";
 export type { PatchApplyStatus as CodexPatchApplyStatus } from "./codex-protocol/v2/PatchApplyStatus";
 export type { McpToolCallStatus as CodexMcpToolCallStatus } from "./codex-protocol/v2/McpToolCallStatus";
+export type { ToolRequestUserInputQuestion as CodexToolRequestUserInputQuestion } from "./codex-protocol/v2/ToolRequestUserInputQuestion";
 
 // ── Harnss-specific wrappers ──
 
@@ -89,13 +91,28 @@ export type CodexSessionEvent = { _sessionId: string } & (CodexServerNotificatio
 export interface CodexApprovalRequest {
   _sessionId: string;
   /** The JSON-RPC request id — we must respond with this id */
-  rpcId: number;
+  rpcId: string | number;
   method: "item/commandExecution/requestApproval" | "item/fileChange/requestApproval";
   threadId: string;
   turnId: string;
   itemId: string;
   reason?: string | null;
 }
+
+/** Codex server-initiated request to collect structured user input. */
+export interface CodexRequestUserInputRequest {
+  _sessionId: string;
+  /** The JSON-RPC request id — we must respond with this id */
+  rpcId: string | number;
+  method: "item/tool/requestUserInput";
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  questions: Array<CodexToolRequestUserInputQuestion>;
+}
+
+/** All Codex server requests forwarded to the renderer. */
+export type CodexServerRequest = CodexApprovalRequest | CodexRequestUserInputRequest;
 
 /** Codex process exit event. */
 export interface CodexExitEvent {

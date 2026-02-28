@@ -635,7 +635,6 @@ export function AppLayout() {
   }, [manager.messages, manager.codexTodoItems]);
 
   const bgAgents = useBackgroundAgents({
-    messages: manager.messages,
     sessionId: manager.activeSessionId,
   });
 
@@ -731,8 +730,12 @@ export function AppLayout() {
   const chatSurfaceColor = isIsland
     ? "var(--background)"
     : "var(--island-fill, var(--background))";
+  // Island mode: transparent gradient fade — no solid bg, just a soft veil for title legibility.
+  // Transparent spaces get a lighter veil so the glass effect shows through.
+  // Flat mode: fades in a bg tint as the user scrolls down.
+  const titlebarOpacity = isIsland ? Math.round(30 + 50 * spaceOpacity) : 0; // 30–80%
   const titlebarSurfaceColor = isIsland
-    ? chatSurfaceColor
+    ? `linear-gradient(to bottom, color-mix(in oklab, var(--background) ${titlebarOpacity}%, transparent) 0%, transparent 100%)`
     : "color-mix(in oklab, var(--background) calc(var(--chat-top-progress, 0) * 80%), transparent)";
   const topFadeBackground = `linear-gradient(to bottom, ${chatSurfaceColor}, transparent)`;
   const bottomFadeBackground = `linear-gradient(to top, ${chatSurfaceColor}, transparent)`;
@@ -1021,6 +1024,7 @@ export function AppLayout() {
       />
       <AppSidebar
         isOpen={sidebar.isOpen}
+        islandLayout={settings.islandLayout}
         projects={projectManager.projects}
         sessions={manager.sessions}
         activeSessionId={manager.activeSessionId}

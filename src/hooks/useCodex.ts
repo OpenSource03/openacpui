@@ -8,7 +8,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { UIMessage, PermissionRequest, SessionInfo, ContextUsage, TodoItem, PermissionBehavior, ModelInfo, ImageAttachment } from "@/types";
-import type { CodexSessionEvent, CodexApprovalRequest, CodexExitEvent } from "@/types/codex";
+import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "@/types/codex";
 import type { CodexThreadItem } from "@/types/codex";
 import type { CodexTokenUsageNotification } from "@/types/codex";
 import type { CollaborationMode } from "@/types/codex-protocol/CollaborationMode";
@@ -39,6 +39,21 @@ function nextId(prefix: string): string {
   return `${prefix}-${Date.now()}-${codexIdCounter++}`;
 }
 
+interface CodexQuestionOption {
+  label: string;
+  description: string;
+}
+
+interface CodexQuestionInput {
+  id: string;
+  header: string;
+  question: string;
+  isOther: boolean;
+  isSecret: boolean;
+  options?: CodexQuestionOption[];
+  multiSelect: boolean;
+}
+
 export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta, initialPermission }: UseCodexOptions) {
   const [messages, setMessages] = useState<UIMessage[]>(initialMessages ?? []);
   const [isProcessing, setIsProcessing] = useState(initialMeta?.isProcessing ?? false);
@@ -60,7 +75,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   const rafRef = useRef<number | null>(null);
   const sessionIdRef = useRef(sessionId);
   const sessionModelRef = useRef(sessionModel);
-  const approvalRef = useRef<CodexApprovalRequest | null>(null);
+  const serverRequestRef = useRef<CodexServerRequest | null>(null);
   // Map Codex itemId → UIMessage id for updating tool_call messages
   const itemMapRef = useRef(new Map<string, string>());
   // Map Codex assistant itemId (reasoning/agentMessage) → assistant UIMessage id
@@ -103,7 +118,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     assistantItemMapRef.current.clear();
     activeAssistantItemIdRef.current = null;
     commandOutputRef.current.clear();
-    approvalRef.current = null;
+    serverRequestRef.current = null;
 
     // Rebuild Codex tool mappings from restored messages so completions
     // arriving after switch-back can find their tool_call messages
@@ -707,12 +722,33 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   }, []);
 
   // ── Approval handling ──
-  const handleApproval = useCallback((data: CodexApprovalRequest) => {
+  const handleApproval = useCallback((data: CodexServerRequest) => {
     if (data._sessionId !== sessionIdRef.current) return;
 
-    approvalRef.current = data;
-    const isCommand = data.method === "item/commandExecution/requestApproval";
+    serverRequestRef.current = data;
+    if (data.method === "item/tool/requestUserInput") {
+      const questions: CodexQuestionInput[] = data.questions.map((question) => ({
+        id: question.id,
+        header: question.header,
+        question: question.question,
+        isOther: question.isOther,
+        isSecret: question.isSecret,
+        options: question.options ?? undefined,
+        multiSelect: false,
+      }));
+      setPendingPermission({
+        requestId: String(data.rpcId),
+        toolName: "AskUserQuestion",
+        toolInput: {
+          source: "codex_request_user_input",
+          questions,
+        },
+        toolUseId: data.itemId,
+      });
+      return;
+    }
 
+    const isCommand = data.method === "item/commandExecution/requestApproval";
     setPendingPermission({
       requestId: String(data.rpcId),
       toolName: isCommand ? "Bash" : "Edit",
@@ -890,14 +926,54 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
         return;
       }
 
-      // Real Codex approval (command/fileChange)
-      if (!sessionId || !approvalRef.current) return;
-      const rpcId = approvalRef.current.rpcId;
+      if (!sessionId) return;
+
+      const activeRequest = serverRequestRef.current
+        ?? (pendingPermission
+          ? {
+            method: pendingPermission.toolName === "AskUserQuestion"
+              ? "item/tool/requestUserInput"
+              : "item/commandExecution/requestApproval",
+            rpcId: pendingPermission.requestId,
+            itemId: pendingPermission.toolUseId,
+          }
+          : null);
+      if (!activeRequest) return;
+
+      if (activeRequest.method === "item/tool/requestUserInput") {
+        if (behavior === "deny") {
+          await window.claude.codex.respondServerRequestError(
+            sessionId,
+            activeRequest.rpcId,
+            -32001,
+            "User declined requestUserInput",
+          );
+          setPendingPermission(null);
+          serverRequestRef.current = null;
+          return;
+        }
+
+        const updatedAnswers = (_updatedInput?.answersByQuestionId ?? {}) as Record<string, string[]>;
+        const answers: Record<string, { answers: string[] }> = {};
+        for (const [questionId, values] of Object.entries(updatedAnswers)) {
+          const cleaned = values
+            .map((v) => v.trim())
+            .filter((v) => v.length > 0);
+          if (cleaned.length > 0) {
+            answers[questionId] = { answers: cleaned };
+          }
+        }
+        await window.claude.codex.respondUserInput(sessionId, activeRequest.rpcId, answers);
+        setPendingPermission(null);
+        serverRequestRef.current = null;
+        return;
+      }
+
       const decision = behavior === "allow" ? "accept" : behavior === "allowForSession" ? "accept" : "decline";
       const acceptSettings = behavior === "allowForSession" ? { forSession: true } : undefined;
-      await window.claude.codex.respondApproval(sessionId, rpcId, decision, acceptSettings);
+      await window.claude.codex.respondApproval(sessionId, activeRequest.rpcId, decision, acceptSettings);
       setPendingPermission(null);
-      approvalRef.current = null;
+      serverRequestRef.current = null;
     },
     [sessionId, pendingPermission, send, sessionInfo?.model],
   );

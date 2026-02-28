@@ -3,6 +3,9 @@ import type {
   ClaudeEvent,
   SystemInitEvent,
   SystemCompactBoundaryEvent,
+  TaskStartedEvent,
+  TaskProgressEvent,
+  TaskNotificationEvent,
   AuthStatusEvent,
   AssistantMessageEvent,
   ToolResultEvent,
@@ -27,6 +30,7 @@ import {
   normalizeToolResult,
   buildSdkContent,
 } from "../lib/protocol";
+import { bgAgentStore } from "../lib/background-agent-store";
 
 function uiLog(label: string, data: unknown) {
   window.claude.log(label, typeof data === "string" ? data : JSON.stringify(data));
@@ -232,6 +236,24 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     (event: ClaudeEvent & { _sessionId?: string }) => {
       // Filter events by sessionId
       if (event._sessionId && event._sessionId !== sessionIdRef.current) return;
+
+      // Intercept task lifecycle events before parentId routing —
+      // these are top-level metadata for background agents, not subagent streaming content
+      if (event.type === "system" && "subtype" in event) {
+        const sub = (event as { subtype: string }).subtype;
+        if (sub === "task_started") {
+          bgAgentStore.handleTaskStarted(sessionIdRef.current!, event as TaskStartedEvent);
+          return;
+        }
+        if (sub === "task_progress") {
+          bgAgentStore.handleTaskProgress(sessionIdRef.current!, event as TaskProgressEvent);
+          return;
+        }
+        if (sub === "task_notification") {
+          bgAgentStore.handleTaskNotification(sessionIdRef.current!, event as TaskNotificationEvent);
+          return;
+        }
+      }
 
       const parentId = getParentId(event);
 

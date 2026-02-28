@@ -24,8 +24,11 @@ interface QuestionOption {
 }
 
 interface Question {
+  id: string;
   question: string;
   header: string;
+  isOther?: boolean;
+  isSecret?: boolean;
   options?: QuestionOption[];
   multiSelect: boolean;
 }
@@ -126,15 +129,15 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
   const [selections, setSelections] = useState<Record<string, Set<string>>>(() => {
     const init: Record<string, Set<string>> = {};
     for (const q of questions) {
-      init[q.question] = new Set();
+      init[q.id] = new Set();
     }
     return init;
   });
   const [freeText, setFreeText] = useState<Record<string, string>>({});
 
-  const toggleOption = (questionText: string, label: string, multiSelect: boolean) => {
+  const toggleOption = (questionId: string, label: string, multiSelect: boolean) => {
     setSelections((prev) => {
-      const current = prev[questionText] ?? new Set();
+      const current = prev[questionId] ?? new Set();
       const next = new Set(current);
       if (multiSelect) {
         if (next.has(label)) next.delete(label);
@@ -146,31 +149,35 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
           next.add(label);
         }
       }
-      return { ...prev, [questionText]: next };
+      return { ...prev, [questionId]: next };
     });
-    setFreeText((prev) => ({ ...prev, [questionText]: "" }));
+    setFreeText((prev) => ({ ...prev, [questionId]: "" }));
   };
 
   const handleSubmit = () => {
     const answers: Record<string, string> = {};
+    const answersByQuestionId: Record<string, string[]> = {};
     for (const q of questions) {
-      const custom = freeText[q.question]?.trim();
+      const custom = freeText[q.id]?.trim();
       if (custom) {
         answers[q.question] = custom;
+        answersByQuestionId[q.id] = [custom];
       } else {
-        const selected = selections[q.question];
-        answers[q.question] = [...(selected ?? [])].join(", ");
+        const selected = [...(selections[q.id] ?? [])];
+        answers[q.question] = selected.join(", ");
+        answersByQuestionId[q.id] = selected;
       }
     }
     onRespond("allow", {
       questions: request.toolInput.questions,
       answers,
+      answersByQuestionId,
     });
   };
 
   const hasAllAnswers = questions.every((q) => {
-    const custom = freeText[q.question]?.trim();
-    const selected = selections[q.question];
+    const custom = freeText[q.id]?.trim();
+    const selected = selections[q.id];
     return custom || (selected && selected.size > 0);
   });
 
@@ -179,19 +186,19 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
       <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/55 shadow-lg backdrop-blur-lg">
         {questions.map((q, qi) => (
           <div
-            key={q.question}
+            key={q.id}
             className={`flex flex-col gap-3 px-4 py-3.5 ${qi > 0 ? "border-t border-border/40" : ""}`}
           >
             <p className="text-[13px] text-foreground">{q.question}</p>
 
             <div className="grid grid-cols-2 gap-1.5">
               {(q.options ?? []).map((opt) => {
-                const isSelected = selections[q.question]?.has(opt.label);
+                const isSelected = selections[q.id]?.has(opt.label);
                 return (
                   <button
                     key={opt.label}
                     type="button"
-                    onClick={() => toggleOption(q.question, opt.label, q.multiSelect)}
+                    onClick={() => toggleOption(q.id, opt.label, q.multiSelect)}
                     className={`flex flex-col items-start rounded-lg border px-3 py-2 text-start transition-colors ${
                       isSelected
                         ? "border-border bg-accent text-foreground"
@@ -206,14 +213,14 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
             </div>
 
             <input
-              type="text"
+              type={q.isSecret ? "password" : "text"}
               placeholder="Or type your own answer..."
-              value={freeText[q.question] ?? ""}
+              value={freeText[q.id] ?? ""}
               onChange={(e) => {
                 const value = e.target.value;
-                setFreeText((prev) => ({ ...prev, [q.question]: value }));
+                setFreeText((prev) => ({ ...prev, [q.id]: value }));
                 if (value.trim()) {
-                  setSelections((prev) => ({ ...prev, [q.question]: new Set() }));
+                  setSelections((prev) => ({ ...prev, [q.id]: new Set() }));
                 }
               }}
               onKeyDown={(e) => {

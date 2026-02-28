@@ -23,7 +23,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import type { BackgroundAgent, BackgroundAgentActivity } from "@/types";
+import type { BackgroundAgent, BackgroundAgentActivity, BackgroundAgentUsage } from "@/types";
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -142,6 +142,9 @@ function AgentItem({
               </div>
             )}
 
+            {/* Live usage metrics */}
+            {agent.usage && <UsageMetrics usage={agent.usage} />}
+
             {/* Result */}
             {(isCompleted || isError) && agent.result && (
               <AgentResult result={agent.result} />
@@ -230,6 +233,27 @@ function ActivityRow({ activity }: { activity: BackgroundAgentActivity }) {
   return (
     <div className="text-xs text-foreground/45 italic truncate">
       {activity.summary}
+    </div>
+  );
+}
+
+function UsageMetrics({ usage }: { usage: BackgroundAgentUsage }) {
+  const tokens =
+    usage.totalTokens >= 1000
+      ? `${(usage.totalTokens / 1000).toFixed(1)}k`
+      : String(usage.totalTokens);
+  const duration =
+    usage.durationMs >= 60_000
+      ? `${(usage.durationMs / 60_000).toFixed(1)}m`
+      : `${Math.round(usage.durationMs / 1000)}s`;
+
+  return (
+    <div className="flex items-center gap-2.5 text-[10px] text-foreground/35 tabular-nums pt-0.5">
+      <span>{tokens} tokens</span>
+      <span className="text-foreground/20">·</span>
+      <span>{usage.toolUses} tools</span>
+      <span className="text-foreground/20">·</span>
+      <span>{duration}</span>
     </div>
   );
 }

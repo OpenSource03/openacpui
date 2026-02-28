@@ -202,6 +202,12 @@ export interface CCSessionInfo {
   fileModified: number;
 }
 
+export interface BackgroundAgentUsage {
+  totalTokens: number;
+  toolUses: number;
+  durationMs: number;
+}
+
 export interface BackgroundAgent {
   agentId: string;
   description: string;
@@ -210,9 +216,12 @@ export interface BackgroundAgent {
   launchedAt: number;
   status: "running" | "completed" | "error";
   activity: BackgroundAgentActivity[];
-  lastParsedLineCount: number;
   toolUseId: string;
   result?: string;
+  /** SDK task_id — identifies this agent in the SDK's task lifecycle events */
+  taskId?: string;
+  /** Live usage metrics from task_progress / task_notification events */
+  usage?: BackgroundAgentUsage;
 }
 
 export interface BackgroundAgentActivity {

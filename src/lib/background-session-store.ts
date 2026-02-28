@@ -2,6 +2,9 @@ import type {
   ClaudeEvent,
   StreamEvent,
   SystemInitEvent,
+  TaskStartedEvent,
+  TaskProgressEvent,
+  TaskNotificationEvent,
   AssistantMessageEvent,
   ToolResultEvent,
   ResultEvent,
@@ -25,6 +28,7 @@ import {
   normalizeToolResult as acpNormalizeToolResult,
   deriveToolName,
 } from "./acp-adapter";
+import { bgAgentStore } from "./background-agent-store";
 
 export interface BackgroundSessionState {
   messages: UIMessage[];
@@ -102,6 +106,23 @@ export class BackgroundSessionStore {
   handleEvent(event: ClaudeEvent & { _sessionId?: string }): void {
     const sessionId = event._sessionId;
     if (!sessionId) return;
+
+    // Route task lifecycle events to the shared background agent store
+    if (event.type === "system" && "subtype" in event) {
+      const sub = (event as { subtype: string }).subtype;
+      if (sub === "task_started") {
+        bgAgentStore.handleTaskStarted(sessionId, event as TaskStartedEvent);
+        return;
+      }
+      if (sub === "task_progress") {
+        bgAgentStore.handleTaskProgress(sessionId, event as TaskProgressEvent);
+        return;
+      }
+      if (sub === "task_notification") {
+        bgAgentStore.handleTaskNotification(sessionId, event as TaskNotificationEvent);
+        return;
+      }
+    }
 
     const state = this.getOrCreate(sessionId);
     const parentId = getParentId(event);

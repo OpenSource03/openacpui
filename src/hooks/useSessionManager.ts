@@ -9,6 +9,7 @@ import { useClaude } from "./useClaude";
 import { useACP } from "./useACP";
 import { useCodex } from "./useCodex";
 import { BackgroundSessionStore } from "../lib/background-session-store";
+import { bgAgentStore } from "../lib/background-agent-store";
 import { buildSdkContent } from "../lib/protocol";
 import type { CollaborationMode } from "@/types/codex-protocol/CollaborationMode";
 
@@ -588,6 +589,27 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     const unsubCodexApproval = window.claude.codex.onApprovalRequest((data) => {
       const sid = data._sessionId;
       if (!sid || sid === activeSessionIdRef.current) return;
+      if (data.method === "item/tool/requestUserInput") {
+        backgroundStoreRef.current.setPermission(sid, {
+          requestId: String(data.rpcId),
+          toolName: "AskUserQuestion",
+          toolInput: {
+            source: "codex_request_user_input",
+            questions: data.questions.map((question) => ({
+              id: question.id,
+              header: question.header,
+              question: question.question,
+              isOther: question.isOther,
+              isSecret: question.isSecret,
+              options: question.options ?? undefined,
+              multiSelect: false,
+            })),
+          },
+          toolUseId: data.itemId,
+        });
+        return;
+      }
+
       // Auto-decline background Codex approvals (user must switch to the session)
       backgroundStoreRef.current.setPermission(sid, {
         requestId: String(data.rpcId),
@@ -1419,6 +1441,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         liveSessionIdsRef.current.delete(id);
       }
       backgroundStoreRef.current.delete(id);
+      bgAgentStore.clearSession(id);
       // Dismiss any permission toast for this session
       toast.dismiss(`permission-${id}`);
       await window.claude.sessions.delete(session.projectId, id);

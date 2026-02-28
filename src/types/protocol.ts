@@ -175,10 +175,50 @@ export interface SystemCompactBoundaryEvent {
   };
 }
 
+// ── Task lifecycle events (SDK 0.2.51+) ──
+// Emitted for background (async) Task subagents on the main event stream.
+// tool_use_id links back to the Task tool_use block that spawned the agent.
+
+export interface TaskStartedEvent {
+  type: "system";
+  subtype: "task_started";
+  task_id: string;
+  tool_use_id?: string;
+  description: string;
+  task_type?: string;
+  session_id?: string;
+}
+
+export interface TaskProgressEvent {
+  type: "system";
+  subtype: "task_progress";
+  task_id: string;
+  tool_use_id?: string;
+  description: string;
+  usage: { total_tokens: number; tool_uses: number; duration_ms: number };
+  last_tool_name?: string;
+  session_id?: string;
+}
+
+export interface TaskNotificationEvent {
+  type: "system";
+  subtype: "task_notification";
+  task_id: string;
+  tool_use_id?: string;
+  status: "completed" | "failed" | "stopped";
+  output_file: string;
+  summary: string;
+  usage?: { total_tokens: number; tool_uses: number; duration_ms: number };
+  session_id?: string;
+}
+
 export type ClaudeEvent =
   | SystemInitEvent
   | SystemStatusEvent
   | SystemCompactBoundaryEvent
+  | TaskStartedEvent
+  | TaskProgressEvent
+  | TaskNotificationEvent
   | StreamEvent
   | AssistantMessageEvent
   | ToolResultEvent

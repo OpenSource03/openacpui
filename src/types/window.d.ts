@@ -8,7 +8,7 @@ import type {
 } from "./ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
 import type { EngineId, PermissionBehavior } from "./engine";
-import type { CodexSessionEvent, CodexApprovalRequest, CodexExitEvent } from "./codex";
+import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "./codex";
 import type { Model as CodexModel } from "./codex-protocol/v2/Model";
 import type { CollaborationMode } from "./codex-protocol/CollaborationMode";
 
@@ -219,8 +219,19 @@ declare global {
           Promise<{ turnId?: string; error?: string }>;
         stop: (sessionId: string) => Promise<void>;
         interrupt: (sessionId: string) => Promise<{ error?: string }>;
-        respondApproval: (sessionId: string, rpcId: number, decision: string, acceptSettings?: unknown) =>
+        respondApproval: (sessionId: string, rpcId: string | number, decision: string, acceptSettings?: unknown) =>
           Promise<void>;
+        respondUserInput: (
+          sessionId: string,
+          rpcId: string | number,
+          answers: Record<string, { answers: string[] }>,
+        ) => Promise<void>;
+        respondServerRequestError: (
+          sessionId: string,
+          rpcId: string | number,
+          code: number,
+          message: string,
+        ) => Promise<void>;
         compact: (sessionId: string) => Promise<{ error?: string }>;
         listModels: () => Promise<{ models: CodexModel[]; error?: string }>;
         authStatus: () => Promise<{ account: unknown; requiresOpenaiAuth: boolean }>;
@@ -230,7 +241,7 @@ declare global {
         setModel: (sessionId: string, model: string) => Promise<{ error?: string }>;
         version: () => Promise<{ version?: string; error?: string }>;
         onEvent: (callback: (data: CodexSessionEvent) => void) => () => void;
-        onApprovalRequest: (callback: (data: CodexApprovalRequest) => void) => () => void;
+        onApprovalRequest: (callback: (data: CodexServerRequest) => void) => () => void;
         onExit: (callback: (data: CodexExitEvent) => void) => () => void;
       };
       mcp: {
