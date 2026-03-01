@@ -1,12 +1,13 @@
 {
   "name": "harnss",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "productName": "Harnss",
   "description": "Harness your AI coding agents — one desktop app for Claude Code, Codex, and any ACP agent",
   "author": {
     "name": "Dejan Zegarac",
     "email": "dejanzegarac3@gmail.com"
   },
+  "license": "MIT",
   "homepage": "https://github.com/OpenSource03/harnss",
   "repository": {
     "type": "git",

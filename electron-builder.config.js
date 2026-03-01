@@ -105,7 +105,7 @@ module.exports = {
   mac: {
     target: ["dmg", "zip"],
     category: "public.app-category.developer-tools",
-    icon: "build/icon.png",
+    icon: "build/icon.icon",
     darkModeSupport: true,
     hardenedRuntime: true,
     gatekeeperAssess: false,
@@ -117,6 +117,7 @@ module.exports = {
   },
 
   dmg: {
+    icon: "build/icon.icns",
     contents: [
       { x: 130, y: 220 },
       { x: 410, y: 220, type: "link", path: "/Applications" },
@@ -127,7 +128,7 @@ module.exports = {
   // --- Windows ---
   win: {
     target: [{ target: "nsis", arch: ["x64", "arm64"] }],
-    icon: "build/icon.png",
+    icon: "build/icon.ico",
     files: [
       "!node_modules/electron-liquid-glass/**",
       "!node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/arm64-darwin/**",
