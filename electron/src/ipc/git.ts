@@ -60,6 +60,13 @@ async function readRepoMetadata(cwd: string): Promise<RepoMetadata | null> {
   }
 }
 
+/** Validate that a user-provided git ref doesn't look like a flag to prevent argument injection. */
+function validateRef(ref: string): void {
+  if (ref.startsWith("-")) {
+    throw new Error(`Invalid ref: "${ref}" — must not start with a dash`);
+  }
+}
+
 export function register(): void {
   ipcMain.handle("git:discover-repos", async (_event, projectPath: string) => {
     const normalizedProjectPath = normalizePath(projectPath);
@@ -208,7 +215,7 @@ export function register(): void {
 
       return { branch, upstream, ahead, behind, files };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -217,7 +224,7 @@ export function register(): void {
       await gitExec(["add", "--", ...files], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -226,7 +233,7 @@ export function register(): void {
       await gitExec(["restore", "--staged", "--", ...files], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -235,7 +242,7 @@ export function register(): void {
       await gitExec(["add", "-A"], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -244,7 +251,7 @@ export function register(): void {
       await gitExec(["reset", "HEAD", "--", "."], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -267,7 +274,7 @@ export function register(): void {
       }
       return { ok: true };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -276,7 +283,7 @@ export function register(): void {
       const output = await gitExec(["commit", "-m", message], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -318,37 +325,41 @@ export function register(): void {
       }
       return branches;
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
   ipcMain.handle("git:checkout", async (_event, { cwd, branch }: { cwd: string; branch: string }) => {
     try {
+      validateRef(branch);
       await gitExec(["checkout", branch], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
   ipcMain.handle("git:create-branch", async (_event, { cwd, name }: { cwd: string; name: string }) => {
     try {
+      validateRef(name);
       await gitExec(["checkout", "-b", name], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
   ipcMain.handle("git:create-worktree", async (_event, { cwd, path: worktreePath, branch, fromRef }: { cwd: string; path: string; branch: string; fromRef?: string }) => {
     try {
+      validateRef(branch);
+      if (fromRef?.trim()) validateRef(fromRef.trim());
       const resolvedPath = path.isAbsolute(worktreePath) ? worktreePath : path.resolve(cwd, worktreePath);
       const args = ["worktree", "add", "-b", branch, resolvedPath];
       if (fromRef?.trim()) args.push(fromRef.trim());
       const output = await gitExec(args, cwd);
       return { ok: true, path: resolvedPath, output };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -362,7 +373,7 @@ export function register(): void {
       const output = await gitExec(args, cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -371,7 +382,7 @@ export function register(): void {
       const output = await gitExec(["worktree", "prune"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -380,7 +391,7 @@ export function register(): void {
       const output = await gitExec(["push"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -389,7 +400,7 @@ export function register(): void {
       const output = await gitExec(["pull"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -398,7 +409,7 @@ export function register(): void {
       const output = await gitExec(["fetch", "--all"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -410,7 +421,7 @@ export function register(): void {
       const diff = await gitExec(diffArgs, cwd);
       return { diff };
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -429,7 +440,7 @@ export function register(): void {
       }
       return entries;
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 }

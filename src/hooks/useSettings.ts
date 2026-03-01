@@ -7,7 +7,11 @@ import type { AcpPermissionBehavior, EngineId, ThemeOption } from "@/types";
 function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    // Validate shape matches fallback: if fallback is an array, parsed must also be an array
+    if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback;
+    return parsed as T;
   } catch {
     return fallback;
   }
@@ -254,9 +258,13 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     localStorage.setItem("harnss-permission-mode", mode);
   }, []);
 
-  const [acpPermissionBehavior, setAcpPermissionBehaviorRaw] = useState<AcpPermissionBehavior>(() =>
-    (localStorage.getItem("harnss-acp-permission-behavior") as AcpPermissionBehavior) ?? "ask",
-  );
+  const [acpPermissionBehavior, setAcpPermissionBehaviorRaw] = useState<AcpPermissionBehavior>(() => {
+    const stored = localStorage.getItem("harnss-acp-permission-behavior");
+    const valid: AcpPermissionBehavior[] = ["ask", "auto_accept", "allow_all"];
+    return stored && valid.includes(stored as AcpPermissionBehavior)
+      ? (stored as AcpPermissionBehavior)
+      : "ask";
+  });
   const setAcpPermissionBehavior = useCallback((behavior: AcpPermissionBehavior) => {
     setAcpPermissionBehaviorRaw(behavior);
     localStorage.setItem("harnss-acp-permission-behavior", behavior);

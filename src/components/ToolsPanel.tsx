@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Terminal as TerminalIcon, Plus, X, ChevronDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Terminal as TerminalIcon, Plus, ChevronDown } from "lucide-react";
+import { TabBar } from "@/components/TabBar";
 import type { TerminalTab } from "@/hooks/useSpaceTerminals";
 import type { ResolvedTheme } from "@/hooks/useTheme";
 
@@ -93,56 +93,16 @@ export function ToolsPanel({
   return (
     <div className="flex h-full flex-col">
       {/* Header with tabs */}
-      <div className="flex items-center gap-1 px-2 pt-2 pb-1">
-        <div className="flex items-center gap-1.5 ps-1.5">
-          <TerminalIcon className="h-3.5 w-3.5 text-foreground/50" />
-          <span className="text-xs font-medium text-foreground/60">Tools</span>
-        </div>
-
-        <div className="ms-2 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onSetActiveTab(tab.id)}
-              className={`group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors cursor-pointer ${
-                tab.id === activeTabId
-                  ? "bg-foreground/[0.08] text-foreground/90"
-                  : "text-foreground/45 hover:text-foreground/65 hover:bg-foreground/[0.04]"
-              }`}
-            >
-              <ChevronDown className="h-2.5 w-2.5 opacity-50" />
-              <span className="truncate max-w-20">{tab.label}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCloseTerminal(tab.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.stopPropagation();
-                    onCloseTerminal(tab.id);
-                  }
-                }}
-                className="ms-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-foreground/10 group-hover:opacity-100"
-              >
-                <X className="h-2.5 w-2.5" />
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 shrink-0 text-foreground/40 hover:text-foreground/70"
-          onClick={onCreateTerminal}
-        >
-          <Plus className="h-3 w-3" />
-        </Button>
-      </div>
+      <TabBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelectTab={(id) => onSetActiveTab(id)}
+        onCloseTab={onCloseTerminal}
+        onNewTab={onCreateTerminal}
+        headerIcon={TerminalIcon}
+        headerLabel="Tools"
+        renderTabIcon={() => <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
+      />
 
       {/* Separator */}
       <div className="border-t border-foreground/[0.08]" />

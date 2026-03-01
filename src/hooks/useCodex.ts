@@ -7,11 +7,19 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { UIMessage, PermissionRequest, SessionInfo, ContextUsage, TodoItem, PermissionBehavior, ModelInfo, ImageAttachment } from "@/types";
+import type { TodoItem, PermissionBehavior, ModelInfo, ImageAttachment, SessionMeta } from "@/types";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "@/types/codex";
-import type { CodexThreadItem } from "@/types/codex";
 import type { CodexTokenUsageNotification } from "@/types/codex";
 import type { CollaborationMode } from "@/types/codex-protocol/CollaborationMode";
+import type { ItemStartedNotification } from "@/types/codex-protocol/v2/ItemStartedNotification";
+import type { ItemCompletedNotification } from "@/types/codex-protocol/v2/ItemCompletedNotification";
+import type { AgentMessageDeltaNotification } from "@/types/codex-protocol/v2/AgentMessageDeltaNotification";
+import type { ReasoningTextDeltaNotification } from "@/types/codex-protocol/v2/ReasoningTextDeltaNotification";
+import type { ReasoningSummaryTextDeltaNotification } from "@/types/codex-protocol/v2/ReasoningSummaryTextDeltaNotification";
+import type { CommandExecutionOutputDeltaNotification } from "@/types/codex-protocol/v2/CommandExecutionOutputDeltaNotification";
+import type { TurnCompletedNotification } from "@/types/codex-protocol/v2/TurnCompletedNotification";
+import type { TurnPlanUpdatedNotification } from "@/types/codex-protocol/v2/TurnPlanUpdatedNotification";
+import type { PlanDeltaNotification } from "@/types/codex-protocol/v2/PlanDeltaNotification";
 import {
   CodexStreamingBuffer,
   codexItemToToolName,
@@ -20,23 +28,18 @@ import {
   codexPlanToTodos,
   imageAttachmentsToCodexInputs,
 } from "@/lib/codex-adapter";
+import { useEngineBase } from "./useEngineBase";
 
 interface UseCodexOptions {
   sessionId: string | null;
   sessionModel?: string;
-  initialMessages?: UIMessage[];
-  initialMeta?: {
-    isProcessing: boolean;
-    isConnected: boolean;
-    sessionInfo: SessionInfo | null;
-    totalCost: number;
-  } | null;
-  initialPermission?: PermissionRequest | null;
+  initialMessages?: import("@/types").UIMessage[];
+  initialMeta?: SessionMeta | null;
+  initialPermission?: import("@/types").PermissionRequest | null;
 }
 
-let codexIdCounter = 0;
 function nextId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${codexIdCounter++}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 interface CodexQuestionOption {
@@ -55,25 +58,28 @@ interface CodexQuestionInput {
 }
 
 export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta, initialPermission }: UseCodexOptions) {
-  const [messages, setMessages] = useState<UIMessage[]>(initialMessages ?? []);
-  const [isProcessing, setIsProcessing] = useState(initialMeta?.isProcessing ?? false);
-  const [isConnected, setIsConnected] = useState(initialMeta?.isConnected ?? false);
-  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(initialMeta?.sessionInfo ?? null);
-  const [totalCost, setTotalCost] = useState(initialMeta?.totalCost ?? 0);
-  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(initialPermission ?? null);
-  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
-  const [isCompacting, setIsCompacting] = useState(false);
+  const base = useEngineBase({ sessionId, initialMessages, initialMeta, initialPermission });
+  const {
+    messages, setMessages,
+    isProcessing, setIsProcessing,
+    isConnected, setIsConnected,
+    sessionInfo, setSessionInfo,
+    totalCost, setTotalCost,
+    pendingPermission, setPendingPermission,
+    contextUsage, setContextUsage,
+    isCompacting, setIsCompacting,
+    sessionIdRef, messagesRef,
+    scheduleFlush: scheduleRaf,
+    cancelPendingFlush,
+  } = base;
+
   const [todoItems, setTodoItems] = useState<TodoItem[]>([]);
   const [codexModels, setCodexModels] = useState<ModelInfo[]>([]);
   /** Reasoning effort for the current Codex session — sent on the next turn/start */
   const [codexEffort, setCodexEffort] = useState<string>("medium");
-  const messagesRef = useRef<UIMessage[]>(messages);
-  messagesRef.current = messages;
 
   // Refs for rAF streaming flush (avoid React 19 batching issues)
   const bufferRef = useRef(new CodexStreamingBuffer());
-  const rafRef = useRef<number | null>(null);
-  const sessionIdRef = useRef(sessionId);
   const sessionModelRef = useRef(sessionModel);
   const serverRequestRef = useRef<CodexServerRequest | null>(null);
   // Map Codex itemId → UIMessage id for updating tool_call messages
@@ -89,30 +95,14 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   // Per-turn counter for unique plan card message IDs
   const planTurnCounterRef = useRef(0);
 
-  // Sync sessionId ref
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-
   useEffect(() => {
     sessionModelRef.current = sessionModel;
   }, [sessionModel]);
 
-  // Reset state when sessionId changes
+  // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
-    setMessages(initialMessages ?? []);
-    setIsProcessing(initialMeta?.isProcessing ?? false);
-    setIsConnected(initialMeta?.isConnected ?? false);
-    setSessionInfo(initialMeta?.sessionInfo ?? null);
-    setTotalCost(initialMeta?.totalCost ?? 0);
-    setPendingPermission(initialPermission ?? null);
-    setContextUsage(null);
-    setIsCompacting(false);
     setTodoItems([]);
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
+    cancelPendingFlush();
     bufferRef.current.reset();
     itemMapRef.current.clear();
     assistantItemMapRef.current.clear();
@@ -161,15 +151,11 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
       };
       return updated;
     });
-  }, []);
+  }, [setMessages]);
 
   const scheduleFlush = useCallback(() => {
-    if (rafRef.current != null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      flushBufferToState();
-    });
-  }, [flushBufferToState]);
+    scheduleRaf(flushBufferToState);
+  }, [scheduleRaf, flushBufferToState]);
 
   const rebindBufferToMessage = useCallback((messageId: string) => {
     const target = messagesRef.current.find((m) => m.id === messageId);
@@ -178,10 +164,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     const buf = bufferRef.current;
     if (buf.messageId === messageId) return;
 
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
+    cancelPendingFlush();
 
     buf.reset();
     buf.messageId = messageId;
@@ -190,7 +173,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
       buf.appendThinking(target.thinking);
       if (target.thinkingComplete) buf.thinkingComplete = true;
     }
-  }, []);
+  }, [cancelPendingFlush, messagesRef]);
 
   const ensureStreamingAssistantMessage = useCallback((): string => {
     const buf = bufferRef.current;
@@ -223,10 +206,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     const buf = bufferRef.current;
     if (!buf.messageId) return;
 
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
+    cancelPendingFlush();
 
     const msgId = buf.messageId;
     const text = buf.getText();
@@ -249,7 +229,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
 
     buf.reset();
     activeAssistantItemIdRef.current = null;
-  }, []);
+  }, [cancelPendingFlush, setMessages]);
 
   // ── Notification handler ──
   const handleNotification = useCallback((event: CodexSessionEvent) => {
@@ -317,8 +297,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
         break;
 
       case "error": {
-        const errMsg = (event.params as Record<string, unknown>).error as Record<string, unknown> | undefined;
-        const errorText = errMsg?.message ? String(errMsg.message) : "Unknown error";
+        const errorText = event.params.error.message || "Unknown error";
         setMessages((prev) => [
           ...prev,
           {
@@ -335,9 +314,8 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Item started: create UIMessage for tool calls, start streaming for agentMessage ──
-  const handleItemStarted = useCallback((params: Record<string, unknown>) => {
-    const item = params.item as CodexThreadItem | undefined;
-    if (!item) return;
+  const handleItemStarted = useCallback((params: ItemStartedNotification) => {
+    const item = params.item;
 
     if (item.type === "agentMessage" || item.type === "reasoning") {
       bindAssistantItem(item.id);
@@ -370,12 +348,11 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   }, [bindAssistantItem, finalizeStreamingAssistant]);
 
   // ── Item completed: finalize tool call with result ──
-  const handleItemCompleted = useCallback((params: Record<string, unknown>) => {
-    const item = params.item as CodexThreadItem | undefined;
-    if (!item) return;
+  const handleItemCompleted = useCallback((params: ItemCompletedNotification) => {
+    const item = params.item;
 
     if (item.type === "agentMessage") {
-      const finalText = (item as Record<string, unknown>).text as string | undefined;
+      const finalText = item.text || undefined;
       const mappedMsgId = assistantItemMapRef.current.get(item.id) ?? bufferRef.current.messageId;
       const bufferedTextForItem =
         mappedMsgId && bufferRef.current.messageId === mappedMsgId
@@ -439,7 +416,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     // Then spawn a fake ExitPlanMode permission prompt so the user can pick how to implement.
     if (item.type === "plan") {
       finalizeStreamingAssistant();
-      const finalText = (item as Record<string, unknown>).text as string | undefined;
+      const finalText = item.text || undefined;
       const planContent = finalText ?? planTextRef.current;
       if (planContent) {
         setMessages((prev) => {
@@ -469,9 +446,11 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
 
         // Ensure sessionInfo has permissionMode "plan" so AppLayout's sync effect
         // can toggle plan mode off when the user accepts ExitPlanMode.
+        // Only update permissionMode on existing sessionInfo — don't create
+        // an incomplete SessionInfo from scratch (missing model, cwd, etc.)
         setSessionInfo((prev) => prev
           ? { ...prev, permissionMode: "plan" }
-          : { permissionMode: "plan" } as SessionInfo,
+          : prev,
         );
 
         // Synthesize a fake ExitPlanMode permission prompt — reuses the same
@@ -527,9 +506,8 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   }, [finalizeStreamingAssistant]);
 
   // ── Agent message delta: accumulate text for rAF flush ──
-  const handleAgentDelta = useCallback((params: Record<string, unknown>) => {
-    const itemId = params.itemId as string | undefined;
-    const delta = params.delta as string | undefined;
+  const handleAgentDelta = useCallback((params: AgentMessageDeltaNotification) => {
+    const { itemId, delta } = params;
     if (!delta) return;
 
     const resolvedItemId = itemId ?? activeAssistantItemIdRef.current ?? null;
@@ -548,9 +526,8 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   }, [bindAssistantItem, ensureStreamingAssistantMessage, rebindBufferToMessage, scheduleFlush]);
 
   // ── Reasoning delta: accumulate thinking text ──
-  const handleReasoningDelta = useCallback((params: Record<string, unknown>) => {
-    const itemId = params.itemId as string | undefined;
-    const delta = params.delta as string | undefined;
+  const handleReasoningDelta = useCallback((params: ReasoningTextDeltaNotification | ReasoningSummaryTextDeltaNotification) => {
+    const { itemId, delta } = params;
     if (!delta) return;
 
     const resolvedItemId = itemId ?? activeAssistantItemIdRef.current ?? null;
@@ -564,10 +541,9 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   }, [bindAssistantItem, ensureStreamingAssistantMessage, rebindBufferToMessage, scheduleFlush]);
 
   // ── Command output delta: stream into tool_call ──
-  const handleCommandOutputDelta = useCallback((params: Record<string, unknown>) => {
-    const itemId = params.itemId as string | undefined;
-    const delta = params.delta as string | undefined;
-    if (!itemId || !delta) return;
+  const handleCommandOutputDelta = useCallback((params: CommandExecutionOutputDeltaNotification) => {
+    const { itemId, delta } = params;
+    if (!delta) return;
 
     const existing = commandOutputRef.current.get(itemId) ?? "";
     commandOutputRef.current.set(itemId, existing + delta);
@@ -594,17 +570,16 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   }, []);
 
   // ── Turn complete: finalize everything ──
-  const handleTurnComplete = useCallback((params: Record<string, unknown>) => {
+  const handleTurnComplete = useCallback((params: TurnCompletedNotification) => {
     setIsProcessing(false);
     finalizeStreamingAssistant();
     assistantItemMapRef.current.clear();
     activeAssistantItemIdRef.current = null;
 
     // Check for failed turn
-    const turn = params.turn as Record<string, unknown> | undefined;
-    if (turn?.status === "failed") {
-      const error = turn.error as Record<string, unknown> | undefined;
-      const msg = error?.message ? String(error.message) : "Turn failed";
+    const { turn } = params;
+    if (turn.status === "failed") {
+      const msg = turn.error?.message || "Turn failed";
       setMessages((prev) => [
         ...prev,
         {
@@ -634,9 +609,8 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   // ── Plan updates (step checklist + chat tool card) ──
   // Codex emits turn/plan/updated as a turn-level notification (not an item lifecycle event),
   // so we synthesize a tool_call UIMessage to show it in chat alongside the TodoPanel update.
-  const handlePlanUpdate = useCallback((params: Record<string, unknown>) => {
-    const plan = params.plan as Array<{ step: string; status: string }> | undefined;
-    if (!plan) return;
+  const handlePlanUpdate = useCallback((params: TurnPlanUpdatedNotification) => {
+    const { plan, explanation } = params;
 
     const todos = codexPlanToTodos(plan);
     setTodoItems(todos);
@@ -646,7 +620,6 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     const planMsgId = `codex-plan-update-${planTurnCounterRef.current}`;
     setMessages((prev) => {
       const existing = prev.find((m) => m.id === planMsgId);
-      const explanation = params.explanation as string | null | undefined;
       const toolInput = {
         todos,
         ...(explanation ? { explanation } : {}),
@@ -683,8 +656,8 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   // with toolName "ExitPlanMode" — matching how Claude renders plans via the SDK's
   // ExitPlanMode tool. This gives identical rendering: Map icon, "Preparing plan"
   // shimmer while streaming, "Presented plan" when complete, collapsible markdown body.
-  const handlePlanDelta = useCallback((params: Record<string, unknown>) => {
-    const delta = typeof params.delta === "string" ? params.delta : "";
+  const handlePlanDelta = useCallback((params: PlanDeltaNotification) => {
+    const { delta } = params;
     if (!delta) return;
     planTextRef.current += delta;
     const planText = planTextRef.current;
@@ -776,10 +749,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
       unsubEvent();
       unsubApproval();
       unsubExit();
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      cancelPendingFlush();
     };
   }, [sessionId, handleNotification, handleApproval, handleExit]);
 

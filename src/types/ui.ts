@@ -140,42 +140,32 @@ export interface Project {
   spaceId?: string;
 }
 
-export interface ChatSession {
+/** Fields shared between live and persisted session representations. */
+export interface SessionBase {
   id: string;
   projectId: string;
   title: string;
   createdAt: number;
-  /** Timestamp of the most recent message — used for sidebar sort order */
-  lastMessageAt?: number;
   model?: string;
   totalCost: number;
+  engine?: EngineId;
+  agentSessionId?: string;
+  agentId?: string;
+  codexThreadId?: string;
+}
+
+export interface ChatSession extends SessionBase {
+  /** Timestamp of the most recent message — used for sidebar sort order */
+  lastMessageAt?: number;
   isActive: boolean;
   isProcessing?: boolean;
   /** A background session has a pending permission request (tool approval, etc.) */
   hasPendingPermission?: boolean;
   titleGenerating?: boolean;
-  engine?: EngineId;
-  agentSessionId?: string;
-  agentId?: string;
-  /** Codex thread ID — needed for `thread/resume` when reviving dead sessions */
-  codexThreadId?: string;
 }
 
-export interface PersistedSession {
-  id: string;
-  projectId: string;
-  title: string;
-  createdAt: number;
+export interface PersistedSession extends SessionBase {
   messages: UIMessage[];
-  model?: string;
-  totalCost: number;
-  engine?: EngineId;
-  /** ACP-side session ID (from `session/new` response) — needed to call `session/load` on revival */
-  agentSessionId?: string;
-  /** ACP agent ID — needed to spawn the right binary on revival */
-  agentId?: string;
-  /** Codex thread ID — needed for `thread/resume` on revival */
-  codexThreadId?: string;
 }
 
 export interface PermissionRequest {
@@ -239,7 +229,7 @@ export interface ContextUsage {
   contextWindow: number;
 }
 
-export interface AgentDefinition {
+export interface InstalledAgent {
   id: string;
   name: string;
   engine: EngineId;
@@ -285,12 +275,6 @@ export interface McpServerConfig {
 // ── MCP runtime status ──
 
 export type McpServerStatusState = "connected" | "failed" | "needs-auth" | "pending" | "disabled";
-
-/** Validate a raw status string into a safe McpServerStatusState, defaulting to "failed". */
-export function toMcpStatusState(raw: string): McpServerStatusState {
-  const valid: McpServerStatusState[] = ["connected", "failed", "needs-auth", "pending", "disabled"];
-  return valid.includes(raw as McpServerStatusState) ? (raw as McpServerStatusState) : "failed";
-}
 
 export interface McpServerStatus {
   name: string;

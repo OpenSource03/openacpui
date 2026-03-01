@@ -25,6 +25,7 @@ interface ChatHeaderProps {
   sessionId?: string;
   totalCost: number;
   title?: string;
+  titleGenerating?: boolean;
   planMode?: boolean;
   permissionMode?: string;
   acpPermissionBehavior?: AcpPermissionBehavior;
@@ -38,6 +39,7 @@ export const ChatHeader = memo(function ChatHeader({
   sessionId,
   totalCost,
   title,
+  titleGenerating,
   planMode,
   permissionMode,
   acpPermissionBehavior,
@@ -105,11 +107,13 @@ export const ChatHeader = memo(function ChatHeader({
         </Tooltip>
       )}
 
-      {title && title !== "New Chat" && (
+      {titleGenerating ? (
+        <span className="no-drag inline-block h-4 w-36 animate-pulse rounded bg-foreground/10" />
+      ) : title && title !== "New Chat" ? (
         <span className="no-drag truncate text-sm font-medium text-foreground/80">
           {title}
         </span>
-      )}
+      ) : null}
 
       {/* Session info — subtle icon, hover reveals model / permissions / cost / session ID */}
       {hasDetails && (

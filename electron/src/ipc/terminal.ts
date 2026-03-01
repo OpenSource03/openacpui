@@ -61,8 +61,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("TERMINAL", `Created terminal ${terminalId.slice(0, 8)} shell=${shellPath} cwd=${cwd}`);
       return { terminalId };
     } catch (err) {
-      log("TERMINAL_ERR", `Create failed: ${(err as Error).message}`);
-      return { error: (err as Error).message };
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log("TERMINAL_ERR", `Create failed: ${errMsg}`);
+      return { error: errMsg };
     }
   });
 
@@ -81,7 +82,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       term.cols = cols;
       term.rows = rows;
     } catch (err) {
-      log("TERMINAL_ERR", `Resize failed: ${(err as Error).message}`);
+      log("TERMINAL_ERR", `Resize failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return { ok: true };
   });

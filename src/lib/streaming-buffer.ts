@@ -1,6 +1,30 @@
 import type { ContentBlockStartEvent, ContentBlockDeltaEvent } from "../types";
 
 /**
+ * Lightweight streaming buffer for engines that don't use SDK content block events
+ * (ACP and Codex). Accumulates text and thinking chunks with a simple append API.
+ */
+export class SimpleStreamingBuffer {
+  messageId: string | null = null;
+  private textChunks: string[] = [];
+  private thinkingChunks: string[] = [];
+  thinkingComplete = false;
+
+  appendText(text: string): void { this.textChunks.push(text); }
+  appendThinking(text: string): void { this.thinkingChunks.push(text); }
+
+  getText(): string { return this.textChunks.join(""); }
+  getThinking(): string { return this.thinkingChunks.join(""); }
+
+  reset(): void {
+    this.messageId = null;
+    this.textChunks = [];
+    this.thinkingChunks = [];
+    this.thinkingComplete = false;
+  }
+}
+
+/**
  * Manages streaming content block state for a single assistant message turn.
  * Pure data — no React dependency, easily testable.
  */

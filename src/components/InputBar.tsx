@@ -34,8 +34,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ImageAttachment, ContextUsage, AgentDefinition, ACPConfigOption, ModelInfo, AcpPermissionBehavior, EngineId } from "@/types";
-import { flattenConfigOptions } from "@/types/acp";
+import type { ImageAttachment, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, EngineId } from "@/types";
+import { flattenConfigOptions } from "@/lib/acp-utils";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { resolveModelValue } from "@/lib/model-utils";
 import { isMac } from "@/lib/utils";
@@ -88,6 +88,349 @@ function getContextStrokeColor(percent: number): string {
   return "stroke-foreground/40";
 }
 
+// ── Reusable engine control sub-components ──
+
+/** Model selector dropdown — used by Claude and Codex engines */
+function ModelDropdown({
+  modelList,
+  selectedModel,
+  selectedModelId,
+  isProcessing,
+  onModelChange,
+  modelsLoading,
+}: {
+  modelList: Array<{ id: string; label: string; description?: string }>;
+  selectedModel: { id: string; label: string; description?: string } | undefined;
+  selectedModelId: string;
+  isProcessing: boolean;
+  onModelChange: (id: string) => void;
+  modelsLoading: boolean;
+}) {
+  if (modelsLoading) {
+    return (
+      <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading models…
+      </div>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          disabled={isProcessing}
+        >
+          {selectedModel?.label}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {modelList.map((m) => (
+          <DropdownMenuItem
+            key={m.id}
+            onClick={() => onModelChange(m.id)}
+            className={m.id === selectedModelId ? "bg-accent" : ""}
+          >
+            <div>
+              <div>{m.label}</div>
+              {m.description && (
+                <div className="text-[10px] text-muted-foreground">{m.description}</div>
+              )}
+            </div>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Permission mode dropdown — used by Claude and Codex engines */
+function PermissionDropdown({
+  permissionMode,
+  onPermissionModeChange,
+  showDetails,
+}: {
+  permissionMode: string;
+  onPermissionModeChange: (mode: string) => void;
+  /** When true, shows policy + description (Codex style) */
+  showDetails?: boolean;
+}) {
+  const selectedMode =
+    PERMISSION_MODES.find((m) => m.id === permissionMode) ?? PERMISSION_MODES[0];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+        >
+          <Shield className="h-3 w-3" />
+          {selectedMode.label}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {PERMISSION_MODES.map((m) => {
+          const details = showDetails ? CODEX_PERMISSION_MODE_DETAILS[m.id] : undefined;
+          return (
+            <DropdownMenuItem
+              key={m.id}
+              onClick={() => onPermissionModeChange(m.id)}
+              className={m.id === permissionMode ? "bg-accent" : ""}
+            >
+              {details ? (
+                <div className="flex min-w-0 flex-col">
+                  <span>{m.label}</span>
+                  <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <span className="font-mono text-foreground/80">{details.policy}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{details.description}</span>
+                  </span>
+                </div>
+              ) : (
+                m.label
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Plan mode toggle button — used by Claude and Codex engines */
+function PlanModeToggle({
+  planMode,
+  onPlanModeChange,
+}: {
+  planMode: boolean;
+  onPlanModeChange: (enabled: boolean) => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => onPlanModeChange(!planMode)}
+          className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
+            planMode
+              ? "text-blue-400 bg-blue-500/10"
+              : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          }`}
+        >
+          <Map className="h-3 w-3" />
+          Plan
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p className="text-xs">
+          {planMode ? "Plan mode on" : "Plan mode off"} ({isMac ? "⌘" : "Ctrl"}+⇧+P)
+        </p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Renders the correct combination of controls per engine */
+function EngineControls({
+  isCodexAgent,
+  isACPAgent,
+  isProcessing,
+  // Model
+  modelList,
+  selectedModel,
+  selectedModelId,
+  onModelChange,
+  modelsLoading,
+  // Permission
+  permissionMode,
+  onPermissionModeChange,
+  // Plan
+  planMode,
+  onPlanModeChange,
+  // Claude thinking
+  thinking,
+  onThinkingChange,
+  // Codex effort
+  codexEffortOptions,
+  codexActiveEffort,
+  onCodexEffortChange,
+  // ACP
+  acpPermissionBehavior,
+  onAcpPermissionBehaviorChange,
+  acpConfigOptions,
+  onACPConfigChange,
+}: {
+  isCodexAgent: boolean;
+  isACPAgent: boolean;
+  isProcessing: boolean;
+  modelList: Array<{ id: string; label: string; description?: string }>;
+  selectedModel: { id: string; label: string; description?: string } | undefined;
+  selectedModelId: string;
+  onModelChange: (id: string) => void;
+  modelsLoading: boolean;
+  permissionMode: string;
+  onPermissionModeChange: (mode: string) => void;
+  planMode: boolean;
+  onPlanModeChange: (enabled: boolean) => void;
+  thinking: boolean;
+  onThinkingChange: (thinking: boolean) => void;
+  codexEffortOptions: Array<{ reasoningEffort: string; description: string }>;
+  codexActiveEffort?: string;
+  onCodexEffortChange?: (effort: string) => void;
+  acpPermissionBehavior?: AcpPermissionBehavior;
+  onAcpPermissionBehaviorChange?: (behavior: AcpPermissionBehavior) => void;
+  acpConfigOptions?: ACPConfigOption[];
+  onACPConfigChange?: (configId: string, value: string) => void;
+}) {
+  if (isCodexAgent) {
+    return (
+      <>
+        <ModelDropdown
+          modelList={modelList}
+          selectedModel={selectedModel}
+          selectedModelId={selectedModelId}
+          isProcessing={isProcessing}
+          onModelChange={onModelChange}
+          modelsLoading={modelsLoading}
+        />
+        {/* Codex reasoning effort dropdown */}
+        {codexEffortOptions.length > 0 && onCodexEffortChange && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                disabled={isProcessing}
+              >
+                <Brain className="h-3 w-3" />
+                {codexActiveEffort}
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {codexEffortOptions.map((opt) => (
+                <DropdownMenuItem
+                  key={opt.reasoningEffort}
+                  onClick={() => onCodexEffortChange(opt.reasoningEffort)}
+                  className={opt.reasoningEffort === codexActiveEffort ? "bg-accent" : ""}
+                >
+                  <div>
+                    <div className="capitalize">{opt.reasoningEffort}</div>
+                    {opt.description && (
+                      <div className="text-[10px] text-muted-foreground">{opt.description}</div>
+                    )}
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
+        <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} showDetails />
+      </>
+    );
+  }
+
+  if (isACPAgent) {
+    return (
+      <>
+        {/* ACP permission behavior dropdown */}
+        {onAcpPermissionBehaviorChange && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                disabled={isProcessing}
+              >
+                <Shield className="h-3 w-3" />
+                {ACP_PERMISSION_BEHAVIORS.find(b => b.id === acpPermissionBehavior)?.label ?? "Ask"}
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {ACP_PERMISSION_BEHAVIORS.map((b) => (
+                <DropdownMenuItem
+                  key={b.id}
+                  onClick={() => onAcpPermissionBehaviorChange(b.id)}
+                  className={b.id === acpPermissionBehavior ? "bg-accent" : ""}
+                >
+                  <div>
+                    <div>{b.label}</div>
+                    <div className="text-[10px] text-muted-foreground">{b.description}</div>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {/* Agent-provided config dropdowns */}
+        {acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
+          acpConfigOptions.map((opt) => {
+            const flat = flattenConfigOptions(opt.options);
+            const current = flat.find((o) => o.value === opt.currentValue);
+            return (
+              <DropdownMenu key={opt.id}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                    disabled={isProcessing}
+                  >
+                    {current?.name ?? opt.currentValue}
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {flat.map((o) => (
+                    <DropdownMenuItem
+                      key={o.value}
+                      onClick={() => onACPConfigChange(opt.id, o.value)}
+                      className={o.value === opt.currentValue ? "bg-accent" : ""}
+                    >
+                      <div>
+                        <div>{o.name}</div>
+                        {o.description && (
+                          <div className="text-[10px] text-muted-foreground">{o.description}</div>
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          })
+        }
+      </>
+    );
+  }
+
+  // Claude SDK controls
+  return (
+    <>
+      <ModelDropdown
+        modelList={modelList}
+        selectedModel={selectedModel}
+        selectedModelId={selectedModelId}
+        isProcessing={isProcessing}
+        onModelChange={onModelChange}
+        modelsLoading={modelsLoading}
+      />
+      <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
+      <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
+      <button
+        onClick={() => onThinkingChange(!thinking)}
+        disabled={isProcessing}
+        className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50 ${
+          thinking
+            ? "text-foreground bg-muted/40"
+            : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+        }`}
+      >
+        <Brain className="h-3 w-3" />
+        Reasoning
+      </button>
+    </>
+  );
+}
+
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 type AcceptedMediaType = (typeof ACCEPTED_IMAGE_TYPES)[number];
 
@@ -129,9 +472,9 @@ interface InputBarProps {
   contextUsage?: ContextUsage | null;
   isCompacting?: boolean;
   onCompact?: () => void;
-  agents?: AgentDefinition[];
-  selectedAgent?: AgentDefinition | null;
-  onAgentChange?: (agent: AgentDefinition | null) => void;
+  agents?: InstalledAgent[];
+  selectedAgent?: InstalledAgent | null;
+  onAgentChange?: (agent: InstalledAgent | null) => void;
   acpConfigOptions?: ACPConfigOption[];
   onACPConfigChange?: (configId: string, value: string) => void;
   acpPermissionBehavior?: AcpPermissionBehavior;
@@ -297,8 +640,6 @@ export const InputBar = memo(function InputBar({
   const preferredModelId = resolvedModelId ?? model;
   const selectedModel = modelList.find((m) => m.id === preferredModelId) ?? modelList[0];
   const selectedModelId = selectedModel?.id ?? preferredModelId;
-  const selectedMode =
-    PERMISSION_MODES.find((m) => m.id === permissionMode) ?? PERMISSION_MODES[0];
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
   const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
 
@@ -818,7 +1159,7 @@ export const InputBar = memo(function InputBar({
                 <DropdownMenuContent align="start">
                   {(() => {
                     // An agent "will open new chat" if engine differs OR same ACP engine but different agent
-                    const willOpenNewChat = (agent: AgentDefinition) => {
+                    const willOpenNewChat = (agent: InstalledAgent) => {
                       if (lockedEngine == null) return false;
                       if (agent.engine !== lockedEngine) return true;
                       if (lockedEngine === "acp" && lockedAgentId && agent.id !== lockedAgentId) return true;
@@ -827,7 +1168,7 @@ export const InputBar = memo(function InputBar({
                     const sameEngine = agents.filter((a) => !willOpenNewChat(a));
                     const crossEngine = agents.filter((a) => willOpenNewChat(a));
 
-                    const renderItem = (agent: AgentDefinition, crossEngine: boolean) => (
+                    const renderItem = (agent: InstalledAgent, crossEngine: boolean) => (
                       <DropdownMenuItem
                         key={agent.id}
                         onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
@@ -865,297 +1206,29 @@ export const InputBar = memo(function InputBar({
               </DropdownMenu>
             )}
 
-            {isCodexAgent ? (
-              /* Codex controls — model, effort, permission mode */
-              <>
-                {modelsLoading ? (
-                  <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Loading models…
-                  </div>
-                ) : (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                        disabled={isProcessing}
-                      >
-                        {selectedModel?.label}
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      {modelList.map((m) => (
-                        <DropdownMenuItem
-                          key={m.id}
-                          onClick={() => onModelChange(m.id)}
-                          className={m.id === selectedModelId ? "bg-accent" : ""}
-                        >
-                          <div>
-                            <div>{m.label}</div>
-                            {m.description && (
-                              <div className="text-[10px] text-muted-foreground">{m.description}</div>
-                            )}
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-
-                {/* Codex reasoning effort dropdown */}
-                {codexEffortOptions.length > 0 && onCodexEffortChange && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                        disabled={isProcessing}
-                      >
-                        <Brain className="h-3 w-3" />
-                        {codexActiveEffort}
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      {codexEffortOptions.map((opt) => (
-                        <DropdownMenuItem
-                          key={opt.reasoningEffort}
-                          onClick={() => onCodexEffortChange(opt.reasoningEffort)}
-                          className={opt.reasoningEffort === codexActiveEffort ? "bg-accent" : ""}
-                        >
-                          <div>
-                            <div className="capitalize">{opt.reasoningEffort}</div>
-                            {opt.description && (
-                              <div className="text-[10px] text-muted-foreground">{opt.description}</div>
-                            )}
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-
-                {/* Plan mode toggle (shared with Claude) */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => onPlanModeChange(!planMode)}
-                      className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
-                        planMode
-                          ? "text-blue-400 bg-blue-500/10"
-                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                      }`}
-                    >
-                      <Map className="h-3 w-3" />
-                      Plan
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p className="text-xs">
-                      {planMode ? "Plan mode on" : "Plan mode off"} ({isMac ? "⌘" : "Ctrl"}+⇧+P)
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-
-                {/* Codex permission mode */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-                    >
-                      <Shield className="h-3 w-3" />
-                      {selectedMode.label}
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {PERMISSION_MODES.map((m) => {
-                      const details = CODEX_PERMISSION_MODE_DETAILS[m.id];
-                      return (
-                        <DropdownMenuItem
-                          key={m.id}
-                          onClick={() => onPermissionModeChange(m.id)}
-                          className={m.id === permissionMode ? "bg-accent" : ""}
-                        >
-                          <div className="flex min-w-0 flex-col">
-                            <span>{m.label}</span>
-                            <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-                              <span className="font-mono text-foreground/80">{details.policy}</span>
-                              <span aria-hidden="true">·</span>
-                              <span>{details.description}</span>
-                            </span>
-                          </div>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
-            ) : isACPAgent ? (
-              /* ACP agent controls — permission behavior + dynamic config dropdowns */
-              <>
-                {/* ACP permission behavior dropdown */}
-                {onAcpPermissionBehaviorChange && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                        disabled={isProcessing}
-                      >
-                        <Shield className="h-3 w-3" />
-                        {ACP_PERMISSION_BEHAVIORS.find(b => b.id === acpPermissionBehavior)?.label ?? "Ask"}
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      {ACP_PERMISSION_BEHAVIORS.map((b) => (
-                        <DropdownMenuItem
-                          key={b.id}
-                          onClick={() => onAcpPermissionBehaviorChange(b.id)}
-                          className={b.id === acpPermissionBehavior ? "bg-accent" : ""}
-                        >
-                          <div>
-                            <div>{b.label}</div>
-                            <div className="text-[10px] text-muted-foreground">{b.description}</div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-                {/* Agent-provided config dropdowns */}
-                {acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
-                  acpConfigOptions.map((opt) => {
-                    const flat = flattenConfigOptions(opt.options);
-                    const current = flat.find((o) => o.value === opt.currentValue);
-                    return (
-                      <DropdownMenu key={opt.id}>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                            disabled={isProcessing}
-                          >
-                            {current?.name ?? opt.currentValue}
-                            <ChevronDown className="h-3 w-3" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                          {flat.map((o) => (
-                            <DropdownMenuItem
-                              key={o.value}
-                              onClick={() => onACPConfigChange(opt.id, o.value)}
-                              className={o.value === opt.currentValue ? "bg-accent" : ""}
-                            >
-                              <div>
-                                <div>{o.name}</div>
-                                {o.description && (
-                                  <div className="text-[10px] text-muted-foreground">{o.description}</div>
-                                )}
-                              </div>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    );
-                  })
-                }
-              </>
-            ) : (
-              /* Claude SDK controls — model, permission mode, thinking */
-              <>
-                {modelsLoading ? (
-                  <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Loading models…
-                  </div>
-                ) : (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                        disabled={isProcessing}
-                      >
-                        {selectedModel?.label}
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      {modelList.map((m) => (
-                        <DropdownMenuItem
-                          key={m.id}
-                          onClick={() => onModelChange(m.id)}
-                          className={m.id === selectedModelId ? "bg-accent" : ""}
-                        >
-                          <div>
-                            <div>{m.label}</div>
-                            {m.description && (
-                              <div className="text-[10px] text-muted-foreground">{m.description}</div>
-                            )}
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => onPlanModeChange(!planMode)}
-                      className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
-                        planMode
-                          ? "text-blue-400 bg-blue-500/10"
-                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                      }`}
-                    >
-                      <Map className="h-3 w-3" />
-                      Plan
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p className="text-xs">
-                      {planMode ? "Plan mode on" : "Plan mode off"} ({isMac ? "⌘" : "Ctrl"}+⇧+P)
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-                    >
-                      <Shield className="h-3 w-3" />
-                      {selectedMode.label}
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {PERMISSION_MODES.map((m) => (
-                      <DropdownMenuItem
-                        key={m.id}
-                        onClick={() => onPermissionModeChange(m.id)}
-                        className={m.id === permissionMode ? "bg-accent" : ""}
-                      >
-                        {m.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                <button
-                  onClick={() => onThinkingChange(!thinking)}
-                  disabled={isProcessing}
-                  className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50 ${
-                    thinking
-                      ? "text-foreground bg-muted/40"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                  }`}
-                >
-                  <Brain className="h-3 w-3" />
-                  Reasoning
-                </button>
-              </>
-            )}
+            <EngineControls
+              isCodexAgent={isCodexAgent}
+              isACPAgent={isACPAgent}
+              isProcessing={isProcessing}
+              modelList={modelList}
+              selectedModel={selectedModel}
+              selectedModelId={selectedModelId}
+              onModelChange={onModelChange}
+              modelsLoading={modelsLoading}
+              permissionMode={permissionMode}
+              onPermissionModeChange={onPermissionModeChange}
+              planMode={planMode}
+              onPlanModeChange={onPlanModeChange}
+              thinking={thinking}
+              onThinkingChange={onThinkingChange}
+              codexEffortOptions={codexEffortOptions}
+              codexActiveEffort={codexActiveEffort}
+              onCodexEffortChange={onCodexEffortChange}
+              acpPermissionBehavior={acpPermissionBehavior}
+              onAcpPermissionBehaviorChange={onAcpPermissionBehaviorChange}
+              acpConfigOptions={acpConfigOptions}
+              onACPConfigChange={onACPConfigChange}
+            />
           </div>
 
           {/* Right controls — always visible, never shrink */}

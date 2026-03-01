@@ -9,18 +9,15 @@ import type {
   AssistantMessageEvent,
   ToolResultEvent,
   ResultEvent,
-  UIMessage,
-  SessionInfo,
   SubagentToolStep,
-  PermissionRequest,
   ImageAttachment,
-  ContextUsage,
   ModelInfo,
   McpServerStatus,
   McpServerConfig,
   PermissionBehavior,
+  SessionMeta,
 } from "../types";
-import { toMcpStatusState } from "../types/ui";
+import { toMcpStatusState } from "../lib/mcp-utils";
 import { StreamingBuffer } from "../lib/streaming-buffer";
 import {
   getParentId,
@@ -29,94 +26,59 @@ import {
   normalizeToolResult,
   buildSdkContent,
 } from "../lib/protocol";
+import { formatResultError } from "../lib/message-factory";
 import { bgAgentStore } from "../lib/background-agent-store";
+import { useEngineBase } from "./useEngineBase";
 
 function uiLog(label: string, data: unknown) {
   window.claude.log(label, typeof data === "string" ? data : JSON.stringify(data));
 }
 
-let idCounter = 0;
 function nextId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${idCounter++}`;
-}
-
-/** Convert SDK result error subtypes to user-friendly messages */
-function formatResultError(subtype: string, detail: string): string {
-  switch (subtype) {
-    case "error_max_turns":
-      return "Session reached the maximum number of turns. Start a new session to continue.";
-    case "error_max_budget_usd":
-      return "Session exceeded the cost budget limit.";
-    case "error_max_structured_output_retries":
-      return "Structured output failed after maximum retries.";
-    case "error_during_execution":
-      return detail || "An error occurred during execution.";
-    default:
-      return detail || "An unexpected error occurred.";
-  }
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 // Maps a parent_tool_use_id (Task tool_use_id) → the tool_call message id
 type ParentToolMap = Map<string, string>;
 
-interface InitialMeta {
-  isProcessing: boolean;
-  isConnected: boolean;
-  sessionInfo: SessionInfo | null;
-  totalCost: number;
-}
-
 interface UseClaudeOptions {
   sessionId: string | null;
-  initialMessages?: UIMessage[];
-  initialMeta?: InitialMeta | null;
+  initialMessages?: import("../types").UIMessage[];
+  initialMeta?: SessionMeta | null;
   /** Restore a pending permission when switching back to this session */
-  initialPermission?: PermissionRequest | null;
+  initialPermission?: import("../types").PermissionRequest | null;
 }
 
 export function useClaude({ sessionId, initialMessages, initialMeta, initialPermission }: UseClaudeOptions) {
-  const [messages, setMessages] = useState<UIMessage[]>(initialMessages ?? []);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
-  const [totalCost, setTotalCost] = useState(0);
-  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
-  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
-  const [isCompacting, setIsCompacting] = useState(false);
+  const base = useEngineBase({ sessionId, initialMessages, initialMeta, initialPermission });
+  const {
+    messages, setMessages,
+    isProcessing, setIsProcessing,
+    isConnected, setIsConnected,
+    sessionInfo, setSessionInfo,
+    totalCost, setTotalCost,
+    pendingPermission, setPendingPermission,
+    contextUsage, setContextUsage,
+    isCompacting, setIsCompacting,
+    sessionIdRef, messagesRef,
+    scheduleFlush: scheduleRaf,
+    cancelPendingFlush,
+  } = base;
+
   const [mcpServerStatuses, setMcpServerStatuses] = useState<McpServerStatus[]>([]);
   const [supportedModels, setSupportedModels] = useState<ModelInfo[]>([]);
 
   const buffer = useRef(new StreamingBuffer());
   const parentToolMap = useRef<ParentToolMap>(new Map());
-  const sessionIdRef = useRef(sessionId);
-  sessionIdRef.current = sessionId;
-  const messagesRef = useRef<UIMessage[]>([]);
-  messagesRef.current = messages;
 
-  // Reset state when sessionId changes, restoring background state if available
+  // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
-    const msgs = initialMessages ?? [];
-    setMessages(msgs);
-    if (initialMeta) {
-      setIsProcessing(initialMeta.isProcessing);
-      setIsConnected(initialMeta.isConnected);
-      setSessionInfo(initialMeta.sessionInfo);
-      setTotalCost(initialMeta.totalCost);
-    } else {
-      setIsProcessing(false);
-      setIsConnected(false);
-      setSessionInfo(null);
-      setTotalCost(0);
-    }
-    // Restore pending permission from background store (or clear if none)
-    setPendingPermission(initialPermission ?? null);
-    setContextUsage(null);
-    setIsCompacting(false);
     buffer.current.reset();
     parentToolMap.current.clear();
 
     // If restoring a mid-stream session, seed the buffer with existing content
     // so that new deltas are appended rather than replacing old content.
+    const msgs = initialMessages ?? [];
     const streamingMsg = msgs.findLast(
       (m) => m.role === "assistant" && m.isStreaming,
     );
@@ -129,10 +91,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // rAF-based flush
-  const pendingFlush = useRef(false);
-  const rafId = useRef(0);
-
+  // Claude-specific flush — uses the full StreamingBuffer API
   const flushStreamingToState = useCallback(() => {
     const allText = buffer.current.getAllText();
     const allThinking = buffer.current.getAllThinking();
@@ -160,32 +119,21 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           : m,
       );
     });
-  }, []);
+  }, [setMessages]);
 
   const scheduleFlush = useCallback(() => {
-    if (pendingFlush.current) return;
-    pendingFlush.current = true;
-    rafId.current = requestAnimationFrame(() => {
-      pendingFlush.current = false;
-      flushStreamingToState();
-    });
-  }, [flushStreamingToState]);
+    scheduleRaf(flushStreamingToState);
+  }, [scheduleRaf, flushStreamingToState]);
 
   const flushNow = useCallback(() => {
-    if (pendingFlush.current) {
-      cancelAnimationFrame(rafId.current);
-      pendingFlush.current = false;
-    }
+    cancelPendingFlush();
     flushStreamingToState();
-  }, [flushStreamingToState]);
+  }, [cancelPendingFlush, flushStreamingToState]);
 
   const resetStreaming = useCallback(() => {
     buffer.current.reset();
-    if (pendingFlush.current) {
-      cancelAnimationFrame(rafId.current);
-      pendingFlush.current = false;
-    }
-  }, []);
+    cancelPendingFlush();
+  }, [cancelPendingFlush]);
 
   const handleSubagentEvent = useCallback((event: ClaudeEvent, parentId: string) => {
     const taskMsgId = parentToolMap.current.get(parentId);
@@ -243,11 +191,15 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
       if (event.type === "system" && "subtype" in event) {
         const sub = (event as { subtype: string }).subtype;
         if (sub === "task_progress") {
-          bgAgentStore.handleTaskProgress(sessionIdRef.current!, event as TaskProgressEvent);
+          const sid = sessionIdRef.current;
+          if (!sid) return;
+          bgAgentStore.handleTaskProgress(sid, event as TaskProgressEvent);
           return;
         }
         if (sub === "task_notification") {
-          bgAgentStore.handleTaskNotification(sessionIdRef.current!, event as TaskNotificationEvent);
+          const sid = sessionIdRef.current;
+          if (!sid) return;
+          bgAgentStore.handleTaskNotification(sid, event as TaskNotificationEvent);
           return;
         }
       }
@@ -522,7 +474,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           // Task completion arrives as user text with <task-notification> XML,
           // not as a system event — parse it and update the bgAgentStore
           if (typeof rawContent === "string" && rawContent.includes("<task-notification>")) {
-            bgAgentStore.handleUserMessage(sessionIdRef.current!, rawContent);
+            const sid = sessionIdRef.current;
+            if (sid) bgAgentStore.handleUserMessage(sid, rawContent);
           }
 
           // Tool result — update the matching tool_call message
@@ -863,9 +816,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
       unsubEvent();
       unsubPermission();
       unsubExit();
-      if (pendingFlush.current) {
-        cancelAnimationFrame(rafId.current);
-      }
+      cancelPendingFlush();
     };
   }, [handleEvent]);
 

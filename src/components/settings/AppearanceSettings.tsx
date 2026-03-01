@@ -2,31 +2,8 @@ import { memo } from "react";
 import { SunMoon, Layout, Blend } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SettingRow, selectClass } from "@/components/settings/shared";
 import type { ThemeOption } from "@/types";
-
-// ── Setting row helper ──
-
-function SettingRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-6 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        {description && (
-          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-        )}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
 
 // ── Props ──
 
@@ -80,7 +57,7 @@ export const AppearanceSettings = memo(function AppearanceSettings({
               <select
                 value={theme}
                 onChange={(e) => onThemeChange(e.target.value as ThemeOption)}
-                className="h-8 rounded-md border border-foreground/10 bg-background px-2 pe-7 text-sm text-foreground outline-none transition-colors hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                className={selectClass}
               >
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>

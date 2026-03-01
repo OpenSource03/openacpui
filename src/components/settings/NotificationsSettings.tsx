@@ -1,6 +1,7 @@
 import { memo, useState, useCallback, useEffect } from "react";
 import { Bell, Volume2, MonitorSmartphone } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SettingRow, selectClass } from "@/components/settings/shared";
 import type {
   NotificationTrigger,
   NotificationEventSettings,
@@ -52,30 +53,6 @@ const TRIGGER_OPTIONS: Array<{ value: NotificationTrigger; label: string }> = [
   { value: "unfocused", label: "When Unfocused" },
   { value: "never", label: "Never" },
 ];
-
-// ── Setting row helper (matches GeneralSettings pattern) ──
-
-function SettingRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-6 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-muted-foreground">{label}</p>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
-
-// ── Dropdown classes (reused from GeneralSettings) ──
-
-const selectClass =
-  "h-8 rounded-md border border-foreground/10 bg-background px-2 pe-7 text-sm text-foreground outline-none transition-colors hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20";
 
 // ── Component ──
 

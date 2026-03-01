@@ -14,6 +14,20 @@ import { safeSend } from "../lib/safe-send";
 import { CodexRpcClient } from "../lib/codex-rpc";
 import { getCodexBinaryPath, getCodexVersion } from "../lib/codex-binary";
 import { getAppSetting } from "../lib/app-settings";
+import { extractErrorMessage } from "../lib/error-utils";
+
+import type {
+  CodexServerNotification,
+  CodexModel,
+  CodexModelListResponse,
+  CodexAccountResponse,
+  CodexThreadStartResponse,
+  CodexThreadResumeResponse,
+  CodexTurnStartResponse,
+  CodexInitializeResponse,
+  CodexItemStartedNotification,
+  CodexItemCompletedNotification,
+} from "@shared/types/codex";
 
 // ── Session state ──
 
@@ -48,25 +62,10 @@ function getAppServerClientInfo(): { name: string; title: string; version: strin
   };
 }
 
-/** Extract a user-friendly error message from unknown error values. */
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "object" && err !== null) {
-    const obj = err as Record<string, unknown>;
-    if (typeof obj.message === "string") return obj.message;
-    try {
-      return JSON.stringify(err);
-    } catch {
-      return String(err);
-    }
-  }
-  return String(err);
-}
-
 /** Pick a valid model id from model/list, preferring the requested id when available. */
 function pickModelId(
   requestedModel: string | undefined,
-  models: Array<Record<string, unknown>>,
+  models: Array<CodexModel>,
 ): string | undefined {
   const requested = typeof requestedModel === "string" ? requestedModel.trim() : "";
   if (requested.length > 0) {
@@ -75,10 +74,10 @@ function pickModelId(
   }
 
   const defaultModel = models.find((m) => m.isDefault === true);
-  if (typeof defaultModel?.id === "string") return defaultModel.id;
+  if (defaultModel) return defaultModel.id;
 
   const first = models[0];
-  return typeof first?.id === "string" ? first.id : undefined;
+  return first?.id;
 }
 
 function shortId(value: unknown, length = 8): string {
@@ -87,11 +86,10 @@ function shortId(value: unknown, length = 8): string {
 
 function shouldLogFullToolEvent(
   method: string,
-  params: Record<string, unknown>,
+  params: CodexItemStartedNotification | CodexItemCompletedNotification,
 ): boolean {
   if (method !== "item/started" && method !== "item/completed") return false;
-  const item = params.item as Record<string, unknown> | undefined;
-  if (!item || typeof item.type !== "string") return false;
+  const { item } = params;
   return (
     item.type === "commandExecution" ||
     item.type === "fileChange" ||
@@ -101,65 +99,127 @@ function shouldLogFullToolEvent(
   );
 }
 
-function summarizeCodexNotification(
-  method: string,
-  params: Record<string, unknown>,
-): string {
-  switch (method) {
+function summarizeCodexNotification(notification: CodexServerNotification): string {
+  switch (notification.method) {
     case "turn/started": {
-      const turn = params.turn as Record<string, unknown> | undefined;
-      return `turn/started turn=${shortId(turn?.id, 12)}`;
+      const { turn } = notification.params;
+      return `turn/started turn=${shortId(turn.id, 12)}`;
     }
     case "turn/completed": {
-      const turn = params.turn as Record<string, unknown> | undefined;
-      const status = typeof turn?.status === "string" ? turn.status : "unknown";
-      const err = (turn?.error as Record<string, unknown> | undefined)?.message;
-      return `turn/completed turn=${shortId(turn?.id, 12)} status=${status}${typeof err === "string" ? ` error="${err.slice(0, 120)}"` : ""}`;
+      const { turn } = notification.params;
+      const errMsg = turn.error?.message;
+      return `turn/completed turn=${shortId(turn.id, 12)} status=${turn.status}${typeof errMsg === "string" ? ` error="${errMsg.slice(0, 120)}"` : ""}`;
     }
     case "item/started":
     case "item/completed": {
-      const item = params.item as Record<string, unknown> | undefined;
-      if (!item) return `${method} (missing item)`;
-      const type = typeof item.type === "string" ? item.type : "unknown";
-      const status = typeof item.status === "string" ? ` status=${item.status}` : "";
-      const cmd = typeof item.command === "string"
-        ? ` cmd="${item.command.split("\n")[0].slice(0, 80)}"`
-        : "";
-      const exit = typeof item.exitCode === "number" ? ` exit=${item.exitCode}` : "";
-      return `${method} type=${type} id=${shortId(item.id, 12)}${status}${exit}${cmd}`;
+      const { item } = notification.params;
+      const status = "status" in item ? ` status=${item.status}` : "";
+      const cmd = "command" in item ? ` cmd="${item.command.split("\n")[0].slice(0, 80)}"` : "";
+      const exit = "exitCode" in item && item.exitCode != null ? ` exit=${item.exitCode}` : "";
+      return `${notification.method} type=${item.type} id=${shortId(item.id, 12)}${status}${exit}${cmd}`;
     }
     case "item/agentMessage/delta": {
-      const delta = typeof params.delta === "string" ? params.delta : "";
-      return `item/agentMessage/delta id=${shortId(params.itemId, 12)} len=${delta.length}`;
+      const { delta, itemId } = notification.params;
+      return `item/agentMessage/delta id=${shortId(itemId, 12)} len=${delta.length}`;
     }
     case "item/reasoning/summaryTextDelta":
     case "item/reasoning/textDelta": {
-      const delta = typeof params.delta === "string" ? params.delta : "";
-      return `${method} id=${shortId(params.itemId, 12)} len=${delta.length}`;
+      const { delta, itemId } = notification.params;
+      return `${notification.method} id=${shortId(itemId, 12)} len=${delta.length}`;
     }
     case "item/commandExecution/outputDelta": {
-      const delta = typeof params.delta === "string" ? params.delta : "";
-      return `item/commandExecution/outputDelta id=${shortId(params.itemId, 12)} len=${delta.length}`;
+      const { delta, itemId } = notification.params;
+      return `item/commandExecution/outputDelta id=${shortId(itemId, 12)} len=${delta.length}`;
     }
     case "turn/plan/updated": {
-      const plan = Array.isArray(params.plan) ? params.plan : [];
+      const { plan } = notification.params;
       return `turn/plan/updated steps=${plan.length}`;
     }
     case "thread/tokenUsage/updated": {
-      const usage = params.tokenUsage as Record<string, unknown> | undefined;
-      const total = (usage?.total as Record<string, unknown> | undefined)?.totalTokens;
-      const input = (usage?.last as Record<string, unknown> | undefined)?.inputTokens;
-      const output = (usage?.last as Record<string, unknown> | undefined)?.outputTokens;
-      return `thread/tokenUsage/updated total=${typeof total === "number" ? total : "?"} last_in=${typeof input === "number" ? input : "?"} last_out=${typeof output === "number" ? output : "?"}`;
+      const { tokenUsage } = notification.params;
+      return `thread/tokenUsage/updated total=${tokenUsage.total.totalTokens} last_in=${tokenUsage.last.inputTokens} last_out=${tokenUsage.last.outputTokens}`;
     }
     case "error": {
-      const err = params.error as Record<string, unknown> | undefined;
-      const msg = typeof err?.message === "string" ? err.message : "unknown";
-      return `error message="${msg.slice(0, 180)}"`;
+      const { error } = notification.params;
+      return `error message="${error.message.slice(0, 180)}"`;
     }
     default:
-      return method;
+      return notification.method;
   }
+}
+
+/** Wire up all RPC event handlers for a Codex session (shared by start and resume). */
+function setupCodexHandlers(
+  rpc: CodexRpcClient,
+  session: CodexSession,
+  internalId: string,
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  rpc.onStderr = (text) => {
+    log("codex", `[stderr:${internalId.slice(0, 8)}] ${text.slice(0, 500)}`);
+  };
+
+  rpc.onNotification = (msg) => {
+    // Cast to the generated discriminated union for typed access
+    const notification = msg as CodexServerNotification;
+    session.eventCounter++;
+    log(
+      "codex",
+      `[evt:${internalId.slice(0, 8)}] #${session.eventCounter} ${summarizeCodexNotification(notification)}`,
+    );
+    if (
+      (notification.method === "item/started" || notification.method === "item/completed") &&
+      shouldLogFullToolEvent(notification.method, notification.params)
+    ) {
+      log("CODEX_EVENT_FULL", {
+        session: internalId.slice(0, 8),
+        method: notification.method,
+        item: notification.params.item,
+      });
+    }
+
+    // Track active turn from turn events
+    if (notification.method === "turn/started") {
+      session.activeTurnId = notification.params.turn.id;
+    } else if (notification.method === "turn/completed") {
+      session.activeTurnId = null;
+    }
+
+    safeSend(getMainWindow, "codex:event", {
+      _sessionId: internalId,
+      method: notification.method,
+      params: notification.params,
+    });
+  };
+
+  rpc.onServerRequest = (msg) => {
+    log(
+      "codex",
+      `[srvreq:${internalId.slice(0, 8)}] ${msg.method} id=${msg.id}`,
+    );
+    if (isSupportedServerRequestMethod(msg.method)) {
+      safeSend(getMainWindow, "codex:approval_request", {
+        _sessionId: internalId,
+        rpcId: msg.id,
+        method: msg.method,
+        // Spread typed params — the renderer narrows by method
+        ...(msg.params as Record<string, unknown>),
+      });
+    } else {
+      log("codex", ` Unknown server request: ${msg.method}, auto-declining`);
+      rpc.respondToServerError(msg.id, -32601, `Unsupported server request: ${msg.method}`);
+    }
+  };
+
+  rpc.onExit = (code, signal) => {
+    log("codex", ` Process exited: code=${code} signal=${signal} session=${internalId}`);
+    codexSessions.delete(internalId);
+    safeSend(getMainWindow, "codex:exit", {
+      _sessionId: internalId,
+      code,
+      signal,
+    });
+  };
 }
 
 // ── Registration ──
@@ -214,75 +274,10 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           model: undefined,
         };
         codexSessions.set(internalId, session);
-
-        // Forward stderr as log entries
-        rpc.onStderr = (text) => {
-          log("codex", `[stderr:${internalId.slice(0, 8)}] ${text.slice(0, 500)}`);
-        };
-
-        // Forward notifications to renderer
-        rpc.onNotification = (msg) => {
-          session.eventCounter++;
-          log(
-            "codex",
-            `[evt:${internalId.slice(0, 8)}] #${session.eventCounter} ${summarizeCodexNotification(msg.method, msg.params)}`,
-          );
-          if (shouldLogFullToolEvent(msg.method, msg.params)) {
-            log("CODEX_EVENT_FULL", {
-              session: internalId.slice(0, 8),
-              method: msg.method,
-              item: msg.params.item,
-            });
-          }
-
-          // Track active turn from turn events
-          if (msg.method === "turn/started") {
-            const turn = (msg.params as Record<string, unknown>).turn as Record<string, unknown> | undefined;
-            if (turn?.id) session.activeTurnId = turn.id as string;
-          } else if (msg.method === "turn/completed") {
-            session.activeTurnId = null;
-          }
-
-          safeSend(getMainWindow, "codex:event", {
-            _sessionId: internalId,
-            method: msg.method,
-            params: msg.params,
-          });
-        };
-
-        // Bridge server-initiated approval requests to renderer
-        rpc.onServerRequest = (msg) => {
-          log(
-            "codex",
-            `[srvreq:${internalId.slice(0, 8)}] ${msg.method} id=${msg.id}`,
-          );
-          if (isSupportedServerRequestMethod(msg.method)) {
-            safeSend(getMainWindow, "codex:approval_request", {
-              _sessionId: internalId,
-              rpcId: msg.id,
-              method: msg.method,
-              ...msg.params,
-            });
-          } else {
-            // Unknown server request — auto-decline
-            log("codex",` Unknown server request: ${msg.method}, auto-declining`);
-            rpc.respondToServerError(msg.id, -32601, `Unsupported server request: ${msg.method}`);
-          }
-        };
-
-        // Handle process exit
-        rpc.onExit = (code, signal) => {
-          log("codex",` Process exited: code=${code} signal=${signal} session=${internalId}`);
-          codexSessions.delete(internalId);
-          safeSend(getMainWindow, "codex:exit", {
-            _sessionId: internalId,
-            code,
-            signal,
-          });
-        };
+        setupCodexHandlers(rpc, session, internalId, getMainWindow);
 
         // ── Initialize handshake ──
-        const initResult = await rpc.request("initialize", {
+        const initResult = await rpc.request<CodexInitializeResponse>("initialize", {
           clientInfo: getAppServerClientInfo(),
           capabilities: {
             experimentalApi: true,
@@ -292,10 +287,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         log("codex",` Initialized: ${JSON.stringify(initResult).slice(0, 200)}`);
 
         // ── Check auth status ──
-        const authResult = (await rpc.request("account/read", { refreshToken: false })) as {
-          account: Record<string, unknown> | null;
-          requiresOpenaiAuth: boolean;
-        };
+        const authResult = await rpc.request<CodexAccountResponse>("account/read", { refreshToken: false });
 
         const needsAuth = authResult.requiresOpenaiAuth && !authResult.account;
         if (needsAuth) {
@@ -313,16 +305,12 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         }
 
         // ── Fetch available models ──
-        let models: unknown[] = [];
+        let models: CodexModel[] = [];
         let selectedModel: string | undefined;
         try {
-          const modelResult = (await rpc.request("model/list", { includeHidden: false })) as {
-            data: unknown[];
-          };
+          const modelResult = await rpc.request<CodexModelListResponse>("model/list", { includeHidden: false });
           models = modelResult.data ?? [];
-          const modelEntries = (models as Array<Record<string, unknown>>)
-            .filter((m) => typeof m?.id === "string");
-          selectedModel = pickModelId(options.model, modelEntries);
+          selectedModel = pickModelId(options.model, models);
           if (options.model && selectedModel !== options.model) {
             log("codex", ` Requested model ${options.model} not found; using ${selectedModel ?? "server default"}`);
           }
@@ -330,7 +318,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             session.model = selectedModel;
           }
         } catch (err) {
-          log("codex",` model/list failed: ${errorMessage(err)}`);
+          log("codex",` model/list failed: ${extractErrorMessage(err)}`);
         }
 
         // ── Start a thread ──
@@ -345,9 +333,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         if (options.personality) threadParams.personality = options.personality;
         // collaborationMode is set per-turn via turn/start, not on thread/start
 
-        const threadResult = (await rpc.request("thread/start", threadParams)) as {
-          thread: { id: string; [k: string]: unknown };
-        };
+        const threadResult = await rpc.request<CodexThreadStartResponse>("thread/start", threadParams);
         session.threadId = threadResult.thread.id;
         log("codex",` Thread started: ${session.threadId}`);
 
@@ -360,14 +346,14 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           needsAuth: false,
         };
       } catch (err) {
-        log("codex",` Start failed: ${errorMessage(err)}`);
+        log("codex",` Start failed: ${extractErrorMessage(err)}`);
         // Clean up on failure
         const session = codexSessions.get(internalId);
         if (session) {
           session.rpc.destroy();
           codexSessions.delete(internalId);
         }
-        return { error: errorMessage(err) };
+        return { error: extractErrorMessage(err) };
       }
     },
   );
@@ -417,9 +403,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         };
 
 
-        const result = (await session.rpc.request("turn/start", turnParams)) as {
-          turn: { id: string; [k: string]: unknown };
-        };
+        const result = await session.rpc.request<CodexTurnStartResponse>("turn/start", turnParams);
         session.activeTurnId = result.turn.id;
         log(
           "codex",
@@ -429,9 +413,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       } catch (err) {
         log(
           "codex",
-          ` Send failed: session=${shortId(data.sessionId, 12)} error=${errorMessage(err)}`,
+          ` Send failed: session=${shortId(data.sessionId, 12)} error=${extractErrorMessage(err)}`,
         );
-        return { error: errorMessage(err) };
+        return { error: extractErrorMessage(err) };
       }
     },
   );
@@ -457,7 +441,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       });
       return {};
     } catch (err) {
-      return { error: errorMessage(err) };
+      return { error: extractErrorMessage(err) };
     }
   });
 
@@ -526,7 +510,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       await session.rpc.request("thread/compact/start", { threadId: session.threadId });
       return {};
     } catch (err) {
-      return { error: errorMessage(err) };
+      return { error: extractErrorMessage(err) };
     }
   });
 
@@ -536,9 +520,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     for (const session of codexSessions.values()) {
       if (session.rpc.isAlive) {
         try {
-          const result = (await session.rpc.request("model/list", { includeHidden: false })) as {
-            data: unknown[];
-          };
+          const result = await session.rpc.request<CodexModelListResponse>("model/list", { includeHidden: false });
           return { models: result.data ?? [] };
         } catch {
           continue;
@@ -563,20 +545,18 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       const rpc = new CodexRpcClient(proc);
       try {
-        await rpc.request("initialize", {
+        await rpc.request<CodexInitializeResponse>("initialize", {
           clientInfo: getAppServerClientInfo(),
           capabilities: { experimentalApi: true },
         });
         rpc.notify("initialized", {});
-        const result = (await rpc.request("model/list", { includeHidden: false })) as {
-          data: unknown[];
-        };
+        const result = await rpc.request<CodexModelListResponse>("model/list", { includeHidden: false });
         return { models: result.data ?? [] };
       } finally {
         rpc.destroy();
       }
     } catch (err) {
-      return { models: [], error: errorMessage(err) };
+      return { models: [], error: extractErrorMessage(err) };
     }
   });
 
@@ -616,7 +596,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         const result = await session.rpc.request("account/login/start", params, 60000);
         return result;
       } catch (err) {
-        return { error: errorMessage(err) };
+        return { error: extractErrorMessage(err) };
       }
     },
   );
@@ -661,58 +641,10 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           model: data.model,
         };
         codexSessions.set(internalId, session);
-
-        // Set up handlers (same as codex:start)
-        rpc.onStderr = (text) => log("codex", `[stderr:${internalId.slice(0, 8)}] ${text.slice(0, 500)}`);
-        rpc.onNotification = (msg) => {
-          session.eventCounter++;
-          log(
-            "codex",
-            `[evt:${internalId.slice(0, 8)}] #${session.eventCounter} ${summarizeCodexNotification(msg.method, msg.params)}`,
-          );
-          if (shouldLogFullToolEvent(msg.method, msg.params)) {
-            log("CODEX_EVENT_FULL", {
-              session: internalId.slice(0, 8),
-              method: msg.method,
-              item: msg.params.item,
-            });
-          }
-          if (msg.method === "turn/started") {
-            const turn = (msg.params as Record<string, unknown>).turn as Record<string, unknown> | undefined;
-            if (turn?.id) session.activeTurnId = turn.id as string;
-          } else if (msg.method === "turn/completed") {
-            session.activeTurnId = null;
-          }
-          safeSend(getMainWindow, "codex:event", {
-            _sessionId: internalId,
-            method: msg.method,
-            params: msg.params,
-          });
-        };
-        rpc.onServerRequest = (msg) => {
-          log(
-            "codex",
-            `[srvreq:${internalId.slice(0, 8)}] ${msg.method} id=${msg.id}`,
-          );
-          if (isSupportedServerRequestMethod(msg.method)) {
-            safeSend(getMainWindow, "codex:approval_request", {
-              _sessionId: internalId,
-              rpcId: msg.id,
-              method: msg.method,
-              ...msg.params,
-            });
-          } else {
-            rpc.respondToServerError(msg.id, -32601, `Unsupported: ${msg.method}`);
-          }
-        };
-        rpc.onExit = (code, signal) => {
-          log("codex", ` Process exited: code=${code} signal=${signal} session=${internalId}`);
-          codexSessions.delete(internalId);
-          safeSend(getMainWindow, "codex:exit", { _sessionId: internalId, code, signal });
-        };
+        setupCodexHandlers(rpc, session, internalId, getMainWindow);
 
         // Initialize
-        await rpc.request("initialize", {
+        await rpc.request<CodexInitializeResponse>("initialize", {
           clientInfo: getAppServerClientInfo(),
           capabilities: { experimentalApi: true },
         });
@@ -725,21 +657,19 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         };
         if (data.approvalPolicy) threadParams.approvalPolicy = data.approvalPolicy;
 
-        const threadResult = (await rpc.request("thread/resume", threadParams)) as {
-          thread: { id: string; [k: string]: unknown };
-        };
+        const threadResult = await rpc.request<CodexThreadResumeResponse>("thread/resume", threadParams);
         session.threadId = threadResult.thread.id;
         log("codex",` Thread resumed: ${session.threadId}`);
 
         return { sessionId: internalId, threadId: session.threadId };
       } catch (err) {
-        log("codex",` Resume failed: ${errorMessage(err)}`);
+        log("codex",` Resume failed: ${extractErrorMessage(err)}`);
         const session = codexSessions.get(internalId);
         if (session) {
           session.rpc.destroy();
           codexSessions.delete(internalId);
         }
-        return { error: errorMessage(err) };
+        return { error: extractErrorMessage(err) };
       }
     },
   );
@@ -761,7 +691,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     try {
       return { version: await getCodexVersion() };
     } catch (err) {
-      return { error: errorMessage(err) };
+      return { error: extractErrorMessage(err) };
     }
   });
 }

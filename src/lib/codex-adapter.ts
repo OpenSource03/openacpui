@@ -5,32 +5,14 @@
  * Each item type maps to a UIMessage role + toolName for the existing ToolCall UI.
  */
 
-import type { TodoItem, ModelInfo, ImageAttachment, ToolUseResult } from "@/types";
+import type { TodoItem, ImageAttachment, ToolUseResult } from "@/types";
 import type { CodexThreadItem } from "@/types/codex";
-import type { Model as CodexModel } from "@/types/codex-protocol/v2/Model";
+import type { FileUpdateChange } from "@/types/codex-protocol/v2/FileUpdateChange";
+import type { PatchChangeKind } from "@/types/codex-protocol/v2/PatchChangeKind";
+import type { TurnPlanStep } from "@/types/codex-protocol/v2/TurnPlanStep";
 import { parseUnifiedDiff } from "@/lib/unified-diff";
 
-// ── Streaming buffer (reuses ACPStreamingBuffer pattern) ──
-
-export class CodexStreamingBuffer {
-  messageId: string | null = null;
-  private textChunks: string[] = [];
-  private thinkingChunks: string[] = [];
-  thinkingComplete = false;
-
-  appendText(text: string): void { this.textChunks.push(text); }
-  appendThinking(text: string): void { this.thinkingChunks.push(text); }
-
-  getText(): string { return this.textChunks.join(""); }
-  getThinking(): string { return this.thinkingChunks.join(""); }
-
-  reset(): void {
-    this.messageId = null;
-    this.textChunks = [];
-    this.thinkingChunks = [];
-    this.thinkingComplete = false;
-  }
-}
+export { SimpleStreamingBuffer as CodexStreamingBuffer } from "@/lib/streaming-buffer";
 
 // ── Item type → tool name mapping ──
 
@@ -58,31 +40,14 @@ export function codexItemToToolName(item: CodexThreadItem): string | null {
 /** Infer whether a fileChange is a Write (new file) or Edit (modify existing). */
 function inferFileChangeTool(item: Extract<CodexThreadItem, { type: "fileChange" }>): string {
   if (!item.changes || item.changes.length === 0) return "Edit";
-  const kinds = item.changes
-    .map((change) => getPatchChangeKind(change as Record<string, unknown>))
-    .filter((kind): kind is "add" | "delete" | "update" => kind !== null);
-  return kinds.length > 0 && kinds.every((kind) => kind === "add")
+  return item.changes.every((change) => change.kind.type === "add")
     ? "Write"
     : "Edit";
 }
 
-function getPatchChangeKind(change: Record<string, unknown>): "add" | "delete" | "update" | null {
-  const rawKind = change.kind;
-  if (typeof rawKind === "string") {
-    if (rawKind === "add" || rawKind === "create") return "add";
-    if (rawKind === "delete" || rawKind === "remove") return "delete";
-    if (rawKind === "update" || rawKind === "modify" || rawKind === "modified") return "update";
-    return null;
-  }
-
-  if (typeof rawKind === "object" && rawKind !== null) {
-    const kindType = (rawKind as Record<string, unknown>).type;
-    if (kindType === "add" || kindType === "delete" || kindType === "update") {
-      return kindType;
-    }
-  }
-
-  return null;
+/** Extract the simple kind label from a generated PatchChangeKind discriminant. */
+function getPatchChangeKind(kind: PatchChangeKind): "add" | "delete" | "update" {
+  return kind.type;
 }
 
 // ── Item → tool input mapping ──
@@ -96,13 +61,12 @@ export function codexItemToToolInput(item: CodexThreadItem): Record<string, unkn
         ...(item.cwd ? { description: `cwd: ${item.cwd}` } : {}),
       };
     case "fileChange": {
-      const firstChange = item.changes?.[0] as Record<string, unknown> | undefined;
-      const firstDiff = typeof firstChange?.diff === "string"
-        ? parseUnifiedDiff(firstChange.diff)
-        : null;
-      const firstKind = firstChange ? getPatchChangeKind(firstChange) : null;
+      const firstChange = item.changes?.[0];
+      if (!firstChange) return { file_path: "" };
+      const firstDiff = firstChange.diff ? parseUnifiedDiff(firstChange.diff) : null;
+      const firstKind = getPatchChangeKind(firstChange.kind);
       const input: Record<string, unknown> = {
-        file_path: firstChange?.path ?? "",
+        file_path: firstChange.path,
       };
 
       if (firstDiff) {
@@ -112,7 +76,7 @@ export function codexItemToToolInput(item: CodexThreadItem): Record<string, unkn
           input.old_string = firstDiff.oldString;
           input.new_string = firstDiff.newString;
         }
-      } else if (typeof firstChange?.diff === "string" && firstChange.diff) {
+      } else if (firstChange.diff) {
         // Fallback: diff is raw file content (not unified format) — derive old/new from kind
         if (firstKind === "add") {
           input.content = firstChange.diff;
@@ -121,7 +85,7 @@ export function codexItemToToolInput(item: CodexThreadItem): Record<string, unkn
           input.new_string = "";
         }
       }
-      if (item.changes?.length && item.changes.length > 1) {
+      if (item.changes.length > 1) {
         input.description = `${item.changes.length} files`;
       }
       return input;
@@ -157,14 +121,13 @@ export function codexItemToToolResult(item: CodexThreadItem): ToolUseResult | un
       };
     }
     case "fileChange": {
-      const parsedChanges = (item.changes ?? []).map((rawChange) => {
-        const change = rawChange as Record<string, unknown>;
-        const diffText = typeof change.diff === "string" ? change.diff : "";
+      const parsedChanges = (item.changes ?? []).map((change: FileUpdateChange) => {
+        const kind = getPatchChangeKind(change.kind);
         return {
-          filePath: typeof change.path === "string" ? change.path : "",
-          kind: getPatchChangeKind(change),
-          diffText,
-          parsedDiff: diffText ? parseUnifiedDiff(diffText) : null,
+          filePath: change.path,
+          kind,
+          diffText: change.diff,
+          parsedDiff: change.diff ? parseUnifiedDiff(change.diff) : null,
         };
       });
 
@@ -227,18 +190,6 @@ export function codexItemToToolResult(item: CodexThreadItem): ToolUseResult | un
 // ── Approval policy mapping ──
 
 /**
- * Map Codex approval policy names to UI-friendly labels.
- * Codex uses: "untrusted" | "on-failure" | "on-request" | "reject" | "never"
- */
-export const CODEX_APPROVAL_LABELS: Record<string, string> = {
-  "on-request": "Ask First",
-  untrusted: "Accept Trusted",
-  "on-failure": "Ask On Failure",
-  reject: "Reject",
-  never: "Allow All",
-};
-
-/**
  * Map Harnss permission modes to Codex approvalPolicy values.
  * Keep this in sync with src/types/codex-protocol/v2/AskForApproval.ts.
  */
@@ -259,7 +210,7 @@ export function permissionModeToCodexPolicy(mode: string): string | undefined {
 
 /** Convert Codex turn/plan/updated steps to TodoItem[] for the TodoPanel. */
 export function codexPlanToTodos(
-  planSteps: Array<{ step: string; status: string }>,
+  planSteps: Array<TurnPlanStep | { step: string; status: string }>,
 ): TodoItem[] {
   return planSteps.map((s) => ({
     content: s.step,
@@ -271,30 +222,6 @@ export function codexPlanToTodos(
       }
       return "pending";
     })(),
-  }));
-}
-
-// ── Command output delta accumulation ──
-
-/**
- * Accumulate command execution output deltas into a running string.
- * Codex streams `item/commandExecution/outputDelta` with { itemId, delta }.
- */
-export function appendCommandOutput(
-  existing: string | undefined,
-  delta: string,
-): string {
-  return (existing ?? "") + delta;
-}
-
-// ── Model mapping ──
-
-/** Convert Codex `model/list` response items to our common ModelInfo format. */
-export function codexModelsToModelInfo(models: CodexModel[]): ModelInfo[] {
-  return models.map((m) => ({
-    value: m.id,
-    displayName: m.displayName,
-    description: m.description ?? "",
   }));
 }
 

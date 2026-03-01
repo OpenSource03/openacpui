@@ -1,13 +1,13 @@
 import type { RegistryAgent } from "@/types/registry";
-import type { AgentDefinition } from "@/types/ui";
+import type { InstalledAgent } from "@/types/ui";
 
 /**
- * Convert a registry agent's npx distribution to a local AgentDefinition.
+ * Convert a registry agent's npx distribution to a local InstalledAgent.
  * Returns null if the agent has no npx distribution (binary-only).
  */
 export function registryAgentToDefinition(
   agent: RegistryAgent,
-): AgentDefinition | null {
+): InstalledAgent | null {
   const npx = agent.distribution.npx;
   if (!npx) return null; // binary-only agents cannot be auto-installed
 
@@ -30,7 +30,7 @@ export function registryAgentToDefinition(
  * Only meaningful for agents installed from the registry (have registryVersion).
  */
 export function hasUpdate(
-  installed: AgentDefinition,
+  installed: InstalledAgent,
   registry: RegistryAgent,
 ): boolean {
   if (!installed.registryVersion) return false;

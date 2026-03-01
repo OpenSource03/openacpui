@@ -3,11 +3,11 @@ import type {
   CCSessionInfo, PersistedSession, Project, UIMessage, Space,
   SearchMessageResult, SearchSessionResult,
   GitRepoInfo, GitStatus, GitBranch, GitLogEntry,
-  AgentDefinition, ModelInfo, McpServerConfig, McpServerStatus,
+  InstalledAgent, ModelInfo, McpServerConfig, McpServerStatus,
   AppSettings,
 } from "./ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
-import type { EngineId, PermissionBehavior } from "./engine";
+import type { EngineId, AppPermissionBehavior } from "./engine";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "./codex";
 import type { Model as CodexModel } from "./codex-protocol/v2/Model";
 import type { CollaborationMode } from "./codex-protocol/CollaborationMode";
@@ -59,6 +59,7 @@ declare global {
       restartSession: (sessionId: string, mcpServers?: McpServerConfig[]) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
       openInEditor: (filePath: string, line?: number, editor?: string) => Promise<{ ok?: boolean; editor?: string; error?: string }>;
+      openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
       generateTitle: (
         message: string,
         cwd?: string,
@@ -83,7 +84,7 @@ declare global {
       respondPermission: (
         sessionId: string,
         requestId: string,
-        behavior: PermissionBehavior,
+        behavior: AppPermissionBehavior,
         toolUseId: string,
         toolInput: Record<string, unknown>,
         newPermissionMode?: string,
@@ -152,7 +153,7 @@ declare global {
         unstageAll: (cwd: string) => Promise<{ ok?: boolean; error?: string }>;
         discard: (cwd: string, files: string[]) => Promise<{ ok?: boolean; error?: string }>;
         commit: (cwd: string, message: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
-        branches: (cwd: string) => Promise<GitBranch[] & { error?: string }>;
+        branches: (cwd: string) => Promise<GitBranch[] | { error: string }>;
         checkout: (cwd: string, branch: string) => Promise<{ ok?: boolean; error?: string }>;
         createBranch: (cwd: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
         createWorktree: (cwd: string, path: string, branch: string, fromRef?: string) => Promise<{ ok?: boolean; path?: string; output?: string; error?: string }>;
@@ -162,7 +163,7 @@ declare global {
         pull: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
         fetch: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
         diffFile: (cwd: string, file: string, staged: boolean) => Promise<{ diff?: string; error?: string }>;
-        log: (cwd: string, count?: number) => Promise<GitLogEntry[]>;
+        log: (cwd: string, count?: number) => Promise<GitLogEntry[] | { error: string }>;
         generateCommitMessage: (
           cwd: string,
           engine?: EngineId,
@@ -253,8 +254,8 @@ declare global {
         probe: (servers: McpServerConfig[]) => Promise<Array<{ name: string; status: "connected" | "needs-auth" | "failed"; error?: string }>>;
       };
       agents: {
-        list: () => Promise<AgentDefinition[]>;
-        save: (agent: AgentDefinition) => Promise<{ ok?: boolean; error?: string }>;
+        list: () => Promise<InstalledAgent[]>;
+        save: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
         delete: (id: string) => Promise<{ ok?: boolean; error?: string }>;
         updateCachedConfig: (agentId: string, configOptions: ACPConfigOption[]) => Promise<{ ok?: boolean }>;
       };

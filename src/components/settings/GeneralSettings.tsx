@@ -2,46 +2,12 @@ import { memo, useState, useCallback, useEffect } from "react";
 import { Download, MessageSquare, Code, Mic } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-
-// ── Types ──
-
-type PreferredEditor = "auto" | "cursor" | "code" | "zed";
-type VoiceDictationMode = "native" | "whisper";
-
-interface AppSettings {
-  allowPrereleaseUpdates: boolean;
-  defaultChatLimit: number;
-  preferredEditor: PreferredEditor;
-  voiceDictation: VoiceDictationMode;
-}
+import { SettingRow, selectClass } from "@/components/settings/shared";
+import type { AppSettings, PreferredEditor, VoiceDictationMode } from "@/types/ui";
 
 interface GeneralSettingsProps {
   appSettings: AppSettings | null;
   onUpdateAppSettings: (patch: Partial<AppSettings>) => Promise<void>;
-}
-
-// ── Setting row helper ──
-
-function SettingRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-6 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        {description && (
-          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-        )}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
 }
 
 // ── Component ──
@@ -147,7 +113,7 @@ export const GeneralSettings = memo(function GeneralSettings({
                 <select
                   value={chatLimit}
                   onChange={(e) => handleChatLimitChange(Number(e.target.value))}
-                  className="h-8 rounded-md border border-foreground/10 bg-background px-2 pe-7 text-sm text-foreground outline-none transition-colors hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  className={selectClass}
                 >
                   {[5, 10, 15, 20, 25, 30, 50, 100].map((n) => (
                     <option key={n} value={n}>
@@ -175,7 +141,7 @@ export const GeneralSettings = memo(function GeneralSettings({
               <select
                 value={preferredEditor}
                 onChange={(e) => handleEditorChange(e.target.value as PreferredEditor)}
-                className="h-8 rounded-md border border-foreground/10 bg-background px-2 pe-7 text-sm text-foreground outline-none transition-colors hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                className={selectClass}
               >
                 <option value="auto">Auto</option>
                 <option value="cursor">Cursor</option>
@@ -201,7 +167,7 @@ export const GeneralSettings = memo(function GeneralSettings({
               <select
                 value={voiceDictation}
                 onChange={(e) => handleVoiceDictationChange(e.target.value as VoiceDictationMode)}
-                className="h-8 rounded-md border border-foreground/10 bg-background px-2 pe-7 text-sm text-foreground outline-none transition-colors hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                className={selectClass}
               >
                 <option value="native">Native (OS)</option>
                 <option value="whisper">Whisper (Local AI)</option>

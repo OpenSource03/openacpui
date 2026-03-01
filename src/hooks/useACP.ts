@@ -1,20 +1,16 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import type { UIMessage, PermissionRequest, SessionInfo, ContextUsage, ImageAttachment, AcpPermissionBehavior, PermissionBehavior } from "@/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, SessionMeta } from "@/types";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "@/types/acp";
 import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, pickAutoResponseOption } from "@/lib/acp-adapter";
+import { useEngineBase } from "./useEngineBase";
 
 interface UseACPOptions {
   sessionId: string | null;
-  initialMessages?: UIMessage[];
+  initialMessages?: import("@/types").UIMessage[];
   initialConfigOptions?: ACPConfigOption[];
-  initialMeta?: {
-    isProcessing: boolean;
-    isConnected: boolean;
-    sessionInfo: SessionInfo | null;
-    totalCost: number;
-  } | null;
+  initialMeta?: SessionMeta | null;
   /** Restore a pending permission when switching back to this session */
-  initialPermission?: PermissionRequest | null;
+  initialPermission?: import("@/types").PermissionRequest | null;
   /** Restore the raw ACP permission event (needed for optionId lookup) */
   initialRawAcpPermission?: ACPPermissionEvent | null;
   /** Client-side ACP permission behavior — controls auto-response to permission requests */
@@ -26,20 +22,25 @@ function acpLog(label: string, data: unknown): void {
   window.claude.acp.log(label, data);
 }
 
-let acpIdCounter = 0;
 function nextAcpId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${acpIdCounter++}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 export function useACP({ sessionId, initialMessages, initialConfigOptions, initialMeta, initialPermission, initialRawAcpPermission, acpPermissionBehavior }: UseACPOptions) {
-  const [messages, setMessages] = useState<UIMessage[]>(initialMessages ?? []);
-  const [isProcessing, setIsProcessing] = useState(initialMeta?.isProcessing ?? false);
-  const [isConnected, setIsConnected] = useState(initialMeta?.isConnected ?? false);
-  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(initialMeta?.sessionInfo ?? null);
-  const [totalCost, setTotalCost] = useState(initialMeta?.totalCost ?? 0);
-  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
-  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
-  const [isCompacting] = useState(false);
+  const base = useEngineBase({ sessionId, initialMessages, initialMeta, initialPermission });
+  const {
+    messages, setMessages,
+    isProcessing, setIsProcessing,
+    isConnected, setIsConnected,
+    sessionInfo, setSessionInfo,
+    totalCost, setTotalCost,
+    pendingPermission, setPendingPermission,
+    contextUsage, setContextUsage,
+    sessionIdRef,
+    scheduleFlush: scheduleRaf,
+    cancelPendingFlush,
+  } = base;
+
   const [configOptions, setConfigOptions] = useState<ACPConfigOption[]>(initialConfigOptions ?? []);
 
   // Sync initialConfigOptions prop → state (useState ignores prop changes after mount)
@@ -49,32 +50,18 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     }
   }, [initialConfigOptions]);
 
-  const sessionIdRef = useRef(sessionId);
   const buffer = useRef(new ACPStreamingBuffer());
-  const pendingFlush = useRef(false);
-  const rafId = useRef(0);
   const acpPermissionRef = useRef<ACPPermissionEvent | null>(null);
   // Track latest permission behavior to avoid stale closures in event listeners
   const acpPermissionBehaviorRef = useRef<AcpPermissionBehavior>(acpPermissionBehavior ?? "ask");
   acpPermissionBehaviorRef.current = acpPermissionBehavior ?? "ask";
 
-  sessionIdRef.current = sessionId;
-
-  // Reset state when sessionId changes (mirrors useClaude's reset effect)
+  // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
-    setMessages(initialMessages ?? []);
-    setIsProcessing(initialMeta?.isProcessing ?? false);
-    setIsConnected(initialMeta?.isConnected ?? false);
-    setSessionInfo(initialMeta?.sessionInfo ?? null);
-    setTotalCost(initialMeta?.totalCost ?? 0);
-    // Restore pending permission from background store (or clear if none)
-    setPendingPermission(initialPermission ?? null);
     acpPermissionRef.current = initialRawAcpPermission ?? null;
-    setContextUsage(null);
     setConfigOptions(initialConfigOptions ?? []);
     buffer.current.reset();
-    cancelAnimationFrame(rafId.current);
-    pendingFlush.current = false;
+    cancelPendingFlush();
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const flushStreamingToState = useCallback(() => {
@@ -92,16 +79,11 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
         ...(thinkingComplete ? { thinkingComplete: true } : {}),
       };
     }));
-  }, []);
+  }, [setMessages]);
 
   const scheduleFlush = useCallback(() => {
-    if (pendingFlush.current) return;
-    pendingFlush.current = true;
-    rafId.current = requestAnimationFrame(() => {
-      pendingFlush.current = false;
-      flushStreamingToState();
-    });
-  }, [flushStreamingToState]);
+    scheduleRaf(flushStreamingToState);
+  }, [scheduleRaf, flushStreamingToState]);
 
   const ensureStreamingMessage = useCallback(() => {
     if (buffer.current.messageId) return;
@@ -191,7 +173,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
           role: "tool_call" as const,
           content: "",
           toolName,
-          toolInput: normalizeToolInput(tc.rawInput, tc.kind, tc.locations, tc.title),
+          toolInput: normalizeToolInput(tc.rawInput, tc.kind, tc.locations),
           ...(initialResult ? { toolResult: initialResult } : {}),
           ...(tc.status === "failed" ? { toolError: true } : {}),
           timestamp: Date.now(),
@@ -329,10 +311,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
 
     return () => {
       unsubEvent(); unsubPermission(); unsubTurnComplete(); unsubExit();
-      if (pendingFlush.current) {
-        cancelAnimationFrame(rafId.current);
-        pendingFlush.current = false;
-      }
+      cancelPendingFlush();
     };
   }, [sessionId, handleSessionUpdate, finalizeStreamingMessage, closePendingTools]);
 
@@ -372,7 +351,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   }, [sessionId]);
 
   const respondPermission = useCallback(async (
-    behavior: PermissionBehavior,
+    behavior: AppPermissionBehavior,
     _updatedInput?: Record<string, unknown>,
     _newPermissionMode?: string,
   ) => {
@@ -416,7 +395,6 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     sessionInfo, setSessionInfo,
     totalCost, setTotalCost,
     contextUsage,
-    isCompacting,
     send, sendRaw, stop, interrupt, compact,
     pendingPermission, respondPermission,
     setPermissionMode,

@@ -6,13 +6,13 @@ import {
   loadUserAgents,
   updateCachedConfig,
 } from "../lib/agent-registry";
-import type { AgentDefinition } from "../lib/agent-registry";
+import type { InstalledAgent } from "../lib/agent-registry";
 
 export function register(): void {
   loadUserAgents();
 
   ipcMain.handle("agents:list", () => listAgents());
-  ipcMain.handle("agents:save", (_e, agent: AgentDefinition) => {
+  ipcMain.handle("agents:save", (_e, agent: InstalledAgent) => {
     saveAgent(agent);
     return { ok: true };
   });

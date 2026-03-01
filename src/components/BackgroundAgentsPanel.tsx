@@ -23,6 +23,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { PanelHeader } from "@/components/PanelHeader";
 import type { BackgroundAgent, BackgroundAgentActivity, BackgroundAgentUsage } from "@/types";
 
 const REMARK_PLUGINS = [remarkGfm];
@@ -54,21 +55,19 @@ export function BackgroundAgentsPanel({ agents, onDismiss }: BackgroundAgentsPan
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="px-4 pt-4 pb-3">
-        <div className="flex items-center gap-2">
-          <Bot className="h-4 w-4 text-foreground/50" />
-          <span className="text-sm font-medium text-foreground/80">Agents</span>
-          {runningCount > 0 && (
-            <span className="ms-auto flex items-center gap-1.5 text-xs text-foreground/50">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span className="tabular-nums">{runningCount}</span>
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Separator */}
-      <div className="border-t border-foreground/[0.08]" />
+      <PanelHeader
+        icon={Bot}
+        label="Agents"
+        className="px-4 pt-4 pb-3"
+        iconClass="text-foreground/50"
+      >
+        {runningCount > 0 && (
+          <span className="flex items-center gap-1.5 text-xs text-foreground/50">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span className="tabular-nums">{runningCount}</span>
+          </span>
+        )}
+      </PanelHeader>
 
       {/* Scrollable agent list */}
       <ScrollArea className="min-h-0 flex-1">

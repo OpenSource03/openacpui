@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, session, systemPreferences } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, session, shell, systemPreferences } from "electron";
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
@@ -111,6 +111,16 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, "../../dist/index.html"));
   }
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === mainWindow?.webContents.getURL()) return;
+    event.preventDefault();
+    void shell.openExternal(url);
+  });
 
   if (glassEnabled) {
     // macOS: apply liquid glass after content loads

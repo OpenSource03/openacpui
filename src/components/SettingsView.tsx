@@ -19,7 +19,7 @@ import { McpSettings } from "@/components/settings/McpSettings";
 import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
 import { isMac } from "@/lib/utils";
-import type { AgentDefinition, ThemeOption } from "@/types";
+import type { InstalledAgent, ThemeOption } from "@/types";
 import type { NotificationSettings } from "@/types/ui";
 
 // ── Section definitions ──
@@ -59,8 +59,8 @@ interface AppSettings {
 
 interface SettingsViewProps {
   onClose: () => void;
-  agents: AgentDefinition[];
-  onSaveAgent: (agent: AgentDefinition) => Promise<{ ok?: boolean; error?: string }>;
+  agents: InstalledAgent[];
+  onSaveAgent: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
   onDeleteAgent: (id: string) => Promise<{ ok?: boolean; error?: string }>;
   theme: ThemeOption;
   onThemeChange: (t: ThemeOption) => void;

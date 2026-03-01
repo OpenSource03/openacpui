@@ -25,13 +25,13 @@ import {
   hasUpdate,
   isInstallable,
 } from "@/lib/agent-store-utils";
-import type { AgentDefinition, RegistryAgent } from "@/types";
+import type { InstalledAgent, RegistryAgent } from "@/types";
 
 // ── Types ──
 
 interface AgentStoreProps {
-  installedAgents: AgentDefinition[];
-  onInstall: (agent: AgentDefinition) => Promise<{ ok?: boolean; error?: string }>;
+  installedAgents: InstalledAgent[];
+  onInstall: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
   onUninstall: (id: string) => Promise<{ ok?: boolean; error?: string }>;
 }
 
@@ -42,7 +42,7 @@ type CardStatus = "available" | "installed" | "update" | "manual";
 /** Determine the install status of a registry agent relative to installed agents. */
 function getCardStatus(
   registryAgent: RegistryAgent,
-  installedMap: Map<string, AgentDefinition>,
+  installedMap: Map<string, InstalledAgent>,
 ): CardStatus {
   if (!isInstallable(registryAgent)) return "manual";
   const installed = installedMap.get(registryAgent.id);

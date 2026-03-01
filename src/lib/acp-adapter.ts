@@ -1,22 +1,4 @@
-export class ACPStreamingBuffer {
-  messageId: string | null = null;
-  private textChunks: string[] = [];
-  private thinkingChunks: string[] = [];
-  thinkingComplete = false;
-
-  appendText(text: string): void { this.textChunks.push(text); }
-  appendThinking(text: string): void { this.thinkingChunks.push(text); }
-
-  getText(): string { return this.textChunks.join(""); }
-  getThinking(): string { return this.thinkingChunks.join(""); }
-
-  reset(): void {
-    this.messageId = null;
-    this.textChunks = [];
-    this.thinkingChunks = [];
-    this.thinkingComplete = false;
-  }
-}
+export { SimpleStreamingBuffer as ACPStreamingBuffer } from "./streaming-buffer";
 
 /**
  * Normalize ACP tool input into Claude SDK-compatible shape so ToolCall.tsx
@@ -34,7 +16,6 @@ export function normalizeToolInput(
   rawInput: unknown,
   kind?: string,
   locations?: Array<{ path: string; line?: number }>,
-  _title?: string,
 ): Record<string, unknown> {
   if (rawInput === null || rawInput === undefined || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     return {};

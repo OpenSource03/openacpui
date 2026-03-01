@@ -117,6 +117,7 @@ export interface ToolUseResult {
   structuredPatch?: unknown[];
   isAsync?: boolean;
   status?: string;
+  description?: string;
   agentId?: string;
   outputFile?: string;
   prompt?: string;
@@ -125,7 +126,8 @@ export interface ToolUseResult {
   totalDurationMs?: number;
   totalTokens?: number;
   totalToolUseCount?: number;
-  [key: string]: unknown;
+  /** AskUserQuestion answers keyed by question text */
+  answers?: Record<string, unknown>;
 }
 
 export interface ModelUsageEntry {

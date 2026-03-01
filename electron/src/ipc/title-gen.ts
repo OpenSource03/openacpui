@@ -1,7 +1,61 @@
 import { ipcMain } from "electron";
 import { log } from "../lib/logger";
 import { getSDK, getCliPath, clientAppEnv } from "../lib/sdk";
+import { extractErrorMessage } from "../lib/error-utils";
 import { gitExec } from "../lib/git-exec";
+
+/** Fire a one-shot SDK query and return the first-line result. */
+async function oneShotSdkQuery(
+  prompt: string,
+  cwd: string,
+  logLabel: string,
+  extraOptions?: Record<string, unknown>,
+): Promise<{ result?: string; error?: string }> {
+  try {
+    const query = await getSDK();
+
+    const q = query({
+      prompt,
+      options: {
+        cwd,
+        model: "claude-haiku-4-5-20251001",
+        maxTurns: 1,
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+        persistSession: false,
+        pathToClaudeCodeExecutable: getCliPath(),
+        env: { ...process.env, ...clientAppEnv() },
+        ...extraOptions,
+      },
+    });
+
+    const timeout = setTimeout(() => { q.close(); }, 15000);
+
+    try {
+      for await (const msg of q) {
+        const m = msg as Record<string, unknown>;
+        if (m.type === "result") {
+          clearTimeout(timeout);
+          const raw = ((m.result as string) || "").split("\n")[0].trim();
+          log(logLabel, `Generated: "${raw}"`);
+          return { result: raw || undefined, error: raw ? undefined : "empty result" };
+        }
+      }
+    } catch (err) {
+      clearTimeout(timeout);
+      const errMsg = extractErrorMessage(err);
+      log(`${logLabel}_ERR`, errMsg);
+      return { error: errMsg };
+    }
+
+    clearTimeout(timeout);
+    return { error: "No result received" };
+  } catch (err) {
+    const errMsg = extractErrorMessage(err);
+    log(`${logLabel}_ERR`, `spawn error: ${errMsg}`);
+    return { error: errMsg };
+  }
+}
 
 export function register(): void {
   ipcMain.handle("claude:generate-title", async (_event, {
@@ -29,58 +83,16 @@ export function register(): void {
         log("TITLE_GEN", `ACP generated: "${title}"`);
         return { title: title || undefined, error: title ? undefined : "empty result" };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = extractErrorMessage(err);
         log("TITLE_GEN_ERR", `ACP: ${msg}`);
         return { error: msg };
       }
     }
 
     // Claude SDK path (default)
-    try {
-      const query = await getSDK();
-
-      log("TITLE_GEN", `Spawning SDK for: "${truncatedMsg.slice(0, 80)}..." cwd=${cwd}`);
-
-      const q = query({
-        prompt,
-        options: {
-          cwd: cwd || process.cwd(),
-          model: "claude-haiku-4-5-20251001",
-          maxTurns: 1,
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          persistSession: false,
-          pathToClaudeCodeExecutable: getCliPath(),
-          env: { ...process.env, ...clientAppEnv() },
-        },
-      });
-
-      const timeout = setTimeout(() => {
-        q.close();
-      }, 15000);
-
-      try {
-        for await (const msg of q) {
-          const m = msg as Record<string, unknown>;
-          if (m.type === "result") {
-            clearTimeout(timeout);
-            const raw = ((m.result as string) || "").split("\n")[0].trim();
-            log("TITLE_GEN", `Generated: "${raw}"`);
-            return { title: raw || undefined, error: raw ? undefined : "empty result" };
-          }
-        }
-      } catch (err) {
-        clearTimeout(timeout);
-        log("TITLE_GEN_ERR", (err as Error).message);
-        return { error: (err as Error).message };
-      }
-
-      clearTimeout(timeout);
-      return { error: "No result received" };
-    } catch (err) {
-      log("TITLE_GEN_ERR", `spawn error: ${(err as Error).message}`);
-      return { error: (err as Error).message };
-    }
+    log("TITLE_GEN", `Spawning SDK for: "${truncatedMsg.slice(0, 80)}..." cwd=${cwd}`);
+    const { result, error } = await oneShotSdkQuery(prompt, cwd || process.cwd(), "TITLE_GEN");
+    return { title: result, error };
   });
 
   ipcMain.handle("git:generate-commit-message", async (_event, {
@@ -125,53 +137,21 @@ export function register(): void {
           log("COMMIT_MSG_GEN", `ACP generated: "${message}"`);
           return { message: message || undefined, error: message ? undefined : "empty result" };
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = extractErrorMessage(err);
           log("COMMIT_MSG_GEN_ERR", `ACP: ${msg}`);
           return { error: msg };
         }
       }
 
       // Claude SDK path (default)
-      const query = await getSDK();
-      const q = query({
-        prompt,
-        options: {
-          cwd,
-          model: "claude-haiku-4-5-20251001",
-          maxTurns: 1,
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          persistSession: false,
-          systemPrompt: { type: "preset", preset: "claude_code" },
-          settingSources: ["project", "user"],
-          pathToClaudeCodeExecutable: getCliPath(),
-          env: { ...process.env, ...clientAppEnv() },
-        },
+      const { result, error } = await oneShotSdkQuery(prompt, cwd, "COMMIT_MSG_GEN", {
+        systemPrompt: { type: "preset", preset: "claude_code" },
+        settingSources: ["project", "user"],
       });
-
-      const timeout = setTimeout(() => { q.close(); }, 15000);
-
-      try {
-        for await (const msg of q) {
-          const m = msg as Record<string, unknown>;
-          if (m.type === "result") {
-            clearTimeout(timeout);
-            const raw = ((m.result as string) || "").split("\n")[0].trim();
-            log("COMMIT_MSG_GEN", `Generated: "${raw}"`);
-            return { message: raw || undefined, error: raw ? undefined : "empty result" };
-          }
-        }
-      } catch (err) {
-        clearTimeout(timeout);
-        log("COMMIT_MSG_GEN_ERR", (err as Error).message);
-        return { error: (err as Error).message };
-      }
-
-      clearTimeout(timeout);
-      return { error: "No result received" };
+      return { message: result, error };
     } catch (err) {
-      log("COMMIT_MSG_GEN_ERR", `spawn error: ${(err as Error).message}`);
-      return { error: (err as Error).message };
+      log("COMMIT_MSG_GEN_ERR", `spawn error: ${extractErrorMessage(err)}`);
+      return { error: extractErrorMessage(err) };
     }
   });
 }

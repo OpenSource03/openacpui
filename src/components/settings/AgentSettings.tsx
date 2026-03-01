@@ -32,13 +32,13 @@ import {
 import { IconPicker } from "@/components/IconPicker";
 import { AgentIcon } from "@/components/AgentIcon";
 import { AgentStore } from "@/components/settings/AgentStore";
-import type { AgentDefinition } from "@/types";
+import type { InstalledAgent } from "@/types";
 
 // ── Types ──
 
 interface AgentSettingsProps {
-  agents: AgentDefinition[];
-  onSave: (agent: AgentDefinition) => Promise<{ ok?: boolean; error?: string }>;
+  agents: InstalledAgent[];
+  onSave: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
   onDelete: (id: string) => Promise<{ ok?: boolean; error?: string }>;
 }
 
@@ -87,7 +87,7 @@ function tryParseAgentJson(text: string): FormState | null {
   }
 }
 
-function agentToForm(agent: AgentDefinition): FormState {
+function agentToForm(agent: InstalledAgent): FormState {
   // Detect if the stored icon looks like an emoji (starts with a non-ASCII char)
   const isEmoji = agent.icon ? /^\p{Emoji}/u.test(agent.icon) : false;
   return {
@@ -110,7 +110,7 @@ const AgentCard = memo(function AgentCard({
   onEdit,
   onDelete,
 }: {
-  agent: AgentDefinition;
+  agent: InstalledAgent;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -195,7 +195,7 @@ function AgentForm({
   initial: FormState;
   isEditing: boolean;
   existingIds: Set<string>;
-  onSave: (agent: AgentDefinition) => Promise<{ ok?: boolean; error?: string }>;
+  onSave: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
   onCancel: () => void;
 }) {
   const [form, setForm] = useState<FormState>(initial);
@@ -235,7 +235,7 @@ function AgentForm({
 
     setSaving(true);
     try {
-      const agent: AgentDefinition = {
+      const agent: InstalledAgent = {
         id: form.id.trim(),
         name: form.name.trim(),
         engine: "acp",
@@ -482,7 +482,7 @@ export const AgentSettings = memo(function AgentSettings({
   onSave,
   onDelete,
 }: AgentSettingsProps) {
-  const [editingAgent, setEditingAgent] = useState<AgentDefinition | null>(null);
+  const [editingAgent, setEditingAgent] = useState<InstalledAgent | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 

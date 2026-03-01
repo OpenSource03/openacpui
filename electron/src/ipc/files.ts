@@ -141,6 +141,17 @@ function buildFolderTree(dirPrefix: string, filePaths: string[]): string {
 }
 
 export function register(): void {
+  ipcMain.handle("shell:open-external", async (_event, url: string) => {
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log("SHELL:OPEN_EXTERNAL_ERR", `${url}: ${errMsg}`);
+      return { error: errMsg };
+    }
+  });
+
   ipcMain.handle("files:list", async (_event, cwd: string) => {
     try {
       const files = await listProjectFiles(cwd);
@@ -154,7 +165,7 @@ export function register(): void {
       const dirs = Array.from(dirSet).sort();
       return { files, dirs };
     } catch (err) {
-      log("FILES:LIST_ERR", (err as Error).message);
+      log("FILES:LIST_ERR", err instanceof Error ? err.message : String(err));
       return { files: [], dirs: [] };
     }
   });
@@ -164,7 +175,7 @@ export function register(): void {
     for (const relPath of paths) {
       try {
         const absPath = path.resolve(cwd, relPath);
-        if (!absPath.startsWith(path.resolve(cwd))) {
+        if (!absPath.startsWith(path.resolve(cwd) + path.sep) && absPath !== path.resolve(cwd)) {
           results.push({ path: relPath, error: "Path outside project directory" });
           continue;
         }
@@ -184,7 +195,7 @@ export function register(): void {
           results.push({ path: relPath, content });
         }
       } catch (err) {
-        results.push({ path: relPath, error: (err as Error).message });
+        results.push({ path: relPath, error: err instanceof Error ? err.message : String(err) });
       }
     }
     return results;
@@ -192,11 +203,17 @@ export function register(): void {
 
   ipcMain.handle("file:read", async (_event, filePath: string) => {
     try {
-      const content = fs.readFileSync(filePath, "utf-8");
+      // Resolve to absolute path and validate it's not outside the filesystem root
+      const absPath = path.resolve(filePath);
+      if (!absPath || absPath === path.sep) {
+        return { error: "Invalid file path" };
+      }
+      const content = fs.readFileSync(absPath, "utf-8");
       return { content };
     } catch (err) {
-      log("FILE:READ_ERR", `${filePath}: ${(err as Error).message}`);
-      return { error: (err as Error).message };
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log("FILE:READ_ERR", `${filePath}: ${errMsg}`);
+      return { error: errMsg };
     }
   });
 
@@ -239,8 +256,9 @@ export function register(): void {
       await shell.openPath(filePath);
       return { ok: true, editor: "default" };
     } catch (err) {
-      log("FILE:OPEN_EDITOR_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log("FILE:OPEN_EDITOR_ERR", errMsg);
+      return { error: errMsg };
     }
   });
 }

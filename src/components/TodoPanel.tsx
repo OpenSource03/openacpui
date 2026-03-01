@@ -1,5 +1,6 @@
 import { Circle, CheckCircle2, Loader2, ListChecks } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { PanelHeader } from "@/components/PanelHeader";
 import type { TodoItem } from "@/types";
 
 interface TodoPanelProps {
@@ -14,16 +15,20 @@ export function TodoPanel({ todos }: TodoPanelProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
+      {/* Header with progress bar */}
       <div className="px-4 pt-4 pb-3">
-        <div className="flex items-center gap-2 mb-3">
-          <ListChecks className="h-4 w-4 text-foreground/50" />
-          <span className="text-sm font-medium text-foreground/80">Tasks</span>
-          <span className="ms-auto text-xs tabular-nums text-foreground/50">
+        <PanelHeader
+          icon={ListChecks}
+          label="Tasks"
+          separator={false}
+          className=""
+          iconClass="text-foreground/50"
+        >
+          <span className="text-xs tabular-nums text-foreground/50">
             {completed}/{total}
           </span>
-        </div>
-        <div className="h-1.5 rounded-full bg-foreground/[0.08] overflow-hidden">
+        </PanelHeader>
+        <div className="mt-3 h-1.5 rounded-full bg-foreground/[0.08] overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ease-out ${
               allDone ? "bg-emerald-500/60" : "bg-blue-500/50"

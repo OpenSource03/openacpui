@@ -8,6 +8,7 @@ import { getSDK, getCliPath, clientAppEnv } from "../lib/sdk";
 import type { QueryHandle } from "../lib/sdk";
 import { getMcpAuthHeaders } from "../lib/mcp-oauth-flow";
 import { getClaudeModelsCache, setClaudeModelsCache } from "../lib/claude-model-cache";
+import { extractErrorMessage } from "../lib/error-utils";
 
 /** SDK options for file checkpointing — enables Write/Edit/NotebookEdit revert support */
 function fileCheckpointOptions(): Record<string, unknown> {
@@ -16,10 +17,6 @@ function fileCheckpointOptions(): Record<string, unknown> {
     extraArgs: { "replay-user-messages": null }, // required to receive checkpoint UUIDs
     env: { ...process.env, ...clientAppEnv(), CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: "1" },
   };
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 type PermissionResult =
@@ -128,6 +125,52 @@ function summarizeEvent(event: Record<string, unknown>): string {
   }
 }
 
+/**
+ * Shared event forwarding loop for Claude SDK sessions.
+ * Iterates the query handle's async generator, logs events, and forwards them
+ * to the renderer. On exit, sends claude:exit unless the session is restarting.
+ */
+function startEventLoop(
+  sessionId: string,
+  queryHandle: QueryHandle,
+  session: SessionEntry,
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  const logPrefix = `session=${sessionId.slice(0, 8)}`;
+  let queryError: string | undefined;
+  (async () => {
+    try {
+      for await (const message of queryHandle) {
+        session.eventCounter++;
+        const summary = summarizeEvent(message as Record<string, unknown>);
+        log("EVENT", `${logPrefix} #${session.eventCounter} ${summary}`);
+        const msgObj = message as Record<string, unknown>;
+        if (msgObj.type === "assistant" || msgObj.type === "user" || msgObj.type === "result") {
+          log("EVENT_FULL", message);
+        }
+        safeSend(getMainWindow, "claude:event", { ...(message as object), _sessionId: sessionId });
+      }
+    } catch (err) {
+      queryError = extractErrorMessage(err);
+      log("QUERY_ERROR", `${logPrefix} stopping=${!!session.stopping} reason=${session.stopReason ?? "none"} ${queryError}`);
+    } finally {
+      if (!session.restarting) {
+        // Requested stop: treat teardown errors as clean exit
+        const stopRequested = session.stopping;
+        const exitCode = (queryError && !stopRequested) ? 1 : 0;
+        log("EXIT", `${logPrefix} total_events=${session.eventCounter} stopRequested=${!!stopRequested} stopReason=${session.stopReason ?? "none"} error=${queryError ?? "none"}`);
+        sessions.delete(sessionId);
+        safeSend(getMainWindow, "claude:exit", {
+          code: exitCode, _sessionId: sessionId,
+          ...((queryError && !stopRequested) ? { error: queryError } : {}),
+        });
+      } else {
+        log("EXIT_RESTART", `${logPrefix} old loop ended (restarting)`);
+      }
+    }
+  })().catch((err) => log("EVENT_LOOP_FATAL", extractErrorMessage(err)));
+}
+
 function parseStopRequest(
   payload: string | { sessionId: string; reason?: string },
 ): { sessionId: string; reason: string } {
@@ -205,7 +248,7 @@ async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Arra
 
       return { models: existing.models, updatedAt: existing.updatedAt };
     } catch (err) {
-      const message = errorMessage(err);
+      const message = extractErrorMessage(err);
       log("MODELS_CACHE_REVALIDATE_ERR", message);
       return { models: existing.models, updatedAt: existing.updatedAt, error: message };
     } finally {
@@ -340,44 +383,12 @@ async function restartSession(
     // Restart failed — clean up and notify renderer
     sessions.delete(sessionId);
     safeSend(getMainWindow,"claude:exit", {
-      code: 1, _sessionId: sessionId, error: errorMessage(err),
+      code: 1, _sessionId: sessionId, error: extractErrorMessage(err),
     });
-    return { error: `Restart failed: ${errorMessage(err)}` };
+    return { error: `Restart failed: ${extractErrorMessage(err)}` };
   }
 
-  // Start new event forwarding loop — track errors for the exit event
-  let restartQueryError: string | undefined;
-  (async () => {
-    try {
-      for await (const message of q) {
-        newSession.eventCounter++;
-        const summary = summarizeEvent(message as Record<string, unknown>);
-        log("EVENT", `${logPrefix} #${newSession.eventCounter} ${summary}`);
-        const msgObj = message as Record<string, unknown>;
-        if (msgObj.type === "assistant" || msgObj.type === "user" || msgObj.type === "result") {
-          log("EVENT_FULL", message);
-        }
-        safeSend(getMainWindow,"claude:event", { ...(message as object), _sessionId: sessionId });
-      }
-    } catch (err) {
-      restartQueryError = errorMessage(err);
-        log("QUERY_ERROR", `${logPrefix} stopping=${!!newSession.stopping} reason=${newSession.stopReason ?? "none"} ${restartQueryError}`);
-      } finally {
-        if (!newSession.restarting) {
-        // Requested stop: treat teardown errors as clean exit
-        const stopRequested = newSession.stopping;
-        const exitCode = (restartQueryError && !stopRequested) ? 1 : 0;
-        log("EXIT", `${logPrefix} total_events=${newSession.eventCounter} stopRequested=${!!stopRequested} stopReason=${newSession.stopReason ?? "none"} error=${restartQueryError ?? "none"}`);
-        sessions.delete(sessionId);
-        safeSend(getMainWindow,"claude:exit", {
-          code: exitCode, _sessionId: sessionId,
-          ...((restartQueryError && !stopRequested) ? { error: restartQueryError } : {}),
-        });
-      } else {
-        log("EXIT_RESTART", `${logPrefix} old loop ended (restarting)`);
-      }
-    }
-  })().catch((err) => log("EVENT_LOOP_FATAL", errorMessage(err)));
+  startEventLoop(sessionId, q, newSession, getMainWindow);
 
   return { ok: true, restarted: true };
 }
@@ -474,47 +485,13 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const q = query({ prompt: channel, options: queryOptions });
       session.queryHandle = q;
 
-      // Track errors from the event loop so they can be included in the exit event
-      let queryError: string | undefined;
-
-      (async () => {
-        try {
-          for await (const message of q) {
-            session.eventCounter++;
-            const summary = summarizeEvent(message as Record<string, unknown>);
-            log("EVENT", `session=${sessionId.slice(0, 8)} #${session.eventCounter} ${summary}`);
-            const msgObj = message as Record<string, unknown>;
-            if (msgObj.type === "assistant" || msgObj.type === "user" || msgObj.type === "result") {
-              log("EVENT_FULL", message);
-            }
-            safeSend(getMainWindow,"claude:event", { ...(message as object), _sessionId: sessionId });
-          }
-        } catch (err) {
-          queryError = errorMessage(err);
-          log("QUERY_ERROR", `session=${sessionId.slice(0, 8)} stopping=${!!session.stopping} reason=${session.stopReason ?? "none"} ${queryError}`);
-        } finally {
-          // If restarting, the new loop takes over — don't send exit or delete
-          if (!session.restarting) {
-            // Requested stop: treat teardown errors as clean exit
-            const stopRequested = session.stopping;
-            const exitCode = (queryError && !stopRequested) ? 1 : 0;
-            log("EXIT", `session=${sessionId.slice(0, 8)} total_events=${session.eventCounter} stopRequested=${!!stopRequested} stopReason=${session.stopReason ?? "none"} error=${queryError ?? "none"}`);
-            sessions.delete(sessionId);
-            safeSend(getMainWindow,"claude:exit", {
-              code: exitCode, _sessionId: sessionId,
-              ...((queryError && !stopRequested) ? { error: queryError } : {}),
-            });
-          } else {
-            log("EXIT_RESTART", `session=${sessionId.slice(0, 8)} old loop ended (restarting)`);
-          }
-        }
-      })().catch((err) => log("EVENT_LOOP_FATAL", errorMessage(err)));
+      startEventLoop(sessionId, q, session, getMainWindow);
 
       return { sessionId, pid: 0 };
     } catch (err) {
       // getSDK() or query() threw — clean up and return error
       sessions.delete(sessionId);
-      const errMsg = errorMessage(err);
+      const errMsg = extractErrorMessage(err);
       log("START_ERROR", `session=${sessionId.slice(0, 8)} ${errMsg}`);
       safeSend(getMainWindow,"claude:exit", {
         code: 1, _sessionId: sessionId, error: errMsg,
@@ -567,7 +544,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         await session.queryHandle.setPermissionMode(newPermissionMode);
         log("PERMISSION_MODE_CHANGED", `session=${sessionId.slice(0, 8)} mode=${newPermissionMode}`);
       } catch (err) {
-        log("PERMISSION_MODE_ERR", `session=${sessionId.slice(0, 8)} ${errorMessage(err)}`);
+        log("PERMISSION_MODE_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
       }
     }
 
@@ -598,8 +575,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("SET_PERM_MODE", `session=${sessionId.slice(0, 8)} mode=${permissionMode}`);
       return { ok: true };
     } catch (err) {
-      log("SET_PERM_MODE_ERR", `session=${sessionId.slice(0, 8)} ${errorMessage(err)}`);
-      return { error: errorMessage(err) };
+      log("SET_PERM_MODE_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
+      return { error: extractErrorMessage(err) };
     }
   });
 
@@ -621,8 +598,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("SET_MODEL", "session=" + sessionId.slice(0, 8) + " model=" + model);
       return { ok: true };
     } catch (err) {
-      log("SET_MODEL_ERR", "session=" + sessionId.slice(0, 8) + " model=" + model + " " + errorMessage(err));
-      return { error: errorMessage(err) };
+      log("SET_MODEL_ERR", "session=" + sessionId.slice(0, 8) + " model=" + model + " " + extractErrorMessage(err));
+      return { error: extractErrorMessage(err) };
     }
   });
 
@@ -644,8 +621,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("SET_THINKING", `session=${sessionId.slice(0, 8)} thinkingEnabled=${thinkingEnabled}`);
       return { ok: true };
     } catch (err) {
-      log("SET_THINKING_ERR", `session=${sessionId.slice(0, 8)} thinkingEnabled=${thinkingEnabled} ${errorMessage(err)}`);
-      return { error: errorMessage(err) };
+      log("SET_THINKING_ERR", `session=${sessionId.slice(0, 8)} thinkingEnabled=${thinkingEnabled} ${extractErrorMessage(err)}`);
+      return { error: extractErrorMessage(err) };
     }
   });
 
@@ -693,8 +670,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       await session.queryHandle!.interrupt();
       log("INTERRUPT", `session=${sessionId.slice(0, 8)} acknowledged`);
     } catch (err) {
-      log("INTERRUPT_ERR", `session=${sessionId.slice(0, 8)} ${errorMessage(err)}`);
-      return { error: errorMessage(err) };
+      log("INTERRUPT_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
+      return { error: extractErrorMessage(err) };
     }
 
     return { ok: true };
@@ -710,8 +687,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("REVERT_FILES", `session=${sessionId.slice(0, 8)} checkpoint=${checkpointId.slice(0, 12)}`);
       return { ok: true };
     } catch (err) {
-      log("REVERT_FILES_ERR", `session=${sessionId.slice(0, 8)} ${errorMessage(err)}`);
-      return { error: errorMessage(err) };
+      log("REVERT_FILES_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
+      return { error: extractErrorMessage(err) };
     }
   });
 
@@ -722,8 +699,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const servers = await session.queryHandle.mcpServerStatus();
       return { servers };
     } catch (err) {
-      log("MCP_STATUS_ERR", `session=${sessionId.slice(0, 8)} ${errorMessage(err)}`);
-      return { servers: [], error: errorMessage(err) };
+      log("MCP_STATUS_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
+      return { servers: [], error: extractErrorMessage(err) };
     }
   });
 
@@ -737,8 +714,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
       return { models };
     } catch (err) {
-      log("SUPPORTED_MODELS_ERR", `session=${sessionId.slice(0, 8)} ${errorMessage(err)}`);
-      return { models: [], error: errorMessage(err) };
+      log("SUPPORTED_MODELS_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
+      return { models: [], error: extractErrorMessage(err) };
     }
   });
 
@@ -772,8 +749,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("MCP_RECONNECT", `session=${sessionId.slice(0, 8)} server=${serverName}`);
       return { ok: true };
     } catch (err) {
-      log("MCP_RECONNECT_ERR", `session=${sessionId.slice(0, 8)} server=${serverName} ${errorMessage(err)}`);
-      return { error: errorMessage(err) };
+      log("MCP_RECONNECT_ERR", `session=${sessionId.slice(0, 8)} server=${serverName} ${extractErrorMessage(err)}`);
+      return { error: extractErrorMessage(err) };
     }
   });
 

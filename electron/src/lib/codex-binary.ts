@@ -14,7 +14,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { execSync, execFileSync } from "child_process";
+import { execFileSync } from "child_process";
 import { app } from "electron";
 import { log } from "./logger";
 
@@ -84,7 +84,7 @@ function resolveCodexPathSync(): string {
   // 4. System PATH (fallback)
   try {
     const cmd = process.platform === "win32" ? "where" : "which";
-    const resolved = execSync(`${cmd} codex`, { encoding: "utf-8", timeout: 5000 }).trim();
+    const resolved = execFileSync(cmd, ["codex"], { encoding: "utf-8", timeout: 5000 }).trim();
     if (resolved && isExecutable(resolved)) return resolved;
   } catch {
     /* not in PATH */
@@ -156,7 +156,7 @@ async function downloadCodexBinary(): Promise<string> {
     log("codex-binary", `npm pack ${packageSpec} in ${tmpDir}`);
 
     // npm pack downloads the tarball
-    execSync(`npm pack ${packageSpec} --pack-destination .`, {
+    execFileSync("npm", ["pack", packageSpec, "--pack-destination", "."], {
       cwd: tmpDir,
       encoding: "utf-8",
       timeout: 120000, // 2 min timeout for download
@@ -171,7 +171,7 @@ async function downloadCodexBinary(): Promise<string> {
     const tgzPath = path.join(tmpDir, tgzFiles[0]);
 
     // Extract
-    execSync(`tar xzf "${tgzPath}"`, { cwd: tmpDir, timeout: 30000 });
+    execFileSync("tar", ["xzf", tgzPath], { cwd: tmpDir, timeout: 30000 });
 
     // The binary is at package/bin/codex (or package/bin/codex.exe on Windows)
     const binaryName = process.platform === "win32" ? "codex.exe" : "codex";
@@ -186,10 +186,10 @@ async function downloadCodexBinary(): Promise<string> {
       const found = altPaths.find((p) => fs.existsSync(p));
       if (!found) {
         // List what's in the package for debugging
-        const contents = execSync(`find "${path.join(tmpDir, "package")}" -type f | head -20`, {
+        const contents = execFileSync("find", [path.join(tmpDir, "package"), "-type", "f"], {
           encoding: "utf-8",
           timeout: 5000,
-        });
+        }).split("\n").slice(0, 20).join("\n");
         throw new Error(`Codex binary not found in package. Contents:\n${contents}`);
       }
       fs.copyFileSync(found, getManagedBinaryPath());

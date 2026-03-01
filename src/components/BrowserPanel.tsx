@@ -25,11 +25,13 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TabBar } from "@/components/TabBar";
 
 interface BrowserTab {
   id: string;
   url: string;
   title: string;
+  label: string;
   isLoading: boolean;
 }
 
@@ -42,6 +44,7 @@ export function BrowserPanel() {
       id: crypto.randomUUID(),
       url,
       title: "New Tab",
+      label: "New Tab",
       isLoading: true,
     };
     setTabs((prev) => [...prev, tab]);
@@ -67,66 +70,37 @@ export function BrowserPanel() {
   );
 
   const updateTab = useCallback((tabId: string, updates: Partial<BrowserTab>) => {
-    setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)));
+    setTabs((prev) => prev.map((t) => {
+      if (t.id !== tabId) return t;
+      const merged = { ...t, ...updates };
+      // Keep label in sync with title
+      merged.label = merged.title || "New Tab";
+      return merged;
+    }));
   }, []);
 
   return (
     <div className="flex h-full flex-col">
       {/* Tab bar */}
-      <div className="flex items-center gap-1 px-2 pt-2 pb-1">
-        <div className="flex items-center gap-1.5 ps-1.5">
-          <Globe className="h-3.5 w-3.5 text-foreground/40" />
-          <span className="text-xs font-medium text-foreground/50">Browser</span>
-        </div>
-
-        <div className="ms-2 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTabId(tab.id)}
-              className={`group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors cursor-pointer ${
-                tab.id === activeTabId
-                  ? "bg-foreground/[0.08] text-foreground/80"
-                  : "text-foreground/35 hover:text-foreground/55 hover:bg-foreground/[0.04]"
-              }`}
-            >
-              {tab.isLoading ? (
-                <Loader2 className="h-2.5 w-2.5 animate-spin opacity-50" />
-              ) : (
-                <Globe className="h-2.5 w-2.5 opacity-50" />
-              )}
-              <span className="truncate max-w-24">{tab.title || "New Tab"}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(tab.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.stopPropagation();
-                    closeTab(tab.id);
-                  }
-                }}
-                className="ms-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-foreground/10 group-hover:opacity-100"
-              >
-                <XIcon className="h-2.5 w-2.5" />
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 shrink-0 text-foreground/30 hover:text-foreground/60"
-          onClick={() => createTab()}
-        >
-          <Plus className="h-3 w-3" />
-        </Button>
-      </div>
+      <TabBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelectTab={setActiveTabId}
+        onCloseTab={closeTab}
+        onNewTab={() => createTab()}
+        headerIcon={Globe}
+        headerLabel="Browser"
+        renderTabIcon={(tab) =>
+          tab.isLoading ? (
+            <Loader2 className="h-2.5 w-2.5 animate-spin opacity-50" />
+          ) : (
+            <Globe className="h-2.5 w-2.5 opacity-50" />
+          )
+        }
+        tabMaxWidth="max-w-24"
+        activeClass="bg-foreground/[0.08] text-foreground/80"
+        inactiveClass="text-foreground/35 hover:text-foreground/55 hover:bg-foreground/[0.04]"
+      />
 
       {/* Separator */}
       <div className="border-t border-foreground/[0.06]" />

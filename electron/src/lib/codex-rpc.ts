@@ -11,6 +11,7 @@
 
 import type { ChildProcess } from "child_process";
 import { log } from "./logger";
+import type { RequestId } from "@shared/types/codex-protocol/RequestId";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -21,8 +22,6 @@ interface PendingRequest {
   method: string;
 }
 
-type RpcRequestId = string | number;
-
 export interface RpcError {
   code: number;
   message: string;
@@ -30,7 +29,7 @@ export interface RpcError {
 }
 
 export type ServerRequestHandler = (msg: {
-  id: RpcRequestId;
+  id: RequestId;
   method: string;
   params: Record<string, unknown>;
 }) => void;
@@ -42,7 +41,7 @@ export type NotificationHandler = (msg: {
 
 export class CodexRpcClient {
   private nextId = 1;
-  private pendingRequests = new Map<RpcRequestId, PendingRequest>();
+  private pendingRequests = new Map<RequestId, PendingRequest>();
   private lineBuffer = "";
   private destroyed = false;
 
@@ -105,13 +104,13 @@ export class CodexRpcClient {
   }
 
   /** Respond to a server-initiated request. */
-  respondToServer(id: RpcRequestId, result: unknown): void {
+  respondToServer(id: RequestId, result: unknown): void {
     if (this.destroyed) return;
     this.writeLine({ id, result });
   }
 
   /** Respond to a server-initiated request with an error. */
-  respondToServerError(id: RpcRequestId, code: number, message: string): void {
+  respondToServerError(id: RequestId, code: number, message: string): void {
     if (this.destroyed) return;
     this.writeLine({ id, error: { code, message } });
   }
@@ -167,7 +166,7 @@ export class CodexRpcClient {
 
     if (hasId && (hasResult || hasError) && !hasMethod) {
       // Response to our request
-      const id = msg.id as RpcRequestId;
+      const id = msg.id as RequestId;
       const pending = this.pendingRequests.get(id);
       if (pending) {
         this.pendingRequests.delete(id);
@@ -182,7 +181,7 @@ export class CodexRpcClient {
     } else if (hasId && hasMethod) {
       // Server-initiated request (e.g. approval prompt)
       this.onServerRequest?.({
-        id: msg.id as RpcRequestId,
+        id: msg.id as RequestId,
         method: msg.method as string,
         params: (msg.params ?? {}) as Record<string, unknown>,
       });

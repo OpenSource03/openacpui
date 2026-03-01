@@ -1,30 +1,20 @@
 import { app } from "electron";
 import { getAppSetting } from "./app-settings";
 
-type QueryHandle = AsyncGenerator & {
-  close: () => void;
-  interrupt: () => Promise<void>;
-  setPermissionMode: (mode: string) => Promise<void>;
-  setModel?: (model?: string) => Promise<void>;
-  setMaxThinkingTokens?: (maxThinkingTokens: number | null) => Promise<void>;
-  mcpServerStatus?: () => Promise<unknown[]>;
-  reconnectMcpServer?: (serverName: string) => Promise<void>;
-  supportedModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>;
-  /** Restore files to their state at the given user message UUID checkpoint */
-  rewindFiles?: (userMessageUuid: string) => Promise<void>;
-};
+// Import the SDK's own types — Query is the return type of sdk.query()
+import type { Query, query as sdkQueryFn } from "@anthropic-ai/claude-agent-sdk";
 
-type QueryFn = (args: { prompt: unknown; options: unknown }) => QueryHandle;
+type SDKQueryFn = typeof sdkQueryFn;
 
-let _sdkQuery: QueryFn | null = null;
+let _sdkQuery: SDKQueryFn | null = null;
 
-export type { QueryHandle };
+export type { Query as QueryHandle };
 
-export async function getSDK(): Promise<QueryFn> {
+export async function getSDK(): Promise<SDKQueryFn> {
   if (!_sdkQuery) {
     try {
       const sdk = await import("@anthropic-ai/claude-agent-sdk");
-      _sdkQuery = sdk.query as unknown as QueryFn;
+      _sdkQuery = sdk.query;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // Most common cause: Claude Code CLI is not installed

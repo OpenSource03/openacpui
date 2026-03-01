@@ -4,7 +4,7 @@ import { app } from "electron";
 
 export type EngineId = "claude" | "acp" | "codex";
 
-export interface AgentDefinition {
+export interface InstalledAgent {
   id: string;
   name: string;
   engine: EngineId;
@@ -23,7 +23,7 @@ export interface AgentDefinition {
   cachedConfigOptions?: unknown[];
 }
 
-const BUILTIN_CLAUDE: AgentDefinition = {
+const BUILTIN_CLAUDE: InstalledAgent = {
   id: "claude-code",
   name: "Claude Code",
   engine: "claude",
@@ -31,7 +31,7 @@ const BUILTIN_CLAUDE: AgentDefinition = {
   icon: "brain",
 };
 
-const BUILTIN_CODEX: AgentDefinition = {
+const BUILTIN_CODEX: InstalledAgent = {
   id: "codex",
   name: "Codex",
   engine: "codex",
@@ -41,7 +41,7 @@ const BUILTIN_CODEX: AgentDefinition = {
 
 const BUILTIN_IDS = new Set([BUILTIN_CLAUDE.id, BUILTIN_CODEX.id]);
 
-const agents = new Map<string, AgentDefinition>();
+const agents = new Map<string, InstalledAgent>();
 agents.set(BUILTIN_CLAUDE.id, BUILTIN_CLAUDE);
 agents.set(BUILTIN_CODEX.id, BUILTIN_CODEX);
 
@@ -60,15 +60,15 @@ export function loadUserAgents(): void {
   }
 }
 
-export function getAgent(id: string): AgentDefinition | undefined {
+export function getAgent(id: string): InstalledAgent | undefined {
   return agents.get(id);
 }
 
-export function listAgents(): AgentDefinition[] {
+export function listAgents(): InstalledAgent[] {
   return Array.from(agents.values());
 }
 
-export function saveAgent(agent: AgentDefinition): void {
+export function saveAgent(agent: InstalledAgent): void {
   if (BUILTIN_IDS.has(agent.id)) return; // Protect built-in agents
   if (!agent.id?.trim() || !agent.name?.trim()) throw new Error("Agent must have id and name");
   if (agent.engine === "acp" && !agent.binary?.trim()) throw new Error("ACP agents require a binary");

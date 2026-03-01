@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld("claude", {
     ipcRenderer.invoke("claude:restart-session", { sessionId, mcpServers }),
   readFile: (filePath: string) => ipcRenderer.invoke("file:read", filePath),
   openInEditor: (filePath: string, line?: number, editor?: string) => ipcRenderer.invoke("file:open-in-editor", { filePath, line, editor }),
+  openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
   generateTitle: (message: string, cwd?: string, engine?: string, sessionId?: string) =>
     ipcRenderer.invoke("claude:generate-title", { message, cwd, engine, sessionId }),
   projects: {

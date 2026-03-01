@@ -1,40 +1,12 @@
 import { memo, useState, useCallback, useEffect } from "react";
 import { Server } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-
-// ── Types ──
-
-interface AppSettings {
-  codexClientName: string;
-}
+import { SettingRow } from "@/components/settings/shared";
+import type { AppSettings } from "@/types/ui";
 
 interface AdvancedSettingsProps {
   appSettings: AppSettings | null;
   onUpdateAppSettings: (patch: Partial<AppSettings>) => Promise<void>;
-}
-
-// ── Setting row helper ──
-
-function SettingRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-6 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        {description && (
-          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-        )}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
 }
 
 // ── Component ──

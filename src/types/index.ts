@@ -32,6 +32,7 @@ export type {
   UIMessage,
   SessionInfo,
   Project,
+  SessionBase,
   ChatSession,
   PersistedSession,
   PermissionRequest,
@@ -43,7 +44,7 @@ export type {
   ImageAttachment,
   ContextUsage,
   AppSettings,
-  AgentDefinition,
+  InstalledAgent,
   ModelInfo,
   GitFileStatus,
   GitFileGroup,
@@ -68,9 +69,8 @@ export type {
   ACPConfigSelectOption,
   ACPConfigSelectGroup,
 } from "./acp";
-export { flattenConfigOptions } from "./acp";
 
-export type { EngineId, EngineHookState, PermissionBehavior, RespondPermissionFn } from "./engine";
+export type { EngineId, EngineHookState, AppPermissionBehavior, AppPermissionBehavior as PermissionBehavior, RespondPermissionFn, SessionMeta } from "./engine";
 
 export type {
   CodexSessionEvent,
