@@ -184,9 +184,8 @@ function runNpmPack(packageSpec: string, cwd: string): void {
     const err = error as NodeJS.ErrnoException;
     if (process.platform === "win32" && err.code === "EINVAL") {
       const comSpec = process.env.ComSpec || "cmd.exe";
-      const command = `npm pack "${packageSpec}" --pack-destination .`;
       log("codex-binary", `npm.cmd failed with EINVAL, retrying via ${comSpec}`);
-      execFileSync(comSpec, ["/d", "/s", "/c", command], options);
+      execFileSync(comSpec, ["/d", "/c", "npm", "pack", packageSpec, "--pack-destination", "."], options);
       return;
     }
     throw error;
