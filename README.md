@@ -1,3 +1,6 @@
+> [!WARNING]
+> Harnss is in early development and issues are to be expected. Please feel free to report bugs and issues in the Issues section.
+
 <p align="center">
   <img width="3168" height="1344" alt="unwatermarked_Gemini_Generated_Image_yb5gjqyb5gjqyb5g (1) (1)" src="https://github.com/user-attachments/assets/f3985b4c-7f8e-4d04-86a6-66529db2af8e" />
 </p>
