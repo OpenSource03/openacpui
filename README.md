@@ -29,24 +29,33 @@ Harnss is a native desktop app that gives you one interface to run, manage, and 
 
 ## Screenshots
 
-<!-- TODO: Replace these placeholders with real app screenshots -->
-
 <p align="center">
-  <img src=".github/screenshots/multi-session.png" alt="Multiple concurrent agent sessions" width="800" />
-  <br />
-  <em>Run multiple agent sessions side by side — switch instantly without losing progress.</em>
-</p>
+  <img width="1944" height="1197" alt="CleanShot 2026-03-02 at 02 37 01" src="https://github.com/user-attachments/assets/332a05fa-329a-4066-8eee-c85ba1315bb0" />
 
-<p align="center">
-  <img src=".github/screenshots/tool-visualization.png" alt="Rich tool call visualization" width="800" />
-  <br />
-  <em>Every tool call renders as an interactive card. File edits show word-level diffs with syntax highlighting.</em>
-</p>
 
-<p align="center">
-  <img src=".github/screenshots/workspace.png" alt="Full workspace with terminal, browser, and git" width="800" />
   <br />
   <em>Terminal, browser, git, and MCP integrations — all in one window.</em>
+</p>
+
+https://github.com/user-attachments/assets/41f5bcbc-c141-4a16-b430-79f8e01d107e
+
+<p align="center">
+  <br />
+  <em>Organize your projects in spaces.</em>
+</p>
+
+<p align="center">
+  <img width="825" height="721" alt="CleanShot 2026-03-02 at 02 43 43" src="https://github.com/user-attachments/assets/842c29f8-c11a-4a26-9940-380c4f4cb6a2" />
+
+  <br />
+  <em>Every tool call beautifully visualised - even those from popular MCPs.</em>
+</p>
+
+<p align="center">
+<img width="251" height="198" alt="CleanShot 2026-03-02 at 02 33 04" src="https://github.com/user-attachments/assets/f1c8930f-16fb-4d3f-8d2e-330425965291" />
+
+  <br />
+  <em>Run multiple agent sessions side by side — switch instantly without losing progress.</em>
 </p>
 
 ---
