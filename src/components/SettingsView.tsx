@@ -212,9 +212,9 @@ export const SettingsView = memo(function SettingsView({
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Settings nav sidebar */}
-        <div className="flex w-[200px] shrink-0 flex-col border-e border-foreground/[0.06]">
+        <div className="flex w-44 shrink-0 flex-col border-e border-foreground/[0.06]">
           {/* Nav items */}
-          <nav className="flex flex-1 flex-col gap-0.5 px-2 py-2">
+          <nav className="flex flex-1 flex-col gap-0.5 px-1.5 py-2">
             {NAV_ITEMS.map((item) => {
               const isActive = activeSection === item.id;
               const Icon = item.icon;
@@ -222,7 +222,7 @@ export const SettingsView = memo(function SettingsView({
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${
+                  className={`flex w-full items-center justify-start gap-2 rounded-md px-2 py-1.5 text-[13px] text-start transition-colors ${
                     isActive
                       ? "bg-foreground/[0.06] font-medium text-foreground"
                       : "text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"

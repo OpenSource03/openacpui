@@ -133,7 +133,7 @@ export const AboutSettings = memo(function AboutSettings() {
               <div className="flex items-center gap-2">
                 <Heart className="h-3.5 w-3.5 text-muted-foreground/70" />
                 <span className="text-[13px] font-medium text-foreground/90">
-                  Built by Dejan Zegarac
+                  Built by OpenSource
                 </span>
               </div>
               <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
