@@ -377,8 +377,24 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         return { error: "Session not found" };
       }
       if (!session.threadId) {
-        log("codex", ` Send rejected: no active thread session=${shortId(data.sessionId, 12)}`);
-        return { error: "No active thread" };
+        try {
+          const threadParams: Record<string, unknown> = {
+            cwd: session.cwd,
+            experimentalRawEvents: false,
+            persistExtendedHistory: false,
+          };
+          if (session.model) threadParams.model = session.model;
+          const threadResult = await session.rpc.request<CodexThreadStartResponse>("thread/start", threadParams);
+          session.threadId = threadResult.thread.id;
+          log(
+            "codex",
+            ` Thread lazily started: session=${shortId(data.sessionId, 12)} thread=${shortId(session.threadId, 12)}`,
+          );
+        } catch (err) {
+          const msg = extractErrorMessage(err);
+          log("codex", ` Send rejected: no active thread session=${shortId(data.sessionId, 12)} error=${msg}`);
+          return { error: msg };
+        }
       }
 
       log(

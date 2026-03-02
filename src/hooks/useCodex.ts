@@ -20,6 +20,8 @@ import type { CommandExecutionOutputDeltaNotification } from "@/types/codex-prot
 import type { TurnCompletedNotification } from "@/types/codex-protocol/v2/TurnCompletedNotification";
 import type { TurnPlanUpdatedNotification } from "@/types/codex-protocol/v2/TurnPlanUpdatedNotification";
 import type { PlanDeltaNotification } from "@/types/codex-protocol/v2/PlanDeltaNotification";
+import type { AccountLoginCompletedNotification } from "@/types/codex-protocol/v2/AccountLoginCompletedNotification";
+import type { AccountUpdatedNotification } from "@/types/codex-protocol/v2/AccountUpdatedNotification";
 import {
   CodexStreamingBuffer,
   codexItemToToolName,
@@ -77,6 +79,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   const [codexModels, setCodexModels] = useState<ModelInfo[]>([]);
   /** Reasoning effort for the current Codex session — sent on the next turn/start */
   const [codexEffort, setCodexEffort] = useState<string>("medium");
+  const [authRequired, setAuthRequired] = useState(false);
 
   // Refs for rAF streaming flush (avoid React 19 batching issues)
   const bufferRef = useRef(new CodexStreamingBuffer());
@@ -102,6 +105,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
     setTodoItems([]);
+    setAuthRequired(false);
     cancelPendingFlush();
     bufferRef.current.reset();
     itemMapRef.current.clear();
@@ -294,10 +298,34 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
 
       case "codex:auth_required":
         // Auth required — UI will handle this
+        setAuthRequired(true);
+        setIsProcessing(false);
         break;
+
+      case "account/login/completed": {
+        const params = event.params as AccountLoginCompletedNotification;
+        if (params.success) {
+          setAuthRequired(false);
+        }
+        break;
+      }
+
+      case "account/updated": {
+        const params = event.params as AccountUpdatedNotification;
+        if (params.authMode) {
+          setAuthRequired(false);
+        }
+        break;
+      }
 
       case "error": {
         const errorText = event.params.error.message || "Unknown error";
+        if (
+          /401\s+Unauthorized/i.test(errorText) ||
+          /Missing bearer or basic authentication/i.test(errorText)
+        ) {
+          setAuthRequired(true);
+        }
         setMessages((prev) => [
           ...prev,
           {
@@ -964,6 +992,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     pendingPermission, respondPermission,
     setPermissionMode,
     todoItems,
+    authRequired, setAuthRequired,
     codexModels, setCodexModels,
     codexEffort, setCodexEffort,
   };

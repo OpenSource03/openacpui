@@ -5,6 +5,7 @@ import type { EngineId } from "./engine";
 export type PreferredEditor = "auto" | "cursor" | "code" | "zed";
 export type VoiceDictationMode = "native" | "whisper";
 export type ThemeOption = "light" | "dark" | "system";
+export type CodexBinarySource = "auto" | "managed" | "custom";
 
 // ── Notification settings ──
 
@@ -36,6 +37,10 @@ export interface AppSettings {
   notifications: NotificationSettings;
   /** Custom client name sent to Codex servers during handshake (default: "Harnss") */
   codexClientName: string;
+  /** Which Codex binary source to use */
+  codexBinarySource: CodexBinarySource;
+  /** Absolute path used when codexBinarySource is custom */
+  codexCustomBinaryPath: string;
 }
 
 export interface SpaceColor {

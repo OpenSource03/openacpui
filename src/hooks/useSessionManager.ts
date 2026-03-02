@@ -402,6 +402,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     // Codex reasoning effort
     codexEffort: codex.codexEffort,
     setCodexEffort: setCodexEffortFromUser,
+    codexAuthRequired: isCodex ? codex.authRequired : false,
+    clearCodexAuthRequired: () => codex.setAuthRequired(false),
     codexRawModels,
     codexModelsLoadingMessage,
     // Codex plan steps (from turn/plan/updated events — separate from Claude's TodoWrite tool)
