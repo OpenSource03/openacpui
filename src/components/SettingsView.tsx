@@ -5,10 +5,11 @@ import {
   Bot,
   Plug,
   Cpu,
-  Keyboard,
   Info,
   Wrench,
   Palette,
+  Sparkles,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { AgentSettings } from "@/components/settings/AgentSettings";
@@ -18,18 +19,21 @@ import { NotificationsSettings } from "@/components/settings/NotificationsSettin
 import { McpSettings } from "@/components/settings/McpSettings";
 import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
+import { AboutSettings } from "@/components/settings/AboutSettings";
 import { isMac } from "@/lib/utils";
 import type { InstalledAgent, ThemeOption } from "@/types";
 import type { NotificationSettings } from "@/types/ui";
 
 // ── Section definitions ──
 
-type SettingsSection = "general" | "appearance" | "notifications" | "agents" | "mcp" | "models" | "shortcuts" | "advanced" | "about";
+type SettingsSection = "general" | "appearance" | "notifications" | "agents" | "mcp" | "engines" | "skills" | "custom-agents" | "advanced" | "about";
 
 interface NavItem {
   id: SettingsSection;
   label: string;
   icon: LucideIcon;
+  /** Renders a subtle "soon" indicator next to the label */
+  comingSoon?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -38,8 +42,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "agents", label: "ACP Agents", icon: Bot },
   { id: "mcp", label: "MCP Servers", icon: Plug },
-  { id: "models", label: "Models", icon: Cpu },
-  { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+  { id: "engines", label: "Engines", icon: Cpu },
+  { id: "skills", label: "Skills", icon: Sparkles, comingSoon: true },
+  { id: "custom-agents", label: "Agents", icon: Users, comingSoon: true },
   { id: "advanced", label: "Advanced", icon: Wrench },
   { id: "about", label: "About", icon: Info },
 ];
@@ -53,6 +58,8 @@ interface AppSettings {
   voiceDictation: "native" | "whisper";
   notifications: NotificationSettings;
   codexClientName: string;
+  codexBinarySource: "auto" | "managed" | "custom";
+  codexCustomBinaryPath: string;
 }
 
 // ── Props ──
@@ -152,20 +159,12 @@ export const SettingsView = memo(function SettingsView({
         );
       case "mcp":
         return <McpSettings />;
-      case "models":
+      case "engines":
         return (
-          <PlaceholderSection
-            title="Model Configuration"
-            description="Default model selection and API key management will appear here."
-            icon={Cpu}
-          />
-        );
-      case "shortcuts":
-        return (
-          <PlaceholderSection
-            title="Keyboard Shortcuts"
-            description="Customize keyboard shortcuts and key bindings here."
-            icon={Keyboard}
+          <AdvancedSettings
+            appSettings={appSettings}
+            onUpdateAppSettings={updateAppSettings}
+            section="engines"
           />
         );
       case "advanced":
@@ -173,16 +172,29 @@ export const SettingsView = memo(function SettingsView({
           <AdvancedSettings
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
+            section="advanced"
+          />
+        );
+      case "skills":
+        return (
+          <PlaceholderSection
+            title="Skills"
+            description="Create, install, and manage agent skills that extend what your AI coding agents can do."
+            icon={Sparkles}
+            comingSoon
+          />
+        );
+      case "custom-agents":
+        return (
+          <PlaceholderSection
+            title="Agents"
+            description="Build and configure custom agents with specialized tools, prompts, and workflows."
+            icon={Users}
+            comingSoon
           />
         );
       case "about":
-        return (
-          <PlaceholderSection
-            title="About Harnss"
-            description="Version information and project details will appear here."
-            icon={Info}
-          />
-        );
+        return <AboutSettings />;
       default:
         return null;
     }
@@ -217,7 +229,12 @@ export const SettingsView = memo(function SettingsView({
                   }`}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  {item.label}
+                  <span className="flex-1">{item.label}</span>
+                  {item.comingSoon && (
+                    <span className="rounded bg-foreground/[0.06] px-1.5 py-px text-[10px] font-medium text-muted-foreground/70">
+                      Soon
+                    </span>
+                  )}
                 </button>
               );
             })}

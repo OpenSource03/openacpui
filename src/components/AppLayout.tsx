@@ -23,6 +23,7 @@ import { FilesPanel } from "./FilesPanel";
 import { McpPanel } from "./McpPanel";
 import { ChangesPanel } from "./ChangesPanel";
 import { SettingsView } from "./SettingsView";
+import { CodexAuthDialog } from "./CodexAuthDialog";
 import { isMac } from "@/lib/utils";
 
 export function AppLayout() {
@@ -120,6 +121,10 @@ export function AppLayout() {
   const bottomFadeBackground = `linear-gradient(to top, ${chatSurfaceColor}, transparent)`;
 
   const { activeTools } = settings;
+  const showCodexAuthDialog =
+    !!manager.activeSessionId &&
+    manager.activeSession?.engine === "codex" &&
+    manager.codexAuthRequired;
 
   return (
     <div className={`relative flex h-screen overflow-hidden bg-sidebar text-foreground${settings.islandLayout ? "" : " no-islands"}`}>
@@ -514,6 +519,13 @@ export function AppLayout() {
         )}
         </div>
       </div>
+      {showCodexAuthDialog && (
+        <CodexAuthDialog
+          sessionId={manager.activeSessionId!}
+          onComplete={() => manager.clearCodexAuthRequired()}
+          onCancel={() => manager.clearCodexAuthRequired()}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "harnss",
-  "version": "0.13.3",
+  "version": "0.14.0",
   "productName": "Harnss",
   "description": "Harness your AI coding agents — one desktop app for Claude Code, Codex, and any ACP agent",
   "author": {
@@ -16,7 +16,7 @@
   "main": "electron/dist/main.js",
   "scripts": {
     "build:electron": "tsup --config tsup.electron.config.ts",
-    "dev": "concurrently \"vite\" \"pnpm build:electron --watch\" \"node scripts/delay.js 3 && ELECTRON_ENABLE_LOGGING=1 electron .\"",
+    "dev": "concurrently \"vite\" \"pnpm build:electron --watch\" \"node scripts/delay.js 3 && cross-env ELECTRON_ENABLE_LOGGING=1 electron .\"",
     "build": "pnpm build:electron && vite build",
     "start": "electron .",
     "dist": "pnpm build && electron-builder --config electron-builder.config.js",
@@ -59,6 +59,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "diff": "^8.0.3",
     "electron": "^40.4.0",
     "electron-builder": "^26.8.1",

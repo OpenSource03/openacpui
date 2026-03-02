@@ -17,6 +17,7 @@ import { getDataDir } from "./data-dir";
 export type PreferredEditor = "auto" | "cursor" | "code" | "zed";
 export type VoiceDictationMode = "native" | "whisper";
 export type NotificationTrigger = "always" | "unfocused" | "never";
+export type CodexBinarySource = "auto" | "managed" | "custom";
 
 export interface NotificationEventSettings {
   osNotification: NotificationTrigger;
@@ -43,6 +44,10 @@ export interface AppSettings {
   notifications: NotificationSettings;
   /** Custom client name sent to Codex servers during handshake (default: "Harnss") */
   codexClientName: string;
+  /** Which Codex binary source to use: auto-detect, managed download, or custom path */
+  codexBinarySource: CodexBinarySource;
+  /** Absolute path used when codexBinarySource is "custom" */
+  codexCustomBinaryPath: string;
 }
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
@@ -59,6 +64,8 @@ const DEFAULTS: AppSettings = {
   voiceDictation: "native",
   notifications: NOTIFICATION_DEFAULTS,
   codexClientName: "Harnss",
+  codexBinarySource: "auto",
+  codexCustomBinaryPath: "",
 };
 
 // ── Internal state ──

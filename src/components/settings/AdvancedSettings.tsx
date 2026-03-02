@@ -1,12 +1,13 @@
 import { memo, useState, useCallback, useEffect } from "react";
 import { Server } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingRow } from "@/components/settings/shared";
+import { SettingRow, selectClass } from "@/components/settings/shared";
 import type { AppSettings } from "@/types/ui";
 
 interface AdvancedSettingsProps {
   appSettings: AppSettings | null;
   onUpdateAppSettings: (patch: Partial<AppSettings>) => Promise<void>;
+  section: "engines" | "advanced";
 }
 
 // ── Component ──
@@ -14,12 +15,17 @@ interface AdvancedSettingsProps {
 export const AdvancedSettings = memo(function AdvancedSettings({
   appSettings,
   onUpdateAppSettings,
+  section,
 }: AdvancedSettingsProps) {
   const [codexClientName, setCodexClientName] = useState("Harnss");
+  const [codexBinarySource, setCodexBinarySource] = useState<"auto" | "managed" | "custom">("auto");
+  const [codexCustomBinaryPath, setCodexCustomBinaryPath] = useState("");
 
   useEffect(() => {
     if (appSettings) {
       setCodexClientName(appSettings.codexClientName || "Harnss");
+      setCodexBinarySource(appSettings.codexBinarySource || "auto");
+      setCodexCustomBinaryPath(appSettings.codexCustomBinaryPath || "");
     }
   }, [appSettings]);
 
@@ -34,13 +40,34 @@ export const AdvancedSettings = memo(function AdvancedSettings({
     [onUpdateAppSettings],
   );
 
+  const handleBinarySourceChange = useCallback(
+    async (source: "auto" | "managed" | "custom") => {
+      setCodexBinarySource(source);
+      await onUpdateAppSettings({ codexBinarySource: source });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const handleCustomPathSave = useCallback(
+    async (value: string) => {
+      const next = value.trim();
+      setCodexCustomBinaryPath(next);
+      await onUpdateAppSettings({ codexCustomBinaryPath: next });
+    },
+    [onUpdateAppSettings],
+  );
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b border-foreground/[0.06] px-6 py-4">
-        <h2 className="text-base font-semibold text-foreground">Advanced</h2>
+        <h2 className="text-base font-semibold text-foreground">
+          {section === "engines" ? "Engines" : "Advanced"}
+        </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Low-level settings for protocol behavior and server communication
+          {section === "engines"
+            ? "Configure engine-level runtime behavior and binary selection"
+            : "Low-level settings for protocol behavior and server communication"}
         </p>
       </div>
 
@@ -55,23 +82,62 @@ export const AdvancedSettings = memo(function AdvancedSettings({
               </span>
             </div>
 
-            <SettingRow
-              label="Client name"
-              description="How this app identifies itself to Codex servers during the handshake. Changes take effect on new sessions."
-            >
-              <input
-                type="text"
-                value={codexClientName}
-                onChange={(e) => setCodexClientName(e.target.value)}
-                onBlur={(e) => handleClientNameChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleClientNameChange(e.currentTarget.value);
-                }}
-                spellCheck={false}
-                className="h-8 w-40 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
-                placeholder="Harnss"
-              />
-            </SettingRow>
+            {section === "advanced" && (
+              <SettingRow
+                label="Client name"
+                description="How this app identifies itself to Codex servers during the handshake. Changes take effect on new sessions."
+              >
+                <input
+                  type="text"
+                  value={codexClientName}
+                  onChange={(e) => setCodexClientName(e.target.value)}
+                  onBlur={(e) => handleClientNameChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleClientNameChange(e.currentTarget.value);
+                  }}
+                  spellCheck={false}
+                  className="h-8 w-40 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Harnss"
+                />
+              </SettingRow>
+            )}
+
+            {section === "engines" && (
+              <SettingRow
+                label="Codex binary source"
+                description="Choose how Harnss resolves the Codex executable."
+              >
+                <select
+                  value={codexBinarySource}
+                  onChange={(e) => handleBinarySourceChange(e.target.value as "auto" | "managed" | "custom")}
+                  className={`${selectClass} w-44`}
+                >
+                  <option value="auto">Auto detect</option>
+                  <option value="managed">Managed download</option>
+                  <option value="custom">Custom path</option>
+                </select>
+              </SettingRow>
+            )}
+
+            {section === "engines" && codexBinarySource === "custom" && (
+              <SettingRow
+                label="Custom Codex path"
+                description="Absolute path to codex executable (codex or codex.exe)."
+              >
+                <input
+                  type="text"
+                  value={codexCustomBinaryPath}
+                  onChange={(e) => setCodexCustomBinaryPath(e.target.value)}
+                  onBlur={(e) => handleCustomPathSave(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCustomPathSave(e.currentTarget.value);
+                  }}
+                  spellCheck={false}
+                  className="h-8 w-80 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Absolute path to codex executable"
+                />
+              </SettingRow>
+            )}
           </div>
         </div>
       </ScrollArea>

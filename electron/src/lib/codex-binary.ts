@@ -17,6 +17,7 @@ import os from "os";
 import { execFileSync } from "child_process";
 import { app } from "electron";
 import { log } from "./logger";
+import { getAppSetting } from "./app-settings";
 
 // Codex Desktop app bundle is prioritized because it ships a newer binary
 // that supports features like collaborationMode (plan mode), while the
@@ -65,6 +66,20 @@ export function isCodexInstalled(): boolean {
 
 /** Resolve the codex binary path synchronously (no download). Throws if not found. */
 function resolveCodexPathSync(): string {
+  const source = getAppSetting("codexBinarySource");
+  if (source === "custom") {
+    const customPath = getAppSetting("codexCustomBinaryPath")?.trim();
+    if (!customPath) throw new Error("Codex custom binary path is not set");
+    if (!isExecutable(customPath)) throw new Error(`Configured Codex binary path is not executable: ${customPath}`);
+    return customPath;
+  }
+
+  if (source === "managed") {
+    const managedOnly = getManagedBinaryPath();
+    if (isExecutable(managedOnly)) return managedOnly;
+    throw new Error("Managed Codex binary not found");
+  }
+
   // 1. Env override
   const envPath = process.env.CODEX_CLI_PATH;
   if (envPath && isExecutable(envPath)) return envPath;
@@ -95,20 +110,90 @@ function resolveCodexPathSync(): string {
 
 // Reset on each app launch so binary resolution picks up newly installed/updated binaries
 let cachedPath: string | null = null;
+let cachedSource: "auto" | "managed" | "custom" | null = null;
 let downloadInFlight: Promise<string> | null = null;
+const MANAGED_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+
+interface ManagedCodexMeta {
+  packageVersion: string;
+  platformTag: string;
+  downloadedAt: number;
+}
+
+function getManagedMetaPath(): string {
+  return path.join(getManagedBinDir(), "codex-meta.json");
+}
+
+function readManagedMeta(): ManagedCodexMeta | null {
+  try {
+    const raw = fs.readFileSync(getManagedMetaPath(), "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const meta = parsed as Partial<ManagedCodexMeta>;
+    if (
+      typeof meta.packageVersion !== "string" ||
+      typeof meta.platformTag !== "string" ||
+      typeof meta.downloadedAt !== "number"
+    ) {
+      return null;
+    }
+    return {
+      packageVersion: meta.packageVersion,
+      platformTag: meta.platformTag,
+      downloadedAt: meta.downloadedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeManagedMeta(meta: ManagedCodexMeta): void {
+  try {
+    fs.writeFileSync(getManagedMetaPath(), JSON.stringify(meta, null, 2));
+  } catch {
+    // best effort
+  }
+}
+
+function isManagedBinaryRefreshDue(): boolean {
+  if (!isExecutable(getManagedBinaryPath())) return false;
+  const meta = readManagedMeta();
+  if (!meta) return true;
+  if (meta.platformTag !== getPlatformTag()) return true;
+  return Date.now() - meta.downloadedAt >= MANAGED_REFRESH_INTERVAL_MS;
+}
 
 /**
  * Resolve the codex binary path, downloading if necessary.
  * Returns the absolute path to the executable.
  */
 export async function getCodexBinaryPath(): Promise<string> {
+  const source = getAppSetting("codexBinarySource");
+  if (cachedSource !== source) {
+    cachedPath = null;
+  }
   if (cachedPath && isExecutable(cachedPath)) return cachedPath;
 
   try {
     cachedPath = resolveCodexPathSync();
+    cachedSource = source;
     log("codex-binary", `Found codex at: ${cachedPath}`);
+
+    // Best-effort refresh for managed binary so bundled Codex keeps up with updates.
+    if (cachedPath === getManagedBinaryPath() && isManagedBinaryRefreshDue()) {
+      try {
+        log("codex-binary", "Managed codex is stale; refreshing via npm...");
+        cachedPath = await downloadCodexBinary();
+        log("codex-binary", `Refreshed managed codex at: ${cachedPath}`);
+      } catch (err) {
+        log("codex-binary", `Managed codex refresh failed: ${String(err)}`);
+      }
+    }
     return cachedPath;
-  } catch {
+  } catch (err) {
+    if (source === "custom") {
+      throw err;
+    }
     // Not found — attempt auto-download
   }
 
@@ -118,6 +203,7 @@ export async function getCodexBinaryPath(): Promise<string> {
   downloadInFlight = downloadCodexBinary()
     .then((binaryPath) => {
       cachedPath = binaryPath;
+      cachedSource = source;
       return binaryPath;
     })
     .finally(() => {
@@ -211,6 +297,80 @@ function listFilesRecursive(root: string, maxCount = 20): string {
   return out.join("\n");
 }
 
+function getVendorTargetTriple(): string | null {
+  const key = `${process.platform}-${os.arch()}`;
+  switch (key) {
+    case "win32-arm64":
+      return "aarch64-pc-windows-msvc";
+    case "win32-x64":
+      return "x86_64-pc-windows-msvc";
+    case "darwin-arm64":
+      return "aarch64-apple-darwin";
+    case "darwin-x64":
+      return "x86_64-apple-darwin";
+    case "linux-arm64":
+      return "aarch64-unknown-linux-gnu";
+    case "linux-x64":
+      return "x86_64-unknown-linux-gnu";
+    default:
+      return null;
+  }
+}
+
+function resolveBinaryFromPackageJson(packageRoot: string): string | null {
+  try {
+    const pkgPath = path.join(packageRoot, "package.json");
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const pkg = parsed as { bin?: string | Record<string, string> };
+    const binEntry = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.codex;
+    if (!binEntry || typeof binEntry !== "string") return null;
+    const resolved = path.resolve(packageRoot, binEntry);
+    return fs.existsSync(resolved) ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function readExtractedPackageVersion(packageRoot: string): string | null {
+  try {
+    const pkgPath = path.join(packageRoot, "package.json");
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const pkg = parsed as { version?: string };
+    return typeof pkg.version === "string" ? pkg.version : null;
+  } catch {
+    return null;
+  }
+}
+
+function findBinaryInPackage(root: string, binaryName: string): string | null {
+  const queue = [root];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(fullPath);
+        continue;
+      }
+      if (entry.isFile() && entry.name === binaryName) {
+        return fullPath;
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Download the codex binary via `npm pack @openai/codex@<platform-tag>`.
  * Extracts the binary and moves it to our managed bin directory.
@@ -237,20 +397,29 @@ async function downloadCodexBinary(): Promise<string> {
     // Extract
     execFileSync("tar", ["xzf", tgzPath], { cwd: tmpDir, timeout: 30000 });
 
+    const packageRoot = path.join(tmpDir, "package");
     // The binary is at package/bin/codex (or package/bin/codex.exe on Windows)
     const binaryName = process.platform === "win32" ? "codex.exe" : "codex";
-    const extractedBinary = path.join(tmpDir, "package", "bin", binaryName);
+    const extractedBinary = path.join(packageRoot, "bin", binaryName);
 
     if (!fs.existsSync(extractedBinary)) {
-      // Fallback: some versions put the binary at the root of the package
+      const vendorTriple = getVendorTargetTriple();
+      const vendorBinary = vendorTriple
+        ? path.join(packageRoot, "vendor", vendorTriple, "codex", binaryName)
+        : null;
+
+      // Fallback: alternate package layouts (root or vendor/<target>/codex/)
       const altPaths = [
-        path.join(tmpDir, "package", binaryName),
-        path.join(tmpDir, "package", "codex"),
-      ];
+        resolveBinaryFromPackageJson(packageRoot),
+        vendorBinary,
+        path.join(packageRoot, binaryName),
+        path.join(packageRoot, "codex"),
+        findBinaryInPackage(packageRoot, binaryName),
+      ].filter((p): p is string => typeof p === "string");
       const found = altPaths.find((p) => fs.existsSync(p));
       if (!found) {
         // List what's in the package for debugging
-        const contents = listFilesRecursive(path.join(tmpDir, "package"), 20);
+        const contents = listFilesRecursive(packageRoot, 20);
         throw new Error(`Codex binary not found in package. Contents:\n${contents}`);
       }
       fs.copyFileSync(found, getManagedBinaryPath());
@@ -260,6 +429,14 @@ async function downloadCodexBinary(): Promise<string> {
 
     // Ensure executable
     fs.chmodSync(getManagedBinaryPath(), 0o755);
+    const packageVersion = readExtractedPackageVersion(packageRoot);
+    if (packageVersion) {
+      writeManagedMeta({
+        packageVersion,
+        platformTag,
+        downloadedAt: Date.now(),
+      });
+    }
 
     return getManagedBinaryPath();
   } finally {
