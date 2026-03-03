@@ -289,6 +289,31 @@ html.glass-enabled #root {
   border-inline-start: 1px solid var(--layout-divider);
 }
 
+.no-islands .tool-picker-shell {
+  position: relative;
+}
+
+.no-islands .tool-picker-shell::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 1px;
+  background: var(--layout-divider);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.no-islands .tool-picker {
+  position: relative;
+  z-index: 1;
+  padding-inline: 0;
+}
+
+.no-islands .tool-picker-btn {
+  margin-inline: auto;
+}
+
 /* Row resize handles become full-width 1px borders */
 .no-islands .resize-row {
   height: 1px;

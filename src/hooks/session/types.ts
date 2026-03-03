@@ -1,7 +1,7 @@
 import type { ChatSession, UIMessage, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, ModelInfo, AcpPermissionBehavior, EngineId, Project } from "../../types";
 import type { ACPConfigOption, ACPPermissionEvent } from "../../types/acp";
 import type { BackgroundSessionStore } from "../../lib/background-session-store";
-import { permissionModeToCodexPolicy } from "../../lib/codex-adapter";
+import { permissionModeToCodexPolicy, permissionModeToCodexSandbox } from "../../lib/codex-adapter";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 
 export const DRAFT_ID = "__draft__";
@@ -177,4 +177,8 @@ export function buildCodexCollabMode(planMode: boolean | undefined, model: strin
 
 export function getCodexApprovalPolicy(options: StartOptions): string | undefined {
   return permissionModeToCodexPolicy(getSelectedPermissionMode(options));
+}
+
+export function getCodexSandboxMode(options: StartOptions): "workspace-write" | "danger-full-access" | undefined {
+  return permissionModeToCodexSandbox(getSelectedPermissionMode(options));
 }

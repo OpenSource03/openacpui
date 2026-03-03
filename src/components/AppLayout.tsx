@@ -5,6 +5,7 @@ import { normalizeRatios } from "@/hooks/useSettings";
 import { useAppOrchestrator } from "@/hooks/useAppOrchestrator";
 import { useSpaceTheme } from "@/hooks/useSpaceTheme";
 import { usePanelResize } from "@/hooks/usePanelResize";
+import { getMinChatWidth } from "@/lib/layout-constants";
 import type { GrabbedElement } from "@/types/ui";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
@@ -35,7 +36,7 @@ export function AppLayout() {
     activeProjectId, activeProjectPath, showThinking,
     hasProjects, hasRightPanel, hasToolsColumn,
     activeTodos, bgAgents, hasTodos, hasAgents, availableContextual,
-    glassSupported,
+    glassSupported, devFillEnabled,
     showSettings, setShowSettings,
     spaceCreatorOpen, setSpaceCreatorOpen, editingSpace,
     scrollToMessageId, setScrollToMessageId,
@@ -47,6 +48,7 @@ export function AppLayout() {
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
     handleViewTurnChanges, handleCreateSpace, handleEditSpace,
     handleDeleteSpace, handleSaveSpace, handleMoveProjectToSpace,
+    handleSeedDevExampleSpaceData,
   } = o;
 
   const glassOverlayStyle = useSpaceTheme(spaceManager.activeSpace, resolvedTheme);
@@ -73,6 +75,7 @@ export function AppLayout() {
   );
 
   const isIsland = settings.islandLayout;
+  const minChatWidth = getMinChatWidth(isIsland);
   const splitGap = isIsland ? 4 : 0.5;
 
   const resize = usePanelResize({
@@ -190,8 +193,8 @@ export function AppLayout() {
         <div className={showSettings ? "hidden" : "contents"}>
         <div
           ref={chatIslandRef}
-          className="chat-island island relative flex min-w-[768px] flex-1 flex-col overflow-hidden rounded-lg bg-background"
-          style={{ "--chat-fade-strength": String(chatFadeStrength) } as React.CSSProperties}
+          className="chat-island island relative flex flex-1 flex-col overflow-hidden rounded-lg bg-background"
+          style={{ minWidth: minChatWidth, "--chat-fade-strength": String(chatFadeStrength) } as React.CSSProperties}
         >
           {manager.activeSessionId ? (
             <>
@@ -220,6 +223,9 @@ export function AppLayout() {
                   permissionMode={manager.sessionInfo?.permissionMode}
                   acpPermissionBehavior={manager.activeSession?.engine === "acp" ? settings.acpPermissionBehavior : undefined}
                   onToggleSidebar={sidebar.toggle}
+                  showDevFill={devFillEnabled}
+                  onSeedDevExampleConversation={manager.seedDevExampleConversation}
+                  onSeedDevExampleSpaceData={handleSeedDevExampleSpaceData}
                 />
               </div>
               <ChatView
@@ -282,6 +288,7 @@ export function AppLayout() {
                     onRemoveGrabbedElement={handleRemoveGrabbedElement}
                     lockedEngine={lockedEngine}
                     lockedAgentId={lockedAgentId}
+                    isIslandLayout={isIsland}
                   />
                 )}
               </div>
@@ -513,7 +520,7 @@ export function AppLayout() {
 
         {/* Tool picker — always visible */}
         {manager.activeSessionId && (
-          <div className={isIsland ? "ms-2 shrink-0" : "shrink-0 flat-divider-s"}>
+          <div className={isIsland ? "ms-2 shrink-0" : "shrink-0 tool-picker-shell"}>
             <ToolPicker activeTools={activeTools} onToggle={handleToggleTool} availableContextual={availableContextual} toolOrder={settings.toolOrder} onReorder={handleToolReorder} projectPath={activeProjectPath} />
           </div>
         )}

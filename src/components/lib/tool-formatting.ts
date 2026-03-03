@@ -6,7 +6,11 @@ import { getMcpCompactSummary } from "@/components/McpToolContent";
 export function formatCompactSummary(message: UIMessage): string {
   const input = message.toolInput;
   const toolName = message.toolName ?? "";
-  if (!input) return "";
+  const result = message.toolResult;
+  const filePathFromResult = extractResultFilePath(result);
+  if (!input) {
+    return filePathFromResult ? filePathFromResult.split("/").pop() ?? filePathFromResult : "";
+  }
 
   // Plan mode tools — extract plan title from markdown heading
   if (toolName === "ExitPlanMode") {
@@ -45,6 +49,7 @@ export function formatCompactSummary(message: UIMessage): string {
   }
   if (input.command) return String(input.command).split("\n")[0];
   if (input.file_path) return String(input.file_path).split("/").pop() ?? "";
+  if (filePathFromResult) return filePathFromResult.split("/").pop() ?? filePathFromResult;
   if (input.pattern) return String(input.pattern);
   if (input.query) return String(input.query).slice(0, 60);
   if (input.url) {
@@ -55,6 +60,21 @@ export function formatCompactSummary(message: UIMessage): string {
     }
   }
   return "";
+}
+
+function extractResultFilePath(result: UIMessage["toolResult"]): string | null {
+  if (!result) return null;
+  if (typeof result.filePath === "string" && result.filePath) return result.filePath;
+  if (result.file?.filePath) return result.file.filePath;
+  if (typeof result.content === "string") {
+    const modifiedMatch = result.content.match(/Modified\s+\d+\s+file\(s\):\s+([^\n]+)/i);
+    if (modifiedMatch?.[1]) return modifiedMatch[1].trim();
+  }
+  if (typeof result.detailedContent === "string") {
+    const diffMatch = result.detailedContent.match(/^diff --git a\/(.+?) b\/(.+)$/m);
+    if (diffMatch?.[2]) return diffMatch[2].trim();
+  }
+  return null;
 }
 
 // ── Task formatting ──
@@ -101,6 +121,7 @@ export function formatStepSummary(step: SubagentToolStep): string {
   if (input.file_path) return String(input.file_path).split("/").pop() ?? "";
   if (input.command) return String(input.command).split("\n")[0].slice(0, 60);
   if (input.pattern) return String(input.pattern);
+  if (input.description) return String(input.description).slice(0, 90);
   return "";
 }
 
@@ -110,11 +131,22 @@ export function formatDuration(ms: number): string {
 }
 
 export function formatTaskResult(content: string | Array<{ type: string; text: string }>): string {
-  if (typeof content === "string") return content;
-  return content
+  const raw = typeof content === "string"
+    ? content
+    : content
     .filter((c) => c.type === "text")
     .map((c) => c.text)
     .join("\n");
+  return stripTaskResultWrapper(raw);
+}
+
+function stripTaskResultWrapper(text: string): string {
+  const hasResumePrefix = /^task_id:\s+\S+\s+\(for resuming to continue this task if needed\)/m.test(text);
+  if (!hasResumePrefix) return text;
+  return text
+    .replace(/\n\n<task_result>\n\n/, "\n\n")
+    .replace(/\n<\/task_result>\s*$/, "")
+    .trimEnd();
 }
 
 export function formatInput(input: Record<string, unknown>): string {

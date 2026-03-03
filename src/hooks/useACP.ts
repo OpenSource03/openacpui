@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, SessionMeta } from "@/types";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "@/types/acp";
 import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, pickAutoResponseOption } from "@/lib/acp-adapter";
+import { extractTaskSubagentSteps, getTaskStatus, isTaskToolName } from "@/lib/acp-task-adapter";
 import { useEngineBase } from "./useEngineBase";
 
 interface UseACPOptions {
@@ -181,6 +182,8 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       const initialResult = isAlreadyDone ? normalizeToolResult(tc.rawOutput, tc.content) : undefined;
       setMessages(prev => {
         if (prev.some(m => m.id === msgId)) return prev;
+        const isTask = isTaskToolName(toolName);
+        const taskSteps = isTask ? extractTaskSubagentSteps(initialResult) : undefined;
         return [...prev, {
           id: msgId,
           role: "tool_call" as const,
@@ -189,6 +192,10 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
           toolInput: normalizeToolInput(tc.rawInput, tc.kind, tc.locations),
           ...(initialResult ? { toolResult: initialResult } : {}),
           ...(tc.status === "failed" ? { toolError: true } : {}),
+          ...(isTask ? {
+            subagentStatus: getTaskStatus(tc.status),
+            subagentSteps: taskSteps ?? [],
+          } : {}),
           timestamp: Date.now(),
         }];
       });
@@ -204,10 +211,15 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       });
       setMessages(prev => prev.map(m => {
         if (m.id !== msgId) return m;
+        const isTask = isTaskToolName(m.toolName);
+        const nextTaskStatus = isTask ? getTaskStatus(tcu.status) : undefined;
+        const nextTaskSteps = isTask ? extractTaskSubagentSteps(result) : undefined;
         return {
           ...m,
           toolResult: result ?? m.toolResult,
           toolError: tcu.status === "failed",
+          ...(nextTaskStatus ? { subagentStatus: nextTaskStatus } : {}),
+          ...(nextTaskSteps ? { subagentSteps: nextTaskSteps } : {}),
         };
       }));
     } else if (kind === "config_option_update") {

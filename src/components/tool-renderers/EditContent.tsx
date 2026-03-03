@@ -16,21 +16,26 @@ export function EditContent({ message }: { message: UIMessage }) {
         && entryPath
         && entryPath === String(message.toolInput?.file_path ?? message.toolResult?.filePath ?? "");
     }) ?? structuredPatch[0];
+  const resultContent = typeof message.toolResult?.content === "string"
+    ? message.toolResult.content
+    : "";
+  const detailedContent = typeof message.toolResult?.detailedContent === "string"
+    ? message.toolResult.detailedContent
+    : "";
+  const patchDiffText = typeof matchingPatch?.diff === "string" ? matchingPatch.diff : "";
+  const candidateDiffText = selectUnifiedDiffText(patchDiffText, detailedContent, resultContent);
   const filePath = String(
     message.toolInput?.file_path
       ?? message.toolResult?.filePath
       ?? (typeof matchingPatch?.filePath === "string" ? matchingPatch.filePath : "")
+      ?? extractFilePathFromDiff(candidateDiffText)
       ?? "",
   );
   const parsedStructuredDiff = parseUnifiedDiffFromUnknown(matchingPatch?.diff);
   const parsedDiff = parseUnifiedDiffFromUnknown(message.toolResult?.content);
   // ACP agents put the unified diff in detailedContent — parse it for oldString/newString
   const parsedDetailedDiff = parseUnifiedDiffFromUnknown(message.toolResult?.detailedContent);
-  const unifiedDiffText = firstDefinedString(
-    typeof matchingPatch?.diff === "string" ? matchingPatch.diff : undefined,
-    typeof message.toolResult?.content === "string" ? message.toolResult.content : undefined,
-    typeof message.toolResult?.detailedContent === "string" ? message.toolResult.detailedContent : undefined,
-  );
+  const unifiedDiffText = candidateDiffText;
   // Prefer parsed/structured patch text first; toolInput can be a lossy representation.
   const oldStr = firstDefinedString(
     typeof matchingPatch?.oldString === "string" ? matchingPatch.oldString : undefined,
@@ -51,21 +56,12 @@ export function EditContent({ message }: { message: UIMessage }) {
 
   if (!oldStr && !newStr) {
     // Fallback 1: raw diff in structuredPatch (e.g. Codex fileChange with raw content)
-    const rawDiff = typeof matchingPatch?.diff === "string" ? matchingPatch.diff : "";
+    const rawDiff = patchDiffText;
     if (rawDiff) {
       return <UnifiedPatchViewer diffText={rawDiff} filePath={filePath} />;
     }
     // Fallback 2: result has content or detailedContent with a diff
-    const resultContent = typeof message.toolResult?.content === "string"
-      ? message.toolResult.content
-      : "";
-    const detailedContent = typeof message.toolResult?.detailedContent === "string"
-      ? message.toolResult.detailedContent
-      : "";
-    // ACP agents put the unified diff in detailedContent, not content
-    const diffText = (detailedContent.includes("diff --git") || detailedContent.includes("@@"))
-      ? detailedContent
-      : resultContent;
+    const diffText = selectUnifiedDiffText("", detailedContent, resultContent);
     if (diffText) {
       return <UnifiedPatchViewer diffText={diffText} filePath={filePath} />;
     }
@@ -80,4 +76,20 @@ export function EditContent({ message }: { message: UIMessage }) {
       unifiedDiff={unifiedDiffText || undefined}
     />
   );
+}
+
+function selectUnifiedDiffText(patchDiff: string, detailedContent: string, resultContent: string): string {
+  if (hasUnifiedDiffMarkers(patchDiff)) return patchDiff;
+  if (hasUnifiedDiffMarkers(detailedContent)) return detailedContent;
+  if (hasUnifiedDiffMarkers(resultContent)) return resultContent;
+  return "";
+}
+
+function hasUnifiedDiffMarkers(text: string): boolean {
+  return text.includes("diff --git") || text.includes("@@");
+}
+
+function extractFilePathFromDiff(diffText: string): string {
+  const match = diffText.match(/^diff --git a\/(.+?) b\/(.+)$/m);
+  return match?.[2] ?? "";
 }

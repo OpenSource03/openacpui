@@ -48,6 +48,8 @@ export interface AppSettings {
   codexBinarySource: CodexBinarySource;
   /** Absolute path used when codexBinarySource is "custom" */
   codexCustomBinaryPath: string;
+  /** Show developer-only "Dev Fill" button in chat title bar (local dev builds only) */
+  showDevFillInChatTitleBar: boolean;
 }
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
@@ -66,6 +68,7 @@ const DEFAULTS: AppSettings = {
   codexClientName: "Harnss",
   codexBinarySource: "auto",
   codexCustomBinaryPath: "",
+  showDevFillInChatTitleBar: false,
 };
 
 // ── Internal state ──

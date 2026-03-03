@@ -28,6 +28,8 @@ import {
   Crosshair,
   Eye,
   Sparkles,
+  Search,
+  ArrowUpRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -314,83 +316,121 @@ function BrowserStartPage({
   onOpen: (value: string) => void;
   recentHistory: BrowserHistoryEntry[];
 }) {
+  const [isFocused, setIsFocused] = useState(false);
+
   return (
-    <div className="flex h-full items-start justify-center overflow-y-auto px-8 py-6">
+    <div className="relative flex h-full items-center justify-center overflow-y-auto overflow-x-hidden px-6">
+      {/* Atmospheric ambient glow — breathes on focus */}
+      <div
+        className="pointer-events-none absolute top-[38%] left-1/2 h-[280px] w-[420px] rounded-full bg-blue-500/[0.03] blur-[100px] dark:bg-blue-400/[0.05]"
+        style={{
+          opacity: isFocused ? 1 : 0.3,
+          transform: `translate(-50%, -50%) scale(${isFocused ? 1.15 : 1})`,
+          transition: "opacity 800ms cubic-bezier(0.4, 0, 0.2, 1), transform 800ms cubic-bezier(0.4, 0, 0.2, 1)",
+        }}
+      />
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
           onOpen(input);
         }}
-        className="my-auto w-full max-w-3xl"
+        className="relative z-10 w-full max-w-md"
       >
-        <div className="space-y-6">
-          <div className="mx-auto max-w-2xl text-center">
-            <div className="mx-auto mb-4 inline-flex rounded-2xl bg-blue-500/10 p-3 text-blue-300">
-              <Globe className="h-6 w-6" />
+        <div className="flex flex-col items-center gap-7">
+          {/* Hero — icon + title */}
+          <div className="flex flex-col items-center gap-3.5">
+            <div className="rounded-2xl border border-foreground/[0.06] bg-foreground/[0.025] p-3.5">
+              <Globe className="h-6 w-6 text-foreground/30" />
             </div>
-            <h3 className="text-xl font-semibold text-foreground/90">Built-in Browser</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Preview pages, inspect elements, and send selected website context directly into your chat.
-            </p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-foreground/70">
-              <span className="inline-flex items-center gap-1 rounded-md bg-foreground/[0.05] px-2.5 py-1">
-                <Eye className="h-3.5 w-3.5" />
-                Preview
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-md bg-foreground/[0.05] px-2.5 py-1">
-                <Crosshair className="h-3.5 w-3.5" />
-                Grab elements
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-md bg-foreground/[0.05] px-2.5 py-1">
-                <Sparkles className="h-3.5 w-3.5" />
-                Use in prompts
-              </span>
+            <div className="text-center">
+              <h2 className="text-[15px] font-semibold tracking-tight text-foreground/80">
+                Browse the web
+              </h2>
+              <p className="mt-1 text-[12px] leading-relaxed text-foreground/35">
+                Preview, inspect, and grab elements into your conversation
+              </p>
             </div>
           </div>
 
-          <div className="relative mx-auto w-full max-w-2xl">
-            <div className="flex items-center gap-2 rounded-xl border border-foreground/[0.1] bg-background/80 px-3 py-2 shadow-sm">
-              <Globe className="h-4 w-4 shrink-0 text-foreground/35" />
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onFocus={() => setShowSuggestions(true)}
-                onBlur={() => {
-                  window.setTimeout(() => setShowSuggestions(false), 120);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setShowSuggestions(false);
-                    (e.target as HTMLInputElement).blur();
-                    return;
-                  }
-                  if (e.key === "Tab" && completion) {
-                    e.preventDefault();
-                    setInput(completion);
-                  }
-                }}
-                className="min-w-0 flex-1 bg-transparent text-sm text-foreground/80 outline-none placeholder:text-foreground/25"
-                placeholder="Search or enter URL to open your first tab"
-                spellCheck={false}
-                autoFocus
-              />
-              <Button
-                type="submit"
-                size="sm"
-                className="h-7 px-3 text-xs"
-                disabled={!input.trim()}
-              >
-                Open
-              </Button>
+          {/* Search bar — hero element with glow border */}
+          <div className="relative w-full">
+            {/* Gradient glow ring — visible on focus */}
+            <div
+              className="absolute -inset-px rounded-xl bg-gradient-to-r from-blue-500/20 via-indigo-400/15 to-blue-500/20 blur-[1px]"
+              style={{
+                opacity: isFocused ? 1 : 0,
+                transition: "opacity 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+              }}
+            />
+
+            <div className="relative flex items-center gap-2.5 rounded-xl border border-foreground/[0.08] bg-foreground/[0.03] px-3.5 py-2.5 transition-all duration-300 focus-within:border-foreground/[0.14] focus-within:bg-foreground/[0.04]">
+              <Search className="h-4 w-4 shrink-0 text-foreground/25" />
+
+              <div className="relative min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onFocus={() => {
+                    setIsFocused(true);
+                    setShowSuggestions(true);
+                  }}
+                  onBlur={() => {
+                    setIsFocused(false);
+                    window.setTimeout(() => setShowSuggestions(false), 120);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setShowSuggestions(false);
+                      (e.target as HTMLInputElement).blur();
+                      return;
+                    }
+                    if (e.key === "Tab" && completion) {
+                      e.preventDefault();
+                      setInput(completion);
+                    }
+                  }}
+                  className="w-full bg-transparent text-sm text-foreground/80 outline-none placeholder:text-foreground/20"
+                  placeholder="Search or enter URL…"
+                  spellCheck={false}
+                  autoFocus
+                />
+                {/* Ghost text completion overlay */}
+                {completion && input.trim() && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center overflow-hidden text-sm">
+                    <span className="invisible whitespace-pre">{input}</span>
+                    <span className="text-foreground/[0.12]">{completion.slice(input.length)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Tab hint */}
+              {completion && input.trim() && (
+                <kbd className="shrink-0 rounded border border-foreground/[0.08] bg-foreground/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-foreground/25">
+                  Tab
+                </kbd>
+              )}
+
+              {/* Go button — appears when input has content */}
+              {input.trim() && (
+                <button
+                  type="submit"
+                  className="shrink-0 rounded-lg bg-foreground/[0.06] p-1.5 text-foreground/35 transition-colors hover:bg-foreground/[0.12] hover:text-foreground/60"
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
+
+            {/* URL suggestions dropdown */}
             {showSuggestions && filteredHistory.length > 0 && (
-              <div className="absolute inset-x-0 top-[calc(100%+6px)] z-20 max-h-52 overflow-y-auto rounded-md border border-foreground/[0.08] bg-background py-1 shadow-lg">
+              <div className="absolute inset-x-0 top-[calc(100%+6px)] z-20 max-h-52 overflow-y-auto rounded-xl border border-foreground/[0.08] bg-background/95 py-1.5 shadow-lg backdrop-blur-sm">
                 {filteredHistory.map((entry) => (
                   <button
                     key={entry.url}
                     type="button"
-                    className="block w-full px-2.5 py-1.5 text-start hover:bg-foreground/[0.05]"
+                    className="flex w-full items-center gap-2.5 px-3.5 py-1.5 text-start transition-colors hover:bg-foreground/[0.04]"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setInput(entry.url);
@@ -398,29 +438,76 @@ function BrowserStartPage({
                       onOpen(entry.url);
                     }}
                   >
-                    <div className="truncate text-xs text-foreground/80">{entry.title}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{entry.url}</div>
+                    <Globe className="h-3 w-3 shrink-0 text-foreground/20" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs text-foreground/70">{entry.title}</div>
+                      <div className="truncate text-[11px] text-foreground/25">{entry.url}</div>
+                    </div>
                   </button>
                 ))}
               </div>
             )}
           </div>
 
+          {/* Feature indicators — minimal horizontal list */}
+          <div className="flex items-center gap-4 text-[11px] text-foreground/30">
+            <span className="inline-flex items-center gap-1.5">
+              <Eye className="h-3 w-3" />
+              Preview
+            </span>
+            <span className="h-3 w-px bg-foreground/[0.08]" />
+            <span className="inline-flex items-center gap-1.5">
+              <Crosshair className="h-3 w-3" />
+              Inspect
+            </span>
+            <span className="h-3 w-px bg-foreground/[0.08]" />
+            <span className="inline-flex items-center gap-1.5">
+              <Sparkles className="h-3 w-3" />
+              Use in chat
+            </span>
+          </div>
+
+          {/* Recent sites — letter avatars with hover arrows */}
           {recentHistory.length > 0 && (
-            <div className="mx-auto w-full max-w-2xl">
-              <p className="mb-2 text-xs text-muted-foreground">Recent websites</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {recentHistory.map((entry) => (
-                  <button
-                    key={`recent-${entry.url}`}
-                    type="button"
-                    className="rounded-md border border-foreground/[0.07] bg-foreground/[0.02] px-3 py-2 text-start hover:bg-foreground/[0.05]"
-                    onClick={() => onOpen(entry.url)}
-                  >
-                    <div className="truncate text-xs font-medium text-foreground/85">{entry.title}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{entry.url}</div>
-                  </button>
-                ))}
+            <div className="w-full pt-1">
+              <div className="mb-2.5 flex items-center gap-3">
+                <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-foreground/25">
+                  Recent
+                </span>
+                <div className="h-px flex-1 bg-foreground/[0.05]" />
+              </div>
+              <div className="grid gap-0.5 sm:grid-cols-2">
+                {recentHistory.map((entry) => {
+                  let hostname = entry.url;
+                  let letter = "?";
+                  try {
+                    hostname = new URL(entry.url).hostname.replace(/^www\./, "");
+                    letter = hostname.charAt(0).toUpperCase();
+                  } catch {
+                    /* keep defaults */
+                  }
+                  return (
+                    <button
+                      key={`recent-${entry.url}`}
+                      type="button"
+                      className="group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-start transition-colors hover:bg-foreground/[0.035]"
+                      onClick={() => onOpen(entry.url)}
+                    >
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground/[0.05] text-[11px] font-semibold text-foreground/30 transition-colors group-hover:bg-foreground/[0.08] group-hover:text-foreground/50">
+                        {letter}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[12px] font-medium text-foreground/60 transition-colors group-hover:text-foreground/80">
+                          {entry.title}
+                        </div>
+                        <div className="truncate text-[10px] text-foreground/20">
+                          {hostname}
+                        </div>
+                      </div>
+                      <ArrowUpRight className="h-3 w-3 shrink-0 text-foreground/0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground/25" />
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -31,7 +31,8 @@ import { GenericContent } from "./tool-renderers/GenericContent";
 // ── Main entry ──
 
 export const ToolCall = memo(function ToolCall({ message }: { message: UIMessage }) {
-  const isTask = message.toolName === "Task" || message.toolName === "Agent";
+  const normalizedToolName = (message.toolName ?? "").toLowerCase();
+  const isTask = normalizedToolName === "task" || normalizedToolName === "agent";
 
   return (
     <div className="flex justify-start px-4 py-0.5">

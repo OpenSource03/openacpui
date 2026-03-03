@@ -432,6 +432,7 @@ function EngineControls({
         isProcessing={isProcessing}
         onModelChange={onModelChange}
         modelsLoading={modelsLoading}
+        modelsLoadingText={modelsLoadingText}
       />
       <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
       <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
@@ -516,6 +517,8 @@ interface InputBarProps {
   grabbedElements?: GrabbedElement[];
   /** Remove a grabbed element by ID */
   onRemoveGrabbedElement?: (id: string) => void;
+  /** Controls width profile for island vs flat layout */
+  isIslandLayout?: boolean;
 }
 
 // Simple fuzzy match: all query chars must appear in order
@@ -558,6 +561,25 @@ function insertTextAtCursor(el: HTMLElement | null, text: string): void {
 
   // Trigger input handler so hasContent updates and send button enables
   el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Fast non-whitespace check that short-circuits early for typical prompts */
+function hasMeaningfulText(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (
+      code !== 32 && // space
+      code !== 9 && // tab
+      code !== 10 && // \n
+      code !== 13 && // \r
+      code !== 11 && // vertical tab
+      code !== 12 && // form feed
+      code !== 160 // nbsp
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Extract full text + mention paths from a contentEditable element */
@@ -638,6 +660,7 @@ export const InputBar = memo(function InputBar({
   queuedCount = 0,
   grabbedElements,
   onRemoveGrabbedElement,
+  isIslandLayout = true,
 }: InputBarProps) {
   const [hasContent, setHasContent] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
@@ -660,6 +683,7 @@ export const InputBar = memo(function InputBar({
   const mentionStartNode = useRef<Node | null>(null);
   const mentionStartOffset = useRef<number>(0);
   const fileCachePathRef = useRef<string | undefined>(undefined);
+  const hasContentRef = useRef(false);
 
   const modelList = supportedModels?.length
     ? supportedModels.map((m) => ({ id: m.value, label: m.displayName, description: m.description }))
@@ -819,6 +843,7 @@ export const InputBar = memo(function InputBar({
       sel.removeAllRanges();
       sel.addRange(newRange);
 
+      hasContentRef.current = true;
       setHasContent(true);
       closeMentions();
     },
@@ -910,6 +935,7 @@ export const InputBar = memo(function InputBar({
 
     // Clear input
     el.innerHTML = "";
+    hasContentRef.current = false;
     setHasContent(false);
     setAttachments([]);
     closeMentions();
@@ -954,15 +980,32 @@ export const InputBar = memo(function InputBar({
   };
 
   // Detect @ trigger on contentEditable input
-  const handleEditableInput = useCallback(() => {
+  const handleEditableInput = useCallback((e: React.FormEvent<HTMLDivElement>) => {
     const el = editableRef.current;
     if (!el) return;
 
-    // Update hasContent for placeholder & send button
-    const hasText =
-      (el.textContent?.trim().length ?? 0) > 0 ||
-      el.querySelector("[data-mention-path]") !== null;
-    setHasContent(hasText);
+    // Avoid re-scanning huge buffers on normal inserts; only re-check when necessary.
+    const nativeEvent = e.nativeEvent;
+    const inputType = nativeEvent instanceof InputEvent ? nativeEvent.inputType : "";
+    const shouldRecomputeHasContent =
+      !hasContentRef.current ||
+      inputType.startsWith("delete") ||
+      inputType === "historyUndo" ||
+      inputType === "historyRedo";
+
+    if (shouldRecomputeHasContent) {
+      const text = el.textContent ?? "";
+      const hasText = hasMeaningfulText(text);
+      const hasMentionChip = el.querySelector("[data-mention-path]") !== null;
+      const nextHasContent = hasText || hasMentionChip;
+      if (nextHasContent !== hasContentRef.current) {
+        hasContentRef.current = nextHasContent;
+        setHasContent(nextHasContent);
+      }
+    } else if (!hasContentRef.current) {
+      hasContentRef.current = true;
+      setHasContent(true);
+    }
 
     // Detect @ trigger
     const sel = window.getSelection();
@@ -979,12 +1022,15 @@ export const InputBar = memo(function InputBar({
       return;
     }
 
-    const textBefore = (node.textContent ?? "").slice(0, range.startOffset);
+    const nodeText = node.textContent ?? "";
+    const offset = range.startOffset;
+    const scanStart = Math.max(0, offset - 256);
+    const textBefore = nodeText.slice(scanStart, offset);
     const atMatch = textBefore.match(/(^|[\s])@([^\s]*)$/);
 
     if (atMatch && projectPath) {
       mentionStartNode.current = node;
-      mentionStartOffset.current = textBefore.lastIndexOf("@");
+      mentionStartOffset.current = scanStart + textBefore.lastIndexOf("@");
       setMentionQuery(atMatch[2]);
       setShowMentions(true);
       setMentionIndex(0);
@@ -1013,8 +1059,11 @@ export const InputBar = memo(function InputBar({
       // Paste as plain text only (strip HTML formatting)
       e.preventDefault();
       const text = e.clipboardData.getData("text/plain");
-      document.execCommand("insertText", false, text);
-      setHasContent(true);
+      if (!hasContentRef.current && text.length > 0) {
+        hasContentRef.current = true;
+        setHasContent(true);
+      }
+      insertTextAtCursor(editableRef.current, text);
     },
     [addImageFiles],
   );
@@ -1056,7 +1105,7 @@ export const InputBar = memo(function InputBar({
   );
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+    <div className={`mx-auto w-full px-4 pb-4 ${isIslandLayout ? "max-w-3xl" : "max-w-[61.5rem]"}`}>
       <input
         ref={fileInputRef}
         type="file"
@@ -1133,6 +1182,10 @@ export const InputBar = memo(function InputBar({
             className="min-h-[1.5em] max-h-[200px] overflow-y-auto text-sm text-foreground outline-none whitespace-pre-wrap wrap-break-word"
             role="textbox"
             aria-multiline="true"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            data-gramm="false"
             suppressContentEditableWarning
           />
         </div>

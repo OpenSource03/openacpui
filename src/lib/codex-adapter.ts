@@ -206,6 +206,24 @@ export function permissionModeToCodexPolicy(mode: string): string | undefined {
   }
 }
 
+/**
+ * Map Harnss permission modes to Codex sandbox mode.
+ *
+ * Codex approval policy controls prompts, while sandbox controls write access.
+ * Without setting sandbox, Codex may inherit a read-only default from user config.
+ */
+export function permissionModeToCodexSandbox(mode: string): "workspace-write" | "danger-full-access" | undefined {
+  switch (mode) {
+    case "default":
+    case "acceptEdits":
+      return "workspace-write";
+    case "bypassPermissions":
+      return "danger-full-access";
+    default:
+      return undefined;
+  }
+}
+
 // ── Turn plan → TodoItem mapping ──
 
 /** Convert Codex turn/plan/updated steps to TodoItem[] for the TodoPanel. */

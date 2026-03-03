@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeRatios, type Settings } from "@/hooks/useSettings";
+import {
+  MIN_RIGHT_PANEL_WIDTH,
+  MIN_TOOLS_PANEL_WIDTH,
+  getMinChatWidth,
+  getResizeHandleWidth,
+  getToolPickerWidth,
+} from "@/lib/layout-constants";
 
 // ── Layout constants ──
-const MIN_CHAT_WIDTH = 768;
-const MIN_PANEL_WIDTH = 200;
+const MIN_PANEL_WIDTH = MIN_RIGHT_PANEL_WIDTH;
 const MAX_PANEL_WIDTH = 500;
-const MIN_TOOLS_WIDTH = 280;
+const MIN_TOOLS_WIDTH = MIN_TOOLS_PANEL_WIDTH;
 const MAX_TOOLS_WIDTH = 800;
 
 interface UsePanelResizeOptions {
@@ -26,10 +32,11 @@ export function usePanelResize({
   activeProjectId,
 }: UsePanelResizeOptions) {
   const [isResizing, setIsResizing] = useState(false);
+  const minChatWidth = getMinChatWidth(isIsland);
 
-  // ToolPicker strip (w-14 = 56px) + its left margin (ms-2 = 8px)
-  const pickerW = isIsland ? 64 : 56; // w-14 = 56px, no ms-2 in flat mode
-  const handleW = isIsland ? 8 : 1; // 8px pill vs 1px border
+  // ToolPicker strip width (flat divider is an overlay, excluded from width math)
+  const pickerW = getToolPickerWidth(isIsland);
+  const handleW = getResizeHandleWidth(isIsland);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
@@ -52,7 +59,7 @@ export function usePanelResize({
       const onMouseMove = (ev: MouseEvent) => {
         // Dynamically cap so the chat always keeps MIN_CHAT_WIDTH
         const containerWidth = contentRef.current?.clientWidth ?? window.innerWidth;
-        let reserved = MIN_CHAT_WIDTH + pickerW + handleW;
+        let reserved = minChatWidth + pickerW + handleW;
         if (toolsVisible) {
           reserved += toolsPanelWidthRef.current + handleW;
         }
@@ -73,7 +80,7 @@ export function usePanelResize({
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [settings, pickerW, handleW],
+    [settings, minChatWidth, pickerW, handleW],
   );
 
   // ── Tools panel resize ──
@@ -93,7 +100,7 @@ export function usePanelResize({
       const onMouseMove = (ev: MouseEvent) => {
         // Dynamically cap so the chat always keeps MIN_CHAT_WIDTH
         const containerWidth = contentRef.current?.clientWidth ?? window.innerWidth;
-        let reserved = MIN_CHAT_WIDTH + pickerW + handleW;
+        let reserved = minChatWidth + pickerW + handleW;
         if (rightVisible) {
           reserved += rightPanelWidthRef.current + handleW;
         }
@@ -114,7 +121,7 @@ export function usePanelResize({
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [settings, pickerW, handleW],
+    [settings, minChatWidth, pickerW, handleW],
   );
 
   // ── Reactive panel clamping on window resize / project switch ──
@@ -129,7 +136,7 @@ export function usePanelResize({
       const hasRight = !!rightPanelRef.current;
       const hasTools = !!toolsColumnRef.current;
 
-      let reserved = MIN_CHAT_WIDTH + (activeSessionId ? pickerW : 0);
+      let reserved = minChatWidth + (activeSessionId ? pickerW : 0);
       if (hasRight) reserved += handleW;
       if (hasTools) reserved += handleW;
 
@@ -156,7 +163,7 @@ export function usePanelResize({
     // Also clamp immediately on mount / project switch
     clamp();
     return () => observer.disconnect();
-  }, [hasRightPanel, hasToolsColumn, activeSessionId, activeProjectId, pickerW, handleW]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasRightPanel, hasToolsColumn, activeSessionId, activeProjectId, minChatWidth, pickerW, handleW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Tools vertical split ratios ──
 
@@ -261,10 +268,10 @@ export function usePanelResize({
     handleToolsSplitStart,
     handleRightSplitStart,
     // Expose constants for JSX layout
-    MIN_CHAT_WIDTH,
+    MIN_CHAT_WIDTH: minChatWidth,
     MIN_PANEL_WIDTH,
     MIN_TOOLS_WIDTH,
-    TOOL_PICKER_WIDTH: isIsland ? 64 : 56,
+    TOOL_PICKER_WIDTH: pickerW,
     RESIZE_HANDLE_WIDTH: handleW,
     pickerW,
     handleW,

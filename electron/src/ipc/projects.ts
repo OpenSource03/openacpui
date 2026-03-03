@@ -73,6 +73,43 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
+  ipcMain.handle("projects:create-dev", (_event, name: string, spaceId?: string) => {
+    try {
+      const projectName = String(name || "").trim() || "Example Project";
+      const slug = projectName.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "example-project";
+      const rootDir = path.join(getDataDir(), "dev-projects");
+      const folderPath = path.join(rootDir, slug);
+      fs.mkdirSync(folderPath, { recursive: true });
+
+      const readmePath = path.join(folderPath, "README.md");
+      if (!fs.existsSync(readmePath)) {
+        fs.writeFileSync(
+          readmePath,
+          `# ${projectName}\n\nDevelopment-only sample project used for seeded demo chats.\n`,
+          "utf-8",
+        );
+      }
+
+      const projects = readProjects();
+      const existing = projects.find((p) => p.path === folderPath);
+      if (existing) return existing;
+
+      const project: Project = {
+        id: crypto.randomUUID(),
+        name: projectName,
+        path: folderPath,
+        createdAt: Date.now(),
+        ...(spaceId && spaceId !== "default" ? { spaceId } : {}),
+      };
+      projects.push(project);
+      writeProjects(projects);
+      return project;
+    } catch (err) {
+      log("PROJECTS:CREATE_DEV_ERR", (err as Error).message);
+      return null;
+    }
+  });
+
   ipcMain.handle("projects:delete", (_event, projectId: string) => {
     try {
       const projects = readProjects().filter((p) => p.id !== projectId);

@@ -113,6 +113,8 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     activeAssistantItemIdRef.current = null;
     commandOutputRef.current.clear();
     serverRequestRef.current = null;
+    planTextRef.current = "";
+    planTurnCounterRef.current = 0;
 
     // Rebuild Codex tool mappings from restored messages so completions
     // arriving after switch-back can find their tool_call messages
@@ -126,7 +128,25 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
             commandOutputRef.current.set(itemId, msg.toolResult.stdout);
           }
         }
+        if (msg.id.startsWith("codex-plan-update-")) {
+          const num = parseInt(msg.id.replace("codex-plan-update-", ""), 10);
+          if (!isNaN(num) && num > planTurnCounterRef.current) {
+            planTurnCounterRef.current = num;
+          }
+        }
+        if (msg.id.startsWith("codex-plan-stream-")) {
+          const num = parseInt(msg.id.replace("codex-plan-stream-", ""), 10);
+          if (!isNaN(num) && num > planTurnCounterRef.current) {
+            planTurnCounterRef.current = num;
+          }
+        }
       }
+
+      const latestPlanStreamMsg =
+        initialMessages.findLast((msg) => msg.id.startsWith("codex-plan-stream-")) ??
+        initialMessages.find((msg) => msg.id === "codex-plan-stream");
+      const planInput = latestPlanStreamMsg?.toolInput as { plan?: string } | undefined;
+      planTextRef.current = planInput?.plan ?? "";
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -447,12 +467,13 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
       const finalText = item.text || undefined;
       const planContent = finalText ?? planTextRef.current;
       if (planContent) {
+        const planStreamMsgId = `codex-plan-stream-${planTurnCounterRef.current}`;
         setMessages((prev) => {
-          const existing = prev.find((m) => m.id === "codex-plan-stream");
+          const existing = prev.find((m) => m.id === planStreamMsgId);
           if (existing) {
             // Add toolResult to mark it as completed — switches from "Preparing plan" to "Presented plan"
             return prev.map((m) =>
-              m.id === "codex-plan-stream"
+              m.id === planStreamMsgId
                 ? { ...m, toolInput: { plan: planContent }, toolResult: { type: "plan" } }
                 : m,
             );
@@ -461,7 +482,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
           return [
             ...prev,
             {
-              id: nextId("plan"),
+              id: planStreamMsgId,
               role: "tool_call" as const,
               content: "",
               toolName: "ExitPlanMode",
@@ -691,7 +712,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     const planText = planTextRef.current;
 
     setMessages((prev) => {
-      const planMsgId = "codex-plan-stream";
+      const planMsgId = `codex-plan-stream-${planTurnCounterRef.current}`;
       const existing = prev.find((m) => m.id === planMsgId);
       if (existing) {
         // Update the plan text in toolInput while keeping it "running" (no toolResult yet)

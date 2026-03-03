@@ -9,6 +9,13 @@ import { useSpaceTerminals } from "@/hooks/useSpaceTerminals";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
 import { useNotifications } from "@/hooks/useNotifications";
+import {
+  getMinChatWidth,
+  getResizeHandleWidth,
+  getToolPickerWidth,
+  MIN_RIGHT_PANEL_WIDTH,
+  MIN_TOOLS_PANEL_WIDTH,
+} from "@/lib/layout-constants";
 import { resolveModelValue } from "@/lib/model-utils";
 import { isWindows } from "@/lib/utils";
 import type { ToolId } from "@/components/ToolPicker";
@@ -115,11 +122,13 @@ export function useAppOrchestrator() {
 
   // ── Notification settings (loaded from main-process AppSettings) ──
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [devFillEnabled, setDevFillEnabled] = useState(false);
 
   // Load on mount + re-fetch when settings panel closes (so changes take effect immediately)
   useEffect(() => {
     window.claude.settings.get().then((s) => {
       if (s?.notifications) setNotificationSettings(s.notifications as NotificationSettings);
+      setDevFillEnabled(import.meta.env.DEV && !!s?.showDevFillInChatTitleBar);
     });
   }, [showSettings]);
 
@@ -294,6 +303,18 @@ export function useAppOrchestrator() {
     },
     [manager.importCCSession],
   );
+
+  const handleSeedDevExampleSpaceData = useCallback(async () => {
+    if (!import.meta.env.DEV) return;
+    const { seedDevExampleSpaceData } = await import("@/lib/dev-seeding/space-seeding");
+    await seedDevExampleSpaceData({
+      activeSpaceId: spaceManager.activeSpaceId,
+      existingProjects: projectManager.projects,
+      createDevProject: projectManager.createDevProject,
+      saveSession: window.claude.sessions.save,
+      refreshSessions: manager.refreshSessions,
+    });
+  }, [spaceManager.activeSpaceId, projectManager.projects, projectManager.createDevProject, manager.refreshSessions]);
 
   const handleNavigateToMessage = useCallback(
     (sessionId: string, messageId: string) => {
@@ -587,24 +608,25 @@ export function useAppOrchestrator() {
 
   // ── Dynamic Electron minimum window width ──
   const isIsland = settings.islandLayout;
+  const minChatWidth = getMinChatWidth(isIsland);
   const margins = isIsland ? 16 : 0;
-  const handleW = isIsland ? 8 : 1;
-  const pickerW = isIsland ? 64 : 56;
+  const handleW = getResizeHandleWidth(isIsland);
+  const pickerW = getToolPickerWidth(isIsland);
   // Windows native frame borders consume extra pixels from the content area
   const winFrameBuffer = isWindows ? 16 : 0;
 
   useEffect(() => {
     const sidebarW = sidebar.isOpen ? 260 : 0;
-    let minW = sidebarW + margins + 768 + winFrameBuffer;
+    let minW = sidebarW + margins + minChatWidth + winFrameBuffer;
 
     if (manager.activeSessionId) {
       minW += pickerW;
-      if (hasRightPanel) minW += 200 + handleW;
-      if (hasToolsColumn) minW += 280 + handleW;
+      if (hasRightPanel) minW += MIN_RIGHT_PANEL_WIDTH + handleW;
+      if (hasToolsColumn) minW += MIN_TOOLS_PANEL_WIDTH + handleW;
     }
 
     window.claude.setMinWidth(Math.max(minW, 600));
-  }, [sidebar.isOpen, hasRightPanel, hasToolsColumn, manager.activeSessionId, margins, pickerW, handleW]);
+  }, [sidebar.isOpen, hasRightPanel, hasToolsColumn, manager.activeSessionId, minChatWidth, margins, pickerW, handleW]);
 
   // When tools column becomes visible, fire resize so xterm terminals re-fit
   useEffect(() => {
@@ -646,6 +668,7 @@ export function useAppOrchestrator() {
     hasAgents,
     availableContextual,
     glassSupported,
+    devFillEnabled,
 
     // Settings view
     showSettings,
@@ -681,6 +704,7 @@ export function useAppOrchestrator() {
     handleSelectSession,
     handleCreateProject,
     handleImportCCSession,
+    handleSeedDevExampleSpaceData,
     handleNavigateToMessage,
     handleViewTurnChanges,
     handleCreateSpace,

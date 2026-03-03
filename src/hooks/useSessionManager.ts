@@ -264,6 +264,43 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     resetCodexEffortToModelDefault,
   });
 
+  const seedDevExampleConversation = useCallback(async () => {
+    if (!import.meta.env.DEV) return;
+    const { buildDevExampleConversation } = await import("../lib/dev-seeding/chat-seed");
+    const base = Date.now();
+    const seeded = buildDevExampleConversation(base);
+    engine.setMessages((prev) => [...prev, ...seeded.messages]);
+    const activeId = activeSessionIdRef.current;
+    if (activeId && activeId !== DRAFT_ID) {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === activeId
+            ? { ...s, lastMessageAt: seeded.lastMessageAt }
+            : s,
+        ),
+      );
+    }
+  }, [engine, setSessions]);
+
+  const refreshSessions = useCallback(async (projectIds?: string[]) => {
+    const ids = (projectIds && projectIds.length > 0)
+      ? projectIds
+      : projectsRef.current.map((p) => p.id);
+    if (ids.length === 0) return;
+    const uniqueIds = [...new Set(ids)];
+    const lists = await Promise.all(uniqueIds.map((projectId) => window.claude.sessions.list(projectId)));
+    const refreshed = lists.flat().map((s) => ({
+      ...s,
+      isActive: s.id === activeSessionIdRef.current,
+    }));
+    setSessions((prev) => {
+      const keep = prev.filter((s) => !uniqueIds.includes(s.projectId));
+      const map = new Map<string, ChatSession>();
+      [...keep, ...refreshed].forEach((s) => map.set(s.id, s));
+      return Array.from(map.values()).sort((a, b) => (b.lastMessageAt ?? b.createdAt) - (a.lastMessageAt ?? a.createdAt));
+    });
+  }, [setSessions]);
+
   // ── Derived state ──
   const isDraft = activeSessionId === DRAFT_ID;
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
@@ -292,6 +329,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     sessionInfo: engine.sessionInfo,
     totalCost: engine.totalCost,
     send,
+    seedDevExampleConversation,
+    refreshSessions,
     queuedCount,
     stop: engine.stop,
     interrupt: async () => {

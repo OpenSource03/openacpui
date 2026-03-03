@@ -169,19 +169,32 @@ export class BackgroundSessionStore {
       }
     }
 
-    // Reconstruct Codex plan text from existing plan-stream message
-    const planStreamMsg = messages.find(m => m.id === "codex-plan-stream");
-    const planInput = planStreamMsg?.toolInput as { plan?: string } | undefined;
-    const codexPlanText = planInput?.plan ?? "";
-
-    // Reconstruct plan turn counter from existing plan-update messages
+    // Reconstruct plan turn counter and latest plan stream from existing messages
     let codexPlanTurnCounter = 0;
+    let latestPlanStreamTurn = -1;
+    let latestPlanStreamMsg: UIMessage | undefined;
     for (const msg of messages) {
       if (msg.id.startsWith("codex-plan-update-")) {
         const num = parseInt(msg.id.replace("codex-plan-update-", ""), 10);
         if (!isNaN(num) && num >= codexPlanTurnCounter) codexPlanTurnCounter = num;
       }
+      if (msg.id.startsWith("codex-plan-stream-")) {
+        const num = parseInt(msg.id.replace("codex-plan-stream-", ""), 10);
+        if (!isNaN(num) && num >= codexPlanTurnCounter) codexPlanTurnCounter = num;
+        if (!isNaN(num) && num >= latestPlanStreamTurn) {
+          latestPlanStreamTurn = num;
+          latestPlanStreamMsg = msg;
+        }
+      }
     }
+
+    // Backward compatibility with older persisted sessions
+    if (!latestPlanStreamMsg) {
+      latestPlanStreamMsg = messages.find(m => m.id === "codex-plan-stream");
+    }
+
+    const planInput = latestPlanStreamMsg?.toolInput as { plan?: string } | undefined;
+    const codexPlanText = planInput?.plan ?? "";
 
     // Detect a mid-stream message so we can continue accumulating deltas
     const streamingMsg = messages.findLast(

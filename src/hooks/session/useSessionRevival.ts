@@ -8,6 +8,7 @@ import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
   getCodexApprovalPolicy,
+  getCodexSandboxMode,
   buildCodexCollabMode,
 } from "./types";
 import type { SharedSessionRefs, SharedSessionSetters, EngineHooks } from "./types";
@@ -163,6 +164,7 @@ export function useSessionRevival({
         threadId: codexThreadId,
         model: session.model,
         approvalPolicy: getCodexApprovalPolicy(startOptionsRef.current),
+        sandbox: getCodexSandboxMode(startOptionsRef.current),
       });
 
       if (result.error || !result.sessionId) {

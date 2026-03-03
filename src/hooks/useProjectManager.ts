@@ -18,6 +18,16 @@ export function useProjectManager() {
     return project;
   }, []);
 
+  const createDevProject = useCallback(async (name: string, spaceId?: string) => {
+    const project = await window.claude.projects.createDev(name, spaceId);
+    if (!project) return null;
+    setProjects((prev) => {
+      if (prev.some((p) => p.id === project.id)) return prev;
+      return [...prev, project];
+    });
+    return project;
+  }, []);
+
   const deleteProject = useCallback(async (id: string) => {
     await window.claude.projects.delete(id);
     setProjects((prev) => prev.filter((p) => p.id !== id));
@@ -53,6 +63,7 @@ export function useProjectManager() {
   return {
     projects,
     createProject,
+    createDevProject,
     deleteProject,
     renameProject,
     updateProjectSpace,

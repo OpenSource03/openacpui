@@ -51,12 +51,14 @@ export function CommitInput({
       const result = await window.claude.git.generateCommitMessage(
         cwd,
         activeEngine,
-        activeEngine === "acp" && activeSessionId ? activeSessionId : undefined,
+        activeEngine !== "claude" && activeSessionId ? activeSessionId : undefined,
       );
       if (result.message) {
         setCommitMessage(result.message);
       } else if (result.error) {
         onSyncError(result.error);
+      } else {
+        onSyncError("No result received");
       }
     } finally {
       setGeneratingMessage(false);

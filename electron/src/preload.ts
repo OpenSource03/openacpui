@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld("claude", {
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     create: (spaceId?: string) => ipcRenderer.invoke("projects:create", spaceId),
+    createDev: (name: string, spaceId?: string) => ipcRenderer.invoke("projects:create-dev", name, spaceId),
     delete: (projectId: string) => ipcRenderer.invoke("projects:delete", projectId),
     rename: (projectId: string, name: string) => ipcRenderer.invoke("projects:rename", projectId, name),
     updateSpace: (projectId: string, spaceId: string) => ipcRenderer.invoke("projects:update-space", projectId, spaceId),
@@ -175,7 +176,7 @@ contextBridge.exposeInMainWorld("claude", {
   },
   codex: {
     log: (label: string, data: unknown) => ipcRenderer.send("codex:log", label, data),
-    start: (options: { cwd: string; model?: string; approvalPolicy?: string; personality?: string; collaborationMode?: { mode: string; settings: { model: string; reasoning_effort: string | null; developer_instructions: string | null } } }) =>
+    start: (options: { cwd: string; model?: string; approvalPolicy?: string; sandbox?: "read-only" | "workspace-write" | "danger-full-access"; personality?: string; collaborationMode?: { mode: string; settings: { model: string; reasoning_effort: string | null; developer_instructions: string | null } } }) =>
       ipcRenderer.invoke("codex:start", options),
     send: (sessionId: string, text: string, images?: Array<{ type: "image"; url: string } | { type: "localImage"; path: string }>, effort?: string, collaborationMode?: { mode: string; settings: { model: string; reasoning_effort: string | null; developer_instructions: string | null } }) =>
       ipcRenderer.invoke("codex:send", { sessionId, text, images, effort, collaborationMode }),
@@ -192,7 +193,7 @@ contextBridge.exposeInMainWorld("claude", {
     authStatus: () => ipcRenderer.invoke("codex:auth-status"),
     login: (sessionId: string, type: "apiKey" | "chatgpt", apiKey?: string) =>
       ipcRenderer.invoke("codex:login", { sessionId, type, apiKey }),
-    resume: (options: { cwd: string; threadId: string; model?: string; approvalPolicy?: string }) =>
+    resume: (options: { cwd: string; threadId: string; model?: string; approvalPolicy?: string; sandbox?: "read-only" | "workspace-write" | "danger-full-access" }) =>
       ipcRenderer.invoke("codex:resume", options),
     setModel: (sessionId: string, model: string) =>
       ipcRenderer.invoke("codex:set-model", { sessionId, model }),

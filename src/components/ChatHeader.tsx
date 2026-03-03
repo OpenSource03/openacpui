@@ -1,6 +1,7 @@
 import { memo } from "react";
-import { Info, Loader2, PanelLeft } from "lucide-react";
+import { ChevronDown, Info, Loader2, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isMac } from "@/lib/utils";
 import type { AcpPermissionBehavior } from "@/types";
@@ -30,6 +31,9 @@ interface ChatHeaderProps {
   permissionMode?: string;
   acpPermissionBehavior?: AcpPermissionBehavior;
   onToggleSidebar: () => void;
+  showDevFill?: boolean;
+  onSeedDevExampleConversation?: () => void;
+  onSeedDevExampleSpaceData?: () => void;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -44,6 +48,9 @@ export const ChatHeader = memo(function ChatHeader({
   permissionMode,
   acpPermissionBehavior,
   onToggleSidebar,
+  showDevFill,
+  onSeedDevExampleConversation,
+  onSeedDevExampleSpaceData,
 }: ChatHeaderProps) {
   const modeLabel = permissionMode ? PERMISSION_MODE_LABELS[permissionMode] : null;
   const acpBehaviorLabel = acpPermissionBehavior
@@ -60,6 +67,7 @@ export const ChatHeader = memo(function ChatHeader({
   if (sessionId) detailRows.push({ label: "Session", value: sessionId });
 
   const hasDetails = detailRows.length > 0;
+  const showDevSeedButton = import.meta.env.DEV && !!showDevFill && !!onSeedDevExampleConversation;
 
   return (
     <div
@@ -116,25 +124,49 @@ export const ChatHeader = memo(function ChatHeader({
       ) : null}
 
       {/* Session info — subtle icon, hover reveals model / permissions / cost / session ID */}
-      {hasDetails && (
-        <div className="ms-auto">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="no-drag flex cursor-default items-center justify-center rounded-full p-0.5 text-muted-foreground/30 transition-colors hover:text-muted-foreground">
-                <Info className="h-3.5 w-3.5" />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="end">
-              <div className="space-y-1 text-xs">
-                {detailRows.map((row) => (
-                  <div key={row.label} className="flex justify-between gap-6">
-                    <span className="opacity-70">{row.label}</span>
-                    <span className="font-mono text-end">{row.value}</span>
-                  </div>
-                ))}
-              </div>
-            </TooltipContent>
-          </Tooltip>
+      {(showDevSeedButton || hasDetails) && (
+        <div className="ms-auto flex items-center gap-1.5">
+          {showDevSeedButton && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="no-drag h-6 gap-1 px-2 text-[10px]"
+                >
+                  Dev Fill
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onSeedDevExampleConversation}>
+                  Fill current chat
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onSeedDevExampleSpaceData}>
+                  Fill current space (3 projects, 10 chats)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {hasDetails && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="no-drag flex cursor-default items-center justify-center rounded-full p-0.5 text-muted-foreground/30 transition-colors hover:text-muted-foreground">
+                  <Info className="h-3.5 w-3.5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="end">
+                <div className="space-y-1 text-xs">
+                  {detailRows.map((row) => (
+                    <div key={row.label} className="flex justify-between gap-6">
+                      <span className="opacity-70">{row.label}</span>
+                      <span className="font-mono text-end">{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
     </div>

@@ -22,7 +22,7 @@ import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
 import { AboutSettings } from "@/components/settings/AboutSettings";
 import { isMac } from "@/lib/utils";
 import type { InstalledAgent, ThemeOption } from "@/types";
-import type { NotificationSettings } from "@/types/ui";
+import type { AppSettings } from "@/types/ui";
 
 // ── Section definitions ──
 
@@ -48,19 +48,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: "advanced", label: "Advanced", icon: Wrench },
   { id: "about", label: "About", icon: Info },
 ];
-
-// ── App settings types (mirrors electron/src/lib/app-settings.ts) ──
-
-interface AppSettings {
-  allowPrereleaseUpdates: boolean;
-  defaultChatLimit: number;
-  preferredEditor: "auto" | "cursor" | "code" | "zed";
-  voiceDictation: "native" | "whisper";
-  notifications: NotificationSettings;
-  codexClientName: string;
-  codexBinarySource: "auto" | "managed" | "custom";
-  codexCustomBinaryPath: string;
-}
 
 // ── Props ──
 

@@ -105,6 +105,7 @@ declare global {
       projects: {
         list: () => Promise<Project[]>;
         create: (spaceId?: string) => Promise<Project | null>;
+        createDev: (name: string, spaceId?: string) => Promise<Project | null>;
         delete: (projectId: string) => Promise<{ ok?: boolean; error?: string }>;
         rename: (projectId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
         updateSpace: (projectId: string, spaceId: string) => Promise<{ ok?: boolean; error?: string }>;
@@ -207,7 +208,7 @@ declare global {
       };
       codex: {
         log: (label: string, data: unknown) => void;
-        start: (options: { cwd: string; model?: string; approvalPolicy?: string; personality?: string; collaborationMode?: CollaborationMode }) =>
+        start: (options: { cwd: string; model?: string; approvalPolicy?: string; sandbox?: "read-only" | "workspace-write" | "danger-full-access"; personality?: string; collaborationMode?: CollaborationMode }) =>
           Promise<{
             sessionId?: string;
             threadId?: string;
@@ -238,7 +239,7 @@ declare global {
         listModels: () => Promise<{ models: CodexModel[]; error?: string }>;
         authStatus: () => Promise<{ account: unknown; requiresOpenaiAuth: boolean }>;
         login: (sessionId: string, type: "apiKey" | "chatgpt", apiKey?: string) => Promise<unknown>;
-        resume: (options: { cwd: string; threadId: string; model?: string; approvalPolicy?: string }) =>
+        resume: (options: { cwd: string; threadId: string; model?: string; approvalPolicy?: string; sandbox?: "read-only" | "workspace-write" | "danger-full-access" }) =>
           Promise<{ sessionId?: string; threadId?: string; error?: string }>;
         setModel: (sessionId: string, model: string) => Promise<{ error?: string }>;
         version: () => Promise<{ version?: string; error?: string }>;

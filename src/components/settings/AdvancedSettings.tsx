@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useEffect } from "react";
 import { Server } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingRow, selectClass } from "@/components/settings/shared";
 import type { AppSettings } from "@/types/ui";
@@ -20,12 +21,14 @@ export const AdvancedSettings = memo(function AdvancedSettings({
   const [codexClientName, setCodexClientName] = useState("Harnss");
   const [codexBinarySource, setCodexBinarySource] = useState<"auto" | "managed" | "custom">("auto");
   const [codexCustomBinaryPath, setCodexCustomBinaryPath] = useState("");
+  const [showDevFillInChatTitleBar, setShowDevFillInChatTitleBar] = useState(false);
 
   useEffect(() => {
     if (appSettings) {
       setCodexClientName(appSettings.codexClientName || "Harnss");
       setCodexBinarySource(appSettings.codexBinarySource || "auto");
       setCodexCustomBinaryPath(appSettings.codexCustomBinaryPath || "");
+      setShowDevFillInChatTitleBar(!!appSettings.showDevFillInChatTitleBar);
     }
   }, [appSettings]);
 
@@ -56,6 +59,16 @@ export const AdvancedSettings = memo(function AdvancedSettings({
     },
     [onUpdateAppSettings],
   );
+
+  const handleDevFillToggle = useCallback(
+    async (checked: boolean) => {
+      setShowDevFillInChatTitleBar(checked);
+      await onUpdateAppSettings({ showDevFillInChatTitleBar: checked });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const canConfigureDevFill = section === "advanced" && import.meta.env.DEV;
 
   return (
     <div className="flex h-full flex-col">
@@ -98,6 +111,18 @@ export const AdvancedSettings = memo(function AdvancedSettings({
                   spellCheck={false}
                   className="h-8 w-40 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
                   placeholder="Harnss"
+                />
+              </SettingRow>
+            )}
+
+            {canConfigureDevFill && (
+              <SettingRow
+                label="Show Dev Fill in chat title bar"
+                description="Enable developer seeding actions in the active chat title bar. Hidden by default."
+              >
+                <Switch
+                  checked={showDevFillInChatTitleBar}
+                  onCheckedChange={handleDevFillToggle}
                 />
               </SettingRow>
             )}

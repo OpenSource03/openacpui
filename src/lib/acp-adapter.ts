@@ -158,6 +158,22 @@ export function normalizeToolResult(rawOutput: unknown, content?: unknown[]): Re
         result.newString = item.newText;
       }
     }
+    const textContent = content
+      .map(extractACPContentText)
+      .filter((text): text is string => !!text)
+      .join("\n");
+    if (textContent && typeof result.content !== "string") {
+      result.content = textContent;
+    }
+  }
+
+  if (typeof result.output === "string" && typeof result.content !== "string") {
+    result.content = result.output;
+  }
+
+  if (typeof result.filePath !== "string" || !result.filePath) {
+    const parsedPath = extractEditedFilePath(result);
+    if (parsedPath) result.filePath = parsedPath;
   }
 
   // ACP agents put file contents / search results in `content` but renderers check `stdout`.
@@ -171,6 +187,33 @@ export function normalizeToolResult(rawOutput: unknown, content?: unknown[]): Re
 
 function isDiffContent(item: unknown): item is { type: "diff"; path: string; oldText: string; newText: string } {
   return typeof item === "object" && item !== null && (item as Record<string, unknown>).type === "diff";
+}
+
+function extractACPContentText(item: unknown): string | null {
+  if (typeof item === "string") return item;
+  if (typeof item !== "object" || item === null) return null;
+  const record = item as Record<string, unknown>;
+  if (typeof record.text === "string") return record.text;
+  if (typeof record.content === "string") return record.content;
+  if (typeof record.content === "object" && record.content !== null) {
+    const nested = record.content as Record<string, unknown>;
+    if (typeof nested.text === "string") return nested.text;
+  }
+  return null;
+}
+
+function extractEditedFilePath(result: Record<string, unknown>): string | null {
+  if (typeof result.content === "string") {
+    const modifiedMatch = result.content.match(/Modified\s+\d+\s+file\(s\):\s+([^\n]+)/i);
+    if (modifiedMatch?.[1]) return modifiedMatch[1].trim();
+  }
+
+  if (typeof result.detailedContent === "string") {
+    const diffMatch = result.detailedContent.match(/^diff --git a\/(.+?) b\/(.+)$/m);
+    if (diffMatch?.[2]) return diffMatch[2].trim();
+  }
+
+  return null;
 }
 
 /**
@@ -218,6 +261,8 @@ export function deriveToolName(
     // ACP "other" kind — route based on title (rg → Grep, find/fd → Glob)
     if (kind === "other") {
       const titleLower = title.toLowerCase();
+      if (titleLower === "task") return "Task";
+      if (titleLower === "agent") return "Agent";
       if (titleLower === "rg" || titleLower === "ripgrep") return "Grep";
       if (titleLower === "find" || titleLower === "fd") return "Glob";
       return title;

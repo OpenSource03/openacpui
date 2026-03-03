@@ -53,6 +53,11 @@ function isSupportedServerRequestMethod(method: string): boolean {
   return SUPPORTED_SERVER_REQUESTS.has(method);
 }
 
+/** Expose the currently selected model for utility prompts (title/commit generation). */
+export function getCodexSessionModel(internalId: string): string | undefined {
+  return codexSessions.get(internalId)?.model;
+}
+
 function getAppServerClientInfo(): { name: string; title: string; version: string } {
   const clientName = getAppSetting("codexClientName") || "Harnss";
   return {

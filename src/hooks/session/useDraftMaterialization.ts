@@ -5,6 +5,7 @@ import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
   getCodexApprovalPolicy,
+  getCodexSandboxMode,
   normalizeCodexModels,
   pickCodexModel,
 } from "./types";
@@ -327,10 +328,12 @@ export function useDraftMaterialization({
 
         const draftModel = pickCodexModel(options.model, codexRawModelsRef.current);
         const approvalPolicy = getCodexApprovalPolicy(options);
+        const sandbox = getCodexSandboxMode(options);
         const result = await window.claude.codex.start({
           cwd: getProjectCwd(project),
           ...(draftModel ? { model: draftModel } : {}),
           ...(approvalPolicy ? { approvalPolicy } : {}),
+          ...(sandbox ? { sandbox } : {}),
         });
 
         if (result.error || !result.sessionId) {

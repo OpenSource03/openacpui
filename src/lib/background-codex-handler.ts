@@ -5,10 +5,6 @@ import { codexItemToToolName, codexItemToToolInput, codexItemToToolResult, codex
 import { ensureACPStreamingMsg, finalizeACPStreamingMsg } from "./background-acp-handler";
 import type { PermissionRequest } from "../types";
 
-function nextId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
-}
-
 /**
  * Process a Codex notification for a background session, mutating `state` in place.
  * Returns `{ processingChanged, isProcessing, permissionRequest? }` when the caller
@@ -78,18 +74,20 @@ export function handleCodexEvent(
           if (target?.thinking) target.thinkingComplete = true;
         }
       } else if (item.type === "plan") {
-        // Finalize plan: mark codex-plan-stream as completed, synthesize ExitPlanMode prompt
+        // Finalize plan: mark this turn's codex-plan-stream-* as completed,
+        // synthesize ExitPlanMode prompt
         finalizeACPStreamingMsg(state);
         const finalText = (item as Record<string, unknown>).text as string | undefined;
         const planContent = finalText ?? state.codexPlanText;
         if (planContent) {
-          const existing = state.messages.find(m => m.id === "codex-plan-stream");
+          const planStreamMsgId = `codex-plan-stream-${state.codexPlanTurnCounter}`;
+          const existing = state.messages.find(m => m.id === planStreamMsgId);
           if (existing) {
             existing.toolInput = { plan: planContent };
             existing.toolResult = { type: "plan" };
           } else {
             state.messages.push({
-              id: nextId("plan"),
+              id: planStreamMsgId,
               role: "tool_call",
               content: "",
               toolName: "ExitPlanMode",
@@ -187,13 +185,14 @@ export function handleCodexEvent(
       if (!delta) break;
       state.codexPlanText += delta;
       const planText = state.codexPlanText;
-      const existing = state.messages.find(m => m.id === "codex-plan-stream");
+      const planMsgId = `codex-plan-stream-${state.codexPlanTurnCounter}`;
+      const existing = state.messages.find(m => m.id === planMsgId);
       if (existing) {
         existing.toolInput = { plan: planText };
       } else {
         finalizeACPStreamingMsg(state);
         state.messages.push({
-          id: "codex-plan-stream",
+          id: planMsgId,
           role: "tool_call",
           content: "",
           toolName: "ExitPlanMode",

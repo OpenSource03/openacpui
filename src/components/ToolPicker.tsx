@@ -110,7 +110,7 @@ export const ToolPicker = memo(function ToolPicker({ activeTools, onToggle, avai
   );
 
   return (
-    <div className="island relative flex h-full w-14 shrink-0 flex-col items-center rounded-lg bg-background pt-3 pb-3 gap-2">
+    <div className="tool-picker island relative flex h-full w-14 shrink-0 flex-col items-center gap-2 rounded-lg bg-background pt-3 pb-3">
       <div className="drag-region absolute inset-x-0 top-0 h-2" />
       {visibleContextual.length > 0 && (
         <>
@@ -123,7 +123,7 @@ export const ToolPicker = memo(function ToolPicker({ activeTools, onToggle, avai
                   <button
                     type="button"
                     onClick={() => onToggle(tool.id)}
-                    className={`relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 cursor-pointer ${
+                    className={`tool-picker-btn relative mx-auto flex h-11 w-11 items-center justify-center rounded-xl p-0 transition-all duration-200 cursor-pointer ${
                       isActive
                         ? "bg-foreground/10 text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] ring-1 ring-foreground/[0.08]"
                         : "text-foreground/40 hover:text-foreground/70 hover:bg-foreground/[0.05]"
@@ -157,7 +157,7 @@ export const ToolPicker = memo(function ToolPicker({ activeTools, onToggle, avai
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, tool.id)}
                 onDragEnd={handleDragEnd}
-                className={`relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 cursor-pointer ${
+                className={`tool-picker-btn relative mx-auto flex h-11 w-11 items-center justify-center rounded-xl p-0 transition-all duration-200 cursor-pointer ${
                   isActive
                     ? "bg-foreground/10 text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] ring-1 ring-foreground/[0.08]"
                     : "text-foreground/40 hover:text-foreground/70 hover:bg-foreground/[0.05]"
@@ -175,7 +175,7 @@ export const ToolPicker = memo(function ToolPicker({ activeTools, onToggle, avai
 
       {/* Open project in preferred editor — pushed to the bottom */}
       {projectPath && (
-        <div className="mt-auto">
+        <div className="mt-auto flex w-full justify-center">
           {/* Only allow closing via onOpenChange — opening is handled by our contextMenu handler
               so that left-click goes straight to the editor without showing the menu */}
           <DropdownMenu open={editorMenuOpen} onOpenChange={(open) => { if (!open) setEditorMenuOpen(false); }}>
@@ -186,7 +186,7 @@ export const ToolPicker = memo(function ToolPicker({ activeTools, onToggle, avai
                     type="button"
                     onClick={handleOpenInEditor}
                     onContextMenu={handleEditorContextMenu}
-                    className="flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 cursor-pointer
+                    className="tool-picker-btn mx-auto flex h-11 w-11 items-center justify-center rounded-xl p-0 transition-all duration-200 cursor-pointer
                       text-foreground/40 hover:text-foreground/70 hover:bg-foreground/[0.05]"
                   >
                     <SquareArrowOutUpRight className="h-5 w-5" strokeWidth={1.5} />

@@ -5,6 +5,7 @@ import {
   normalizeToolResult as acpNormalizeToolResult,
   deriveToolName,
 } from "./acp-adapter";
+import { extractTaskSubagentSteps, getTaskStatus, isTaskToolName } from "./acp-task-adapter";
 
 // ── Shared ACP streaming helpers (also used by Codex handler) ──
 
@@ -91,14 +92,18 @@ export function handleACPEvent(state: InternalState, event: ACPSessionEvent): vo
         // Handle pre-completed tools (tool arrives with status already set)
         const isAlreadyDone = update.status === "completed" || update.status === "failed";
         const initialResult = isAlreadyDone ? acpNormalizeToolResult(update.rawOutput, update.content) : undefined;
+        const toolName = deriveToolName(update.title, update.kind, update.rawInput);
+        const isTask = isTaskToolName(toolName);
+        const taskSteps = isTask ? extractTaskSubagentSteps(initialResult) : undefined;
         state.messages.push({
           id: msgId,
           role: "tool_call",
           content: "",
-          toolName: deriveToolName(update.title, update.kind, update.rawInput),
+          toolName,
           toolInput: acpNormalizeToolInput(update.rawInput, update.kind, update.locations),
           ...(initialResult ? { toolResult: initialResult } : {}),
           ...(update.status === "failed" ? { toolError: true } : {}),
+          ...(isTask ? { subagentStatus: getTaskStatus(update.status), subagentSteps: taskSteps ?? [] } : {}),
           timestamp: Date.now(),
         });
       }
@@ -111,6 +116,11 @@ export function handleACPEvent(state: InternalState, event: ACPSessionEvent): vo
         const result = acpNormalizeToolResult(update.rawOutput, update.content);
         if (result) msg.toolResult = result;
         if (update.status === "failed") msg.toolError = true;
+        if (isTaskToolName(msg.toolName)) {
+          msg.subagentStatus = getTaskStatus(update.status);
+          const taskSteps = extractTaskSubagentSteps(result);
+          if (taskSteps) msg.subagentSteps = taskSteps;
+        }
       }
       break;
     }
