@@ -1,0 +1,125 @@
+name: Bug Report
+description: Something isn't working correctly
+title: "[Bug]: "
+labels: ["bug", "status: needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the form below as completely as possible — the more detail you provide, the faster we can diagnose and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe what went wrong...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the behavior.
+      placeholder: |
+        1. Open a session with engine '...'
+        2. Send the message '...'
+        3. Click on '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: Describe what you expected...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include any error messages or screenshots.
+      placeholder: Describe what actually happened...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: AI Engine
+      description: Which engine were you using when the bug occurred?
+      multiple: true
+      options:
+        - Claude (Anthropic SDK)
+        - ACP (Agent Client Protocol)
+        - Codex
+        - Not engine-specific
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: Which operating system are you using?
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Harnss Version
+      description: Found in the title bar or About screen. (e.g. `0.9.0`)
+      placeholder: "0.x.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Harnss is affected? (select all that apply)
+      multiple: true
+      options:
+        - Chat / Messaging
+        - Tool Rendering
+        - MCP Tools
+        - Terminal
+        - Git Panel
+        - Browser Panel
+        - File Panel
+        - Session Management
+        - Settings
+        - Sidebar / Navigation
+        - Background Agents
+        - UI / Layout
+        - Build / Installation
+        - Other
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Output
+      description: |
+        Paste any relevant logs here. You can open DevTools via **Help → Toggle DevTools** and copy from the Console tab.
+      render: text
+      placeholder: Paste logs here...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or information that might help diagnose the issue.
+      placeholder: Anything else to share?

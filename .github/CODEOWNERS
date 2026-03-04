@@ -1,0 +1,17 @@
+# CODEOWNERS — reviewers are automatically requested for PRs that touch these paths.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global fallback — all files
+* @dejanzegarac
+
+# Shared types (high-impact, touch carefully)
+/shared/ @dejanzegarac
+
+# Electron main process / IPC
+/electron/ @dejanzegarac
+
+# Renderer source
+/src/ @dejanzegarac
+
+# CI/CD workflows
+/.github/workflows/ @dejanzegarac

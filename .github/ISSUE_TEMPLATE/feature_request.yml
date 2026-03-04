@@ -1,0 +1,102 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+title: "[Feature]: "
+labels: ["enhancement", "status: needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea that would make Harnss better? We'd love to hear it! Please fill out the form below with as much detail as you can.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: Is your feature request related to a problem? Describe it clearly.
+      placeholder: |
+        I'm always frustrated when...
+        There's currently no way to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the feature you'd like to see. Be as specific as possible.
+      placeholder: |
+        I'd like a button/panel/setting that...
+        When I do X, Harnss should...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative approaches or workarounds?
+      placeholder: I've tried doing X, but it doesn't work because...
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Harnss does this feature relate to? (select all that apply)
+      multiple: true
+      options:
+        - Chat / Messaging
+        - Tool Rendering
+        - MCP Tools / Integrations
+        - Terminal
+        - Git Panel
+        - Browser Panel
+        - File Panel
+        - Session Management
+        - Settings
+        - Sidebar / Navigation
+        - Background Agents
+        - UI / Layout / Design
+        - Build / Installation
+        - New Engine Support
+        - Other
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Relevant Engine
+      description: Is this feature specific to a particular AI engine?
+      multiple: true
+      options:
+        - Claude (Anthropic SDK)
+        - ACP (Agent Client Protocol)
+        - Codex
+        - All engines
+        - Not engine-specific
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How important is this to you?
+      options:
+        - Nice to have
+        - Would significantly improve my workflow
+        - Blocking my use of Harnss
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be interested in contributing this feature?
+      options:
+        - label: I'd be willing to submit a PR for this feature
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context, mockups, screenshots, or examples that would help illustrate the feature.
+      placeholder: Anything else to share?
