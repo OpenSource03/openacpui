@@ -11,6 +11,7 @@ interface Project {
   path: string;
   createdAt: number;
   spaceId?: string;
+  jiraBoardUrl?: string;
 }
 
 function getProjectsFilePath(): string {
@@ -163,6 +164,25 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { ok: true };
     } catch (err) {
       log("PROJECTS:UPDATE_SPACE_ERR", (err as Error).message);
+      return { error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle("projects:update-jira-board", (_event, projectId: string, jiraBoardUrl?: string) => {
+    try {
+      const nextUrl = typeof jiraBoardUrl === "string" ? jiraBoardUrl.trim() : "";
+      const projects = readProjects().map((p) => {
+        if (p.id !== projectId) return p;
+        if (!nextUrl) {
+          const { jiraBoardUrl: _jiraBoardUrl, ...rest } = p;
+          return rest;
+        }
+        return { ...p, jiraBoardUrl: nextUrl };
+      });
+      writeProjects(projects);
+      return { ok: true };
+    } catch (err) {
+      log("PROJECTS:UPDATE_JIRA_BOARD_ERR", (err as Error).message);
       return { error: (err as Error).message };
     }
   });

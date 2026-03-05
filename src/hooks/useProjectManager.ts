@@ -60,6 +60,17 @@ export function useProjectManager() {
     });
   }, []);
 
+  const updateProjectJiraBoard = useCallback(async (id: string, jiraBoardUrl?: string) => {
+    await window.claude.projects.updateJiraBoard(id, jiraBoardUrl);
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? { ...p, ...(jiraBoardUrl ? { jiraBoardUrl } : { jiraBoardUrl: undefined }) }
+          : p,
+      ),
+    );
+  }, []);
+
   return {
     projects,
     createProject,
@@ -68,5 +79,6 @@ export function useProjectManager() {
     renameProject,
     updateProjectSpace,
     reorderProject,
+    updateProjectJiraBoard,
   };
 }

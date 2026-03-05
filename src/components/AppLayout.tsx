@@ -53,6 +53,7 @@ export function AppLayout() {
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
     handleViewTurnChanges, handleCreateSpace, handleEditSpace,
     handleDeleteSpace, handleSaveSpace, handleMoveProjectToSpace,
+    handleOpenJiraBoard, handleConfigureJiraBoard, handleAuthenticateJira, handleStartJiraIssueTask,
     handleSeedDevExampleSpaceData,
   } = o;
 
@@ -179,6 +180,10 @@ export function AppLayout() {
         onNavigateToMessage={handleNavigateToMessage}
         onMoveProjectToSpace={handleMoveProjectToSpace}
         onReorderProject={projectManager.reorderProject}
+        onOpenJiraBoard={handleOpenJiraBoard}
+        onConfigureJiraBoard={handleConfigureJiraBoard}
+        onAuthenticateJira={handleAuthenticateJira}
+        onStartJiraIssueTask={handleStartJiraIssueTask}
         spaces={spaceManager.spaces}
         activeSpaceId={spaceManager.activeSpaceId}
         onSelectSpace={spaceManager.setActiveSpaceId}

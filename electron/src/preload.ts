@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld("claude", {
     rename: (projectId: string, name: string) => ipcRenderer.invoke("projects:rename", projectId, name),
     updateSpace: (projectId: string, spaceId: string) => ipcRenderer.invoke("projects:update-space", projectId, spaceId),
     reorder: (projectId: string, targetProjectId: string) => ipcRenderer.invoke("projects:reorder", projectId, targetProjectId),
+    updateJiraBoard: (projectId: string, jiraBoardUrl?: string) => ipcRenderer.invoke("projects:update-jira-board", projectId, jiraBoardUrl),
   },
   sessions: {
     save: (data: unknown) => ipcRenderer.invoke("sessions:save", data),

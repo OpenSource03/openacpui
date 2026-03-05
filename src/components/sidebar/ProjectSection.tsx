@@ -9,6 +9,7 @@ import {
   ChevronDown,
   History,
   ArrowRightLeft,
+  PanelsTopLeft,
 } from "lucide-react";
 import { resolveLucideIcon } from "@/lib/icon-utils";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,10 @@ export function ProjectSection({
   otherSpaces,
   onMoveToSpace,
   onReorderProject,
+  onOpenJiraBoard,
+  onConfigureJiraBoard,
+  onAuthenticateJira,
+  onStartJiraIssueTask,
   defaultChatLimit,
 }: {
   islandLayout: boolean;
@@ -100,6 +105,10 @@ export function ProjectSection({
   otherSpaces: Space[];
   onMoveToSpace: (spaceId: string) => void;
   onReorderProject: (targetProjectId: string) => void;
+  onOpenJiraBoard: () => void;
+  onConfigureJiraBoard: () => void;
+  onAuthenticateJira: () => void;
+  onStartJiraIssueTask: () => void;
   defaultChatLimit: number;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -205,6 +214,16 @@ export function ProjectSection({
           <SquarePen className="h-3.5 w-3.5" />
         </Button>
 
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0 text-sidebar-foreground/50 hover:text-sidebar-foreground hover:!bg-black/10 dark:hover:!bg-sidebar-accent/50 opacity-0 transition-opacity group-hover:opacity-100"
+          onClick={onOpenJiraBoard}
+          title={project.jiraBoardUrl ? "Open Jira board" : "Configure Jira board"}
+        >
+          <PanelsTopLeft className="h-3.5 w-3.5" />
+        </Button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -224,6 +243,19 @@ export function ProjectSection({
             >
               <Pencil className="me-2 h-3.5 w-3.5" />
               Rename
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onConfigureJiraBoard}>
+              <PanelsTopLeft className="me-2 h-3.5 w-3.5" />
+              {project.jiraBoardUrl ? "Edit Jira board" : "Set Jira board"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onAuthenticateJira}>
+              <PanelsTopLeft className="me-2 h-3.5 w-3.5" />
+              Authenticate Jira
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onStartJiraIssueTask}>
+              <PanelsTopLeft className="me-2 h-3.5 w-3.5" />
+              Start task from Jira issue
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuSub>

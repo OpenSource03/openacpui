@@ -219,6 +219,80 @@ export function useAppOrchestrator() {
     [manager.createSession, settings.getModelForEngine, settings.permissionMode, settings.planMode, settings.thinking, selectedAgent],
   );
 
+  const handleConfigureJiraBoard = useCallback(async (projectId: string) => {
+    const project = projectManager.projects.find((p) => p.id === projectId);
+    const candidate = window.prompt(
+      "Set Jira board URL for this project (leave empty to clear)",
+      project?.jiraBoardUrl ?? "",
+    );
+    if (candidate === null) return;
+    const trimmed = candidate.trim();
+    if (!trimmed) {
+      await projectManager.updateProjectJiraBoard(projectId, undefined);
+      return;
+    }
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new Error("invalid_protocol");
+      }
+      await projectManager.updateProjectJiraBoard(projectId, parsed.toString());
+    } catch {
+      window.alert("Please enter a valid Jira board URL.");
+    }
+  }, [projectManager.projects, projectManager.updateProjectJiraBoard]);
+
+  const handleOpenJiraBoard = useCallback((projectId: string) => {
+    const project = projectManager.projects.find((p) => p.id === projectId);
+    if (!project?.jiraBoardUrl) {
+      void handleConfigureJiraBoard(projectId);
+      return;
+    }
+    try {
+      const parsed = new URL(project.jiraBoardUrl);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new Error("invalid_protocol");
+      }
+      void window.claude.openExternal(parsed.toString());
+    } catch {
+      window.alert("This Jira board URL is invalid. Please set it again.");
+    }
+  }, [projectManager.projects, handleConfigureJiraBoard]);
+
+  const handleAuthenticateJira = useCallback(async (projectId: string) => {
+    const servers = await window.claude.mcp.list(projectId);
+    const atlassian = servers.find((s) =>
+      s.transport !== "stdio" &&
+      typeof s.url === "string" &&
+      (
+        /atlassian|jira/i.test(s.name) ||
+        /atlassian/i.test(s.url)
+      ),
+    );
+    if (!atlassian?.url) {
+      window.alert("No Atlassian MCP server found for this project. Add it in MCP settings first.");
+      return;
+    }
+    const result = await window.claude.mcp.authenticate(atlassian.name, atlassian.url);
+    if (!result.ok) {
+      window.alert(result.error ?? "Jira authentication failed.");
+    }
+  }, []);
+
+  const handleStartJiraIssueTask = useCallback(async (projectId: string) => {
+    const project = projectManager.projects.find((p) => p.id === projectId);
+    const issueKey = window.prompt("Enter Jira issue key (example: PROJ-123)");
+    const trimmedKey = issueKey?.trim();
+    if (!trimmedKey) return;
+    await handleNewChat(projectId);
+    const boardHint = project?.jiraBoardUrl
+      ? `Project Jira board: ${project.jiraBoardUrl}\n`
+      : "";
+    await manager.send(
+      `${boardHint}Start implementation for Jira issue ${trimmedKey}. First fetch the issue details from Jira, then create and execute a task plan in this repository.`,
+    );
+  }, [projectManager.projects, handleNewChat, manager.send]);
+
   const handleSend = useCallback(
     async (text: string, images?: ImageAttachment[], displayText?: string) => {
       // If the selected agent/engine differs from the current session, start a new session first
@@ -741,5 +815,9 @@ export function useAppOrchestrator() {
     handleDeleteSpace,
     handleSaveSpace,
     handleMoveProjectToSpace,
+    handleOpenJiraBoard,
+    handleConfigureJiraBoard,
+    handleAuthenticateJira,
+    handleStartJiraIssueTask,
   };
 }

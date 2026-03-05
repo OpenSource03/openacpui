@@ -114,6 +114,7 @@ declare global {
         rename: (projectId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
         updateSpace: (projectId: string, spaceId: string) => Promise<{ ok?: boolean; error?: string }>;
         reorder: (projectId: string, targetProjectId: string) => Promise<{ ok?: boolean; error?: string }>;
+        updateJiraBoard: (projectId: string, jiraBoardUrl?: string) => Promise<{ ok?: boolean; error?: string }>;
       };
       sessions: {
         save: (data: PersistedSession) => Promise<{ ok?: boolean; error?: string }>;

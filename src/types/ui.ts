@@ -165,6 +165,7 @@ export interface Project {
   path: string;
   createdAt: number;
   spaceId?: string;
+  jiraBoardUrl?: string;
 }
 
 /** Fields shared between live and persisted session representations. */

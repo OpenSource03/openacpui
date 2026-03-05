@@ -27,6 +27,10 @@ interface AppSidebarProps {
   onNavigateToMessage: (sessionId: string, messageId: string) => void;
   onMoveProjectToSpace: (projectId: string, spaceId: string) => void;
   onReorderProject: (projectId: string, targetProjectId: string) => void;
+  onOpenJiraBoard: (projectId: string) => void;
+  onConfigureJiraBoard: (projectId: string) => void;
+  onAuthenticateJira: (projectId: string) => void;
+  onStartJiraIssueTask: (projectId: string) => void;
   spaces: Space[];
   activeSpaceId: string;
   onSelectSpace: (id: string) => void;
@@ -54,6 +58,10 @@ export const AppSidebar = memo(function AppSidebar({
   onNavigateToMessage,
   onMoveProjectToSpace,
   onReorderProject,
+  onOpenJiraBoard,
+  onConfigureJiraBoard,
+  onAuthenticateJira,
+  onStartJiraIssueTask,
   spaces,
   activeSpaceId,
   onSelectSpace,
@@ -222,6 +230,10 @@ export const AppSidebar = memo(function AppSidebar({
                   onReorderProject={(targetId) =>
                     onReorderProject(project.id, targetId)
                   }
+                  onOpenJiraBoard={() => onOpenJiraBoard(project.id)}
+                  onConfigureJiraBoard={() => onConfigureJiraBoard(project.id)}
+                  onAuthenticateJira={() => onAuthenticateJira(project.id)}
+                  onStartJiraIssueTask={() => onStartJiraIssueTask(project.id)}
                   defaultChatLimit={defaultChatLimit}
                 />
               );
