@@ -5,6 +5,6 @@ logs/
 *.log
 .DS_Store
 docs/
-release/
+/release/
 .claude/agent-memory/
 frontend/
