@@ -171,11 +171,18 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("projects:update-jira-board", (_event, projectId: string, jiraBoardUrl?: string) => {
     try {
       const nextUrl = typeof jiraBoardUrl === "string" ? jiraBoardUrl.trim() : "";
+      if (nextUrl) {
+        const parsed = new URL(nextUrl);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          return { error: "Invalid URL protocol" };
+        }
+      }
       const projects = readProjects().map((p) => {
         if (p.id !== projectId) return p;
         if (!nextUrl) {
-          const { jiraBoardUrl: _jiraBoardUrl, ...rest } = p;
-          return rest;
+          const nextProject = { ...p };
+          delete nextProject.jiraBoardUrl;
+          return nextProject;
         }
         return { ...p, jiraBoardUrl: nextUrl };
       });

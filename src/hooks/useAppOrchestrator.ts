@@ -22,6 +22,22 @@ import { COLUMN_TOOL_IDS, type ToolId } from "@/components/ToolPicker";
 import type { TodoItem, ImageAttachment, Space, SpaceColor, InstalledAgent, AcpPermissionBehavior, EngineId } from "@/types";
 import type { NotificationSettings } from "@/types/ui";
 
+function normalizeHttpUrl(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildJiraIssueTaskPrompt(issueKey: string, boardUrl?: string | null): string {
+  const boardHint = boardUrl ? `Project Jira board: ${boardUrl}\n` : "";
+  return `${boardHint}Start implementation for Jira issue ${issueKey}. First fetch the issue details from Jira, then create and execute a task plan in this repository.`;
+}
+
 export function useAppOrchestrator() {
   const sidebar = useSidebar();
   const projectManager = useProjectManager();
@@ -231,15 +247,12 @@ export function useAppOrchestrator() {
       await projectManager.updateProjectJiraBoard(projectId, undefined);
       return;
     }
-    try {
-      const parsed = new URL(trimmed);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        throw new Error("invalid_protocol");
-      }
-      await projectManager.updateProjectJiraBoard(projectId, parsed.toString());
-    } catch {
+    const normalized = normalizeHttpUrl(trimmed);
+    if (!normalized) {
       window.alert("Please enter a valid Jira board URL.");
+      return;
     }
+    await projectManager.updateProjectJiraBoard(projectId, normalized);
   }, [projectManager.projects, projectManager.updateProjectJiraBoard]);
 
   const handleOpenJiraBoard = useCallback((projectId: string) => {
@@ -248,21 +261,17 @@ export function useAppOrchestrator() {
       void handleConfigureJiraBoard(projectId);
       return;
     }
-    try {
-      const parsed = new URL(project.jiraBoardUrl);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        throw new Error("invalid_protocol");
-      }
-      void window.claude.openExternal(parsed.toString());
-    } catch {
+    const normalized = normalizeHttpUrl(project.jiraBoardUrl);
+    if (!normalized) {
       window.alert("This Jira board URL is invalid. Please set it again.");
+      return;
     }
+    void window.claude.openExternal(normalized);
   }, [projectManager.projects, handleConfigureJiraBoard]);
 
   const handleAuthenticateJira = useCallback(async (projectId: string) => {
     const servers = await window.claude.mcp.list(projectId);
     const atlassian = servers.find((s) =>
-      s.transport !== "stdio" &&
       typeof s.url === "string" &&
       (
         /atlassian|jira/i.test(s.name) ||
@@ -284,13 +293,14 @@ export function useAppOrchestrator() {
     const issueKey = window.prompt("Enter Jira issue key (example: PROJ-123)");
     const trimmedKey = issueKey?.trim();
     if (!trimmedKey) return;
+    // Jira key format: <project>-<number>, e.g. PROJ-123 or proj_abc-42.
+    if (!/^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(trimmedKey)) {
+      window.alert("Invalid Jira issue key. Use format like PROJ-123.");
+      return;
+    }
     await handleNewChat(projectId);
-    const boardHint = project?.jiraBoardUrl
-      ? `Project Jira board: ${project.jiraBoardUrl}\n`
-      : "";
-    await manager.send(
-      `${boardHint}Start implementation for Jira issue ${trimmedKey}. First fetch the issue details from Jira, then create and execute a task plan in this repository.`,
-    );
+    const boardUrl = normalizeHttpUrl(project?.jiraBoardUrl);
+    await manager.send(buildJiraIssueTaskPrompt(trimmedKey, boardUrl));
   }, [projectManager.projects, handleNewChat, manager.send]);
 
   const handleSend = useCallback(

@@ -65,7 +65,7 @@ export function useProjectManager() {
     setProjects((prev) =>
       prev.map((p) =>
         p.id === id
-          ? { ...p, ...(jiraBoardUrl ? { jiraBoardUrl } : { jiraBoardUrl: undefined }) }
+          ? { ...p, jiraBoardUrl }
           : p,
       ),
     );
