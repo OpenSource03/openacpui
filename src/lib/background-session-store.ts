@@ -3,6 +3,7 @@ import type {
   UIMessage,
   SessionInfo,
   PermissionRequest,
+  SlashCommand,
 } from "../types";
 import type { ACPSessionEvent, ACPPermissionEvent } from "../types/acp";
 import type { CodexSessionEvent } from "../types/codex";
@@ -19,6 +20,8 @@ export interface BackgroundSessionState {
   pendingPermission: PermissionRequest | null;
   /** Raw ACP permission event — needed for optionId lookup when responding */
   rawAcpPermission: ACPPermissionEvent | null;
+  /** Slash commands available for this session (ACP agents update dynamically) */
+  slashCommands: SlashCommand[];
 }
 
 export interface InternalState extends BackgroundSessionState {
@@ -28,6 +31,8 @@ export interface InternalState extends BackgroundSessionState {
   codexPlanText: string;
   /** Per-turn counter for unique plan card message IDs (Codex only). */
   codexPlanTurnCounter: number;
+  /** Active ACP task/subagent — inner tool_calls and text are routed into its card. */
+  activeTask: { msgId: string; toolCallId: string; hasInnerTools: boolean; textBuffer: string } | null;
 }
 
 /** Callback fired when a background session receives a permission request */
@@ -53,10 +58,12 @@ export class BackgroundSessionStore {
         totalCost: 0,
         pendingPermission: null,
         rawAcpPermission: null,
+        slashCommands: [],
         parentToolMap: new Map(),
         currentStreamingMsgId: null,
         codexPlanText: "",
         codexPlanTurnCounter: 0,
+        activeTask: null,
       };
       this.sessions.set(sessionId, state);
     }
@@ -129,6 +136,7 @@ export class BackgroundSessionStore {
       totalCost: state.totalCost,
       pendingPermission: state.pendingPermission ? { ...state.pendingPermission } : null,
       rawAcpPermission: state.rawAcpPermission,
+      slashCommands: state.slashCommands ?? [],
     };
   }
 
@@ -145,6 +153,7 @@ export class BackgroundSessionStore {
       totalCost: state.totalCost,
       pendingPermission: state.pendingPermission,
       rawAcpPermission: state.rawAcpPermission,
+      slashCommands: state.slashCommands ?? [],
     };
   }
 
@@ -209,10 +218,12 @@ export class BackgroundSessionStore {
       totalCost: state.totalCost,
       pendingPermission: state.pendingPermission ? { ...state.pendingPermission } : null,
       rawAcpPermission: state.rawAcpPermission ?? null,
+      slashCommands: state.slashCommands ?? [],
       parentToolMap,
       currentStreamingMsgId: streamingMsg?.id ?? null,
       codexPlanText,
       codexPlanTurnCounter,
+      activeTask: null,
     });
   }
 

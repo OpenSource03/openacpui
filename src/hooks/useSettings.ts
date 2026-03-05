@@ -67,7 +67,7 @@ const DEFAULT_ENGINE_MODELS: Record<EngineId, string> = {
   codex: "",
 };
 
-const DEFAULT_TOOL_ORDER: ToolId[] = ["terminal", "git", "browser", "files", "mcp", "changes"];
+const DEFAULT_TOOL_ORDER: ToolId[] = ["terminal", "git", "browser", "files", "project-files", "mcp", "changes"];
 
 // ── Hook ──
 

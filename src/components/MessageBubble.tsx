@@ -1,5 +1,5 @@
 import { memo, useState, useMemo, createContext, useContext, type ReactNode } from "react";
-import { AlertCircle, Clock, Crosshair, File, Folder, Info, RotateCcw, Undo2 } from "lucide-react";
+import { AlertCircle, Clock, Crosshair, File, Folder, Info, RotateCcw, Send, Undo2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -156,13 +156,25 @@ interface MessageBubbleProps {
   message: UIMessage;
   showThinking?: boolean;
   isContinuation?: boolean;
+  /** True when this queued message is the prioritized "send next" item */
+  isSendNextQueued?: boolean;
   /** Called when user clicks "Revert files only" — restores files to state before this message */
   onRevert?: (checkpointId: string) => void;
   /** Called when user clicks "Revert files + chat" — restores files AND truncates conversation */
   onFullRevert?: (checkpointId: string) => void;
+  /** Called when user clicks "Send next" on a queued user message */
+  onSendQueuedNow?: (messageId: string) => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, showThinking = true, isContinuation, onRevert, onFullRevert }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({
+  message,
+  showThinking = true,
+  isContinuation,
+  isSendNextQueued = false,
+  onRevert,
+  onFullRevert,
+  onSendQueuedNow,
+}: MessageBubbleProps) {
   // All hooks must be called before any early returns (Rules of Hooks)
   const isUser = message.role === "user";
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
@@ -202,7 +214,8 @@ export const MessageBubble = memo(function MessageBubble({ message, showThinking
             <TooltipTrigger asChild>
               <div className={cn(
                 "rounded-2xl rounded-tr-sm bg-foreground/[0.06] px-3.5 py-2 text-sm text-foreground wrap-break-word whitespace-pre-wrap",
-                message.isQueued && "border border-dashed border-foreground/10",
+                message.isQueued && !isSendNextQueued && "border border-dashed border-foreground/10",
+                message.isQueued && isSendNextQueued && "border border-dashed border-red-400/50",
               )}>
                 {message.images && message.images.length > 0 && (
                   <div className="mb-2 flex flex-wrap gap-2">
@@ -224,9 +237,24 @@ export const MessageBubble = memo(function MessageBubble({ message, showThinking
                 />
                 {renderWithMentions(displayContent)}
                 {message.isQueued && (
-                  <div className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    Queued
+                  <div className="mt-2 flex items-center gap-2 border-t border-foreground/[0.06] pt-2 text-[11px] text-muted-foreground">
+                    <Clock className="h-3 w-3 shrink-0" />
+                    <span>Queued</span>
+                    {onSendQueuedNow && (
+                      <button
+                        type="button"
+                        className={cn(
+                          "ms-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all",
+                          isSendNextQueued
+                            ? "bg-primary/15 text-primary hover:bg-primary/25"
+                            : "text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground",
+                        )}
+                        onClick={() => onSendQueuedNow(message.id)}
+                      >
+                        <Send className="h-2.5 w-2.5" />
+                        Send next
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -310,10 +338,12 @@ export const MessageBubble = memo(function MessageBubble({ message, showThinking
   prev.message.isError === next.message.isError &&
   prev.message.checkpointId === next.message.checkpointId &&
   prev.message.isQueued === next.message.isQueued &&
+  prev.isSendNextQueued === next.isSendNextQueued &&
   prev.showThinking === next.showThinking &&
   prev.isContinuation === next.isContinuation &&
   prev.onRevert === next.onRevert &&
-  prev.onFullRevert === next.onFullRevert,
+  prev.onFullRevert === next.onFullRevert &&
+  prev.onSendQueuedNow === next.onSendQueuedNow,
 );
 
 /**

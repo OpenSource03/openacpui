@@ -90,6 +90,9 @@ export const acpSessions = new Map<string, ACPSessionEntry>();
 // where events arrive before useACP's listener is subscribed
 const configBuffer = new Map<string, unknown[]>();
 
+// Buffer latest available commands per session — same lifecycle as configBuffer
+const commandsBuffer = new Map<string, unknown[]>();
+
 // Track in-flight acp:start so the renderer can abort during npx download / protocol init.
 // Only one start can be in-flight at a time (guarded by materializingRef in the renderer).
 let pendingStartProcess: { id: string; process: ChildProcess; aborted?: boolean } | null = null;
@@ -247,6 +250,7 @@ async function createAcpConnection(
     });
     acpSessions.delete(internalId);
     configBuffer.delete(internalId);
+    commandsBuffer.delete(internalId);
   });
 
   proc.stderr?.on("data", (chunk: Buffer) => {
@@ -272,6 +276,7 @@ async function createAcpConnection(
     safeSend(getMainWindow, "acp:exit", { _sessionId: internalId, code });
     acpSessions.delete(internalId);
     configBuffer.delete(internalId);
+    commandsBuffer.delete(internalId);
   });
 
   // Stream + connection setup
@@ -314,6 +319,12 @@ async function createAcpConnection(
       if (eventKind === "config_option_update") {
         const configOptions = (update as { configOptions: unknown[] }).configOptions;
         configBuffer.set(internalId, configOptions);
+      }
+
+      // Buffer available commands for late-subscribing renderer listeners
+      if (eventKind === "available_commands_update") {
+        const commands = (update as { availableCommands: unknown[] }).availableCommands;
+        commandsBuffer.set(internalId, commands);
       }
 
       // During session/load, suppress history replay from reaching the renderer
@@ -620,6 +631,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     session.process.kill();
     acpSessions.delete(sessionId);
     configBuffer.delete(sessionId);
+    commandsBuffer.delete(sessionId);
     return { ok: true };
   });
 
@@ -745,6 +757,11 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   // and may have missed config_option_update events during DRAFT→active transition
   ipcMain.handle("acp:get-config-options", async (_event, sessionId: string) => {
     return { configOptions: configBuffer.get(sessionId) ?? [] };
+  });
+
+  // Retrieve buffered available commands — same pattern as config options
+  ipcMain.handle("acp:get-available-commands", async (_event, sessionId: string) => {
+    return { commands: commandsBuffer.get(sessionId) ?? [] };
   });
 
   ipcMain.handle("acp:permission_response", async (_event, { sessionId, requestId, optionId }: { sessionId: string; requestId: string; optionId: string }) => {

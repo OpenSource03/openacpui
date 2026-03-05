@@ -1,6 +1,6 @@
 {
   "name": "harnss",
-  "version": "0.14.3",
+  "version": "0.15.0",
   "productName": "Harnss",
   "description": "Harness your AI coding agents — one desktop app for Claude Code, Codex, and any ACP agent",
   "author": {
@@ -31,9 +31,10 @@
   "packageManager": "pnpm@10.26.0",
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.14.1",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.63",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.68",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@monaco-editor/react": "^4.7.0",
     "electron-context-menu": "^4.1.1",
     "electron-liquid-glass": "^1.1.1",
     "electron-updater": "^6.8.3",

@@ -1,4 +1,4 @@
-import type { ChatSession, UIMessage, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, ModelInfo, AcpPermissionBehavior, EngineId, Project } from "../../types";
+import type { ChatSession, UIMessage, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, ModelInfo, AcpPermissionBehavior, EngineId, Project, SlashCommand } from "../../types";
 import type { ACPConfigOption, ACPPermissionEvent } from "../../types/acp";
 import type { BackgroundSessionStore } from "../../lib/background-session-store";
 import { permissionModeToCodexPolicy, permissionModeToCodexSandbox } from "../../lib/codex-adapter";
@@ -61,7 +61,7 @@ export interface SharedSessionRefs {
   draftMcpStatusesRef: React.MutableRefObject<McpServerStatus[]>;
   materializingRef: React.MutableRefObject<boolean>;
   saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  messageQueueRef: React.MutableRefObject<QueuedMessage[]>;
+  messageQueueRef: React.MutableRefObject<Map<string, QueuedMessage[]>>;
   acpAgentIdRef: React.MutableRefObject<string | null>;
   acpAgentSessionIdRef: React.MutableRefObject<string | null>;
   codexRawModelsRef: React.MutableRefObject<CodexModelSummary[]>;
@@ -80,6 +80,7 @@ export interface SharedSessionSetters {
   setInitialMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
   setInitialMeta: React.Dispatch<React.SetStateAction<InitialMeta | null>>;
   setInitialConfigOptions: React.Dispatch<React.SetStateAction<ACPConfigOption[]>>;
+  setInitialSlashCommands: React.Dispatch<React.SetStateAction<SlashCommand[]>>;
   setInitialPermission: React.Dispatch<React.SetStateAction<PermissionRequest | null>>;
   setInitialRawAcpPermission: React.Dispatch<React.SetStateAction<ACPPermissionEvent | null>>;
   setStartOptions: React.Dispatch<React.SetStateAction<StartOptions>>;

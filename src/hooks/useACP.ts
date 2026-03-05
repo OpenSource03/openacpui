@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, SessionMeta } from "@/types";
-import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "@/types/acp";
+import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, SessionMeta, SlashCommand } from "@/types";
+import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption, ACPAvailableCommandsUpdate } from "@/types/acp";
 import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, pickAutoResponseOption } from "@/lib/acp-adapter";
 import { extractTaskSubagentSteps, getTaskStatus, isTaskToolName } from "@/lib/acp-task-adapter";
 import { useEngineBase } from "./useEngineBase";
@@ -9,6 +9,7 @@ interface UseACPOptions {
   sessionId: string | null;
   initialMessages?: import("@/types").UIMessage[];
   initialConfigOptions?: ACPConfigOption[];
+  initialSlashCommands?: SlashCommand[];
   initialMeta?: SessionMeta | null;
   /** Restore a pending permission when switching back to this session */
   initialPermission?: import("@/types").PermissionRequest | null;
@@ -27,7 +28,7 @@ function nextAcpId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-export function useACP({ sessionId, initialMessages, initialConfigOptions, initialMeta, initialPermission, initialRawAcpPermission, acpPermissionBehavior }: UseACPOptions) {
+export function useACP({ sessionId, initialMessages, initialConfigOptions, initialSlashCommands, initialMeta, initialPermission, initialRawAcpPermission, acpPermissionBehavior }: UseACPOptions) {
   const base = useEngineBase({ sessionId, initialMessages, initialMeta, initialPermission });
   const {
     messages, setMessages,
@@ -43,6 +44,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   } = base;
 
   const [configOptions, setConfigOptions] = useState<ACPConfigOption[]>(initialConfigOptions ?? []);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>(initialSlashCommands ?? []);
 
   // Sync initialConfigOptions prop → state (useState ignores prop changes after mount)
   useEffect(() => {
@@ -51,7 +53,16 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     }
   }, [initialConfigOptions]);
 
+  // Sync initialSlashCommands prop → state
+  useEffect(() => {
+    if (initialSlashCommands && initialSlashCommands.length > 0) {
+      setSlashCommands(initialSlashCommands);
+    }
+  }, [initialSlashCommands]);
+
   const buffer = useRef(new ACPStreamingBuffer());
+  /** Track the active ACP task/subagent tool so inner tool_calls + text are routed into its card. */
+  const activeTaskRef = useRef<{ msgId: string; toolCallId: string; hasInnerTools: boolean; textBuffer: string } | null>(null);
   const acpPermissionRef = useRef<ACPPermissionEvent | null>(null);
   // Track latest permission behavior to avoid stale closures in event listeners
   const acpPermissionBehaviorRef = useRef<AcpPermissionBehavior>(acpPermissionBehavior ?? "ask");
@@ -60,7 +71,9 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
     acpPermissionRef.current = initialRawAcpPermission ?? null;
+    activeTaskRef.current = null;
     setConfigOptions(initialConfigOptions ?? []);
+    setSlashCommands(initialSlashCommands ?? []);
     buffer.current.reset();
     cancelPendingFlush();
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -127,13 +140,14 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
 
   // Mark any tool_call messages still missing a result as completed.
   // Some ACP agents (e.g. Codex) skip sending tool_call_update for fast tools.
+  // Task/Agent tools are excluded — they stay open until their tool_call_update arrives.
   const closePendingTools = useCallback(() => {
     setMessages(prev => {
-      const pending = prev.filter(m => m.role === "tool_call" && !m.toolResult && !m.toolError);
+      const pending = prev.filter(m => m.role === "tool_call" && !m.toolResult && !m.toolError && !isTaskToolName(m.toolName));
       if (pending.length === 0) return prev;
       acpLog("CLOSE_PENDING_TOOLS", { count: pending.length, ids: pending.map(m => m.id) });
       return prev.map(m => {
-        if (m.role === "tool_call" && !m.toolResult && !m.toolError) {
+        if (m.role === "tool_call" && !m.toolResult && !m.toolError && !isTaskToolName(m.toolName)) {
           return { ...m, toolResult: { status: "completed" } };
         }
         return m;
@@ -151,6 +165,12 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       closePendingTools();
       const content = update.content as { type: string; text?: string } | undefined;
       if (content?.type === "text" && content.text) {
+        // If an ACP task has inner tools running, accumulate text as task content
+        // (this is the subagent's output text, not the outer agent's)
+        if (activeTaskRef.current?.hasInnerTools && kind === "agent_message_chunk") {
+          activeTaskRef.current.textBuffer += content.text;
+          return;
+        }
         ensureStreamingMessage();
         if (kind === "agent_message_chunk") {
           // Text arriving means thinking phase is over
@@ -167,8 +187,8 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       closePendingTools();
       finalizeStreamingMessage();
       const tc = update as Extract<typeof update, { sessionUpdate: "tool_call" }>;
-      const msgId = `tool-${tc.toolCallId}`;
       const toolName = deriveToolName(tc.title, tc.kind, tc.rawInput);
+      const msgId = `tool-${tc.toolCallId}`;
       acpLog("TOOL_CALL", {
         toolCallId: tc.toolCallId?.slice(0, 12),
         title: tc.title,
@@ -176,13 +196,37 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
         toolName,
         msgId,
       });
+
+      // If there's an active task, route this tool_call as a subagent step
+      if (activeTaskRef.current && !isTaskToolName(toolName)) {
+        activeTaskRef.current.hasInnerTools = true;
+        const isAlreadyDone = tc.status === "completed" || tc.status === "failed";
+        const stepResult = isAlreadyDone ? normalizeToolResult(tc.rawOutput, tc.content) : undefined;
+        const step = {
+          toolName,
+          toolUseId: tc.toolCallId,
+          toolInput: normalizeToolInput(tc.rawInput, tc.kind, tc.locations),
+          ...(stepResult ? { toolResult: stepResult } : {}),
+          ...(tc.status === "failed" ? { toolError: true } : {}),
+        };
+        setMessages(prev => prev.map(m => {
+          if (m.id !== activeTaskRef.current!.msgId) return m;
+          return { ...m, subagentSteps: [...(m.subagentSteps ?? []), step] };
+        }));
+        return;
+      }
+
       // The initial tool_call event may already carry status/rawOutput (protocol allows it).
       // If the tool arrived completed, set toolResult immediately so it doesn't show as running.
       const isAlreadyDone = tc.status === "completed" || tc.status === "failed";
       const initialResult = isAlreadyDone ? normalizeToolResult(tc.rawOutput, tc.content) : undefined;
+      const isTask = isTaskToolName(toolName);
+      // Start tracking if this is a Task tool
+      if (isTask && !isAlreadyDone) {
+        activeTaskRef.current = { msgId, toolCallId: tc.toolCallId, hasInnerTools: false, textBuffer: "" };
+      }
       setMessages(prev => {
         if (prev.some(m => m.id === msgId)) return prev;
-        const isTask = isTaskToolName(toolName);
         const taskSteps = isTask ? extractTaskSubagentSteps(initialResult) : undefined;
         return [...prev, {
           id: msgId,
@@ -201,7 +245,6 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       });
     } else if (kind === "tool_call_update") {
       const tcu = update as Extract<typeof update, { sessionUpdate: "tool_call_update" }>;
-      const msgId = `tool-${tcu.toolCallId}`;
       const result = normalizeToolResult(tcu.rawOutput, tcu.content);
       acpLog("TOOL_RESULT", {
         toolCallId: tcu.toolCallId?.slice(0, 12),
@@ -209,6 +252,69 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
         isError: tcu.status === "failed",
         hasResult: result != null,
       });
+
+      // Check if this is for the active task itself
+      if (activeTaskRef.current && tcu.toolCallId === activeTaskRef.current.toolCallId) {
+        const taskMsgId = activeTaskRef.current.msgId;
+        const isDone = tcu.status === "completed" || tcu.status === "failed" || tcu.status === "cancelled";
+
+        if (isDone) {
+          // Task finished — set final result with accumulated text, clear activeTask
+          const textContent = activeTaskRef.current.textBuffer;
+          const finalResult = result ?? (textContent ? { content: textContent } : undefined);
+          if (finalResult && textContent && typeof finalResult.content !== "string") {
+            finalResult.content = textContent;
+          }
+          activeTaskRef.current = null;
+          setMessages(prev => prev.map(m => {
+            if (m.id !== taskMsgId) return m;
+            const nextTaskSteps = extractTaskSubagentSteps(finalResult) ?? m.subagentSteps;
+            return {
+              ...m,
+              toolResult: finalResult ?? m.toolResult ?? { status: "completed" },
+              toolError: tcu.status === "failed",
+              subagentStatus: getTaskStatus(tcu.status),
+              ...(nextTaskSteps ? { subagentSteps: nextTaskSteps } : {}),
+            };
+          }));
+        } else {
+          // In-progress update — update toolInput from rawInput if richer data arrived
+          const rawInput = tcu.rawInput as Record<string, unknown> | undefined;
+          if (rawInput && Object.keys(rawInput).length > 0) {
+            const updatedInput = normalizeToolInput(rawInput, tcu.kind);
+            setMessages(prev => prev.map(m => {
+              if (m.id !== taskMsgId) return m;
+              // Only update if the new input has more fields (richer data)
+              const existingKeys = Object.keys(m.toolInput ?? {}).length;
+              const newKeys = Object.keys(updatedInput).length;
+              if (newKeys <= existingKeys) return m;
+              return { ...m, toolInput: updatedInput };
+            }));
+          }
+        }
+        return;
+      }
+
+      // Check if this updates a subagent step inside the active task
+      if (activeTaskRef.current) {
+        setMessages(prev => prev.map(m => {
+          if (m.id !== activeTaskRef.current!.msgId) return m;
+          const updated = (m.subagentSteps ?? []).some(s => s.toolUseId === tcu.toolCallId);
+          if (!updated) return m;
+          return {
+            ...m,
+            subagentSteps: (m.subagentSteps ?? []).map(step =>
+              step.toolUseId === tcu.toolCallId
+                ? { ...step, toolResult: result ?? step.toolResult ?? { status: "completed" }, toolError: tcu.status === "failed" }
+                : step
+            ),
+          };
+        }));
+        return;
+      }
+
+      // Normal tool_call_update for top-level tools
+      const msgId = `tool-${tcu.toolCallId}`;
       setMessages(prev => prev.map(m => {
         if (m.id !== msgId) return m;
         const isTask = isTaskToolName(m.toolName);
@@ -247,6 +353,15 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     } else if (kind === "current_mode_update") {
       const cm = update as Extract<typeof update, { sessionUpdate: "current_mode_update" }>;
       acpLog("MODE_UPDATE", { modeId: cm.currentModeId });
+    } else if (kind === "available_commands_update") {
+      const acu = update as ACPAvailableCommandsUpdate;
+      acpLog("COMMANDS_UPDATE", { count: acu.availableCommands?.length });
+      setSlashCommands((acu.availableCommands ?? []).map(cmd => ({
+        name: cmd.name,
+        description: cmd.description ?? "",
+        argumentHint: cmd.input?.hint,
+        source: "acp" as const,
+      })));
     } else if (kind === "plan") {
       const p = update as Extract<typeof update, { sessionUpdate: "plan" }>;
       acpLog("PLAN", { entryCount: p.entries?.length });
@@ -264,6 +379,19 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       if (result?.configOptions?.length) {
         acpLog("CONFIG_FETCHED", { count: result.configOptions.length });
         setConfigOptions(result.configOptions as ACPConfigOption[]);
+      }
+    }).catch(() => { /* session may have been stopped */ });
+
+    // Fetch any available commands buffered in main process during the DRAFT→active transition
+    window.claude.acp.getAvailableCommands(sessionId).then(result => {
+      if (result?.commands?.length) {
+        acpLog("COMMANDS_FETCHED", { count: result.commands.length });
+        setSlashCommands(result.commands.map(cmd => ({
+          name: cmd.name,
+          description: cmd.description ?? "",
+          argumentHint: cmd.input?.hint,
+          source: "acp" as const,
+        })));
       }
     }).catch(() => { /* session may have been stopped */ });
 
@@ -462,5 +590,6 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     pendingPermission, respondPermission,
     setPermissionMode,
     configOptions, setConfigOptions, setConfig,
+    slashCommands,
   };
 }

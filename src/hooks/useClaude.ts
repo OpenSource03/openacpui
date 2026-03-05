@@ -16,6 +16,7 @@ import type {
   McpServerConfig,
   PermissionBehavior,
   SessionMeta,
+  SlashCommand,
 } from "../types";
 import { toMcpStatusState } from "../lib/mcp-utils";
 import { StreamingBuffer } from "../lib/streaming-buffer";
@@ -67,6 +68,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
   const [mcpServerStatuses, setMcpServerStatuses] = useState<McpServerStatus[]>([]);
   const [supportedModels, setSupportedModels] = useState<ModelInfo[]>([]);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
 
   const buffer = useRef(new StreamingBuffer());
   const parentToolMap = useRef<ParentToolMap>(new Map());
@@ -268,6 +270,32 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               window.claude.supportedModels(modelsSid).then((result) => {
                 if (result.models?.length) {
                   setSupportedModels(result.models);
+                }
+              }).catch(() => { /* session may have been stopped */ });
+            }
+          }
+
+          // Quick initial slash commands from init event (names only)
+          if (init.slash_commands?.length) {
+            setSlashCommands(init.slash_commands.map(name => ({
+              name,
+              description: "",
+              source: "claude" as const,
+            })));
+          }
+
+          // Fetch detailed slash commands (with descriptions + argumentHint) from the SDK
+          {
+            const cmdSid = sessionIdRef.current;
+            if (cmdSid) {
+              window.claude.slashCommands(cmdSid).then((result) => {
+                if (result.commands?.length) {
+                  setSlashCommands(result.commands.map(cmd => ({
+                    name: cmd.name,
+                    description: cmd.description ?? "",
+                    argumentHint: cmd.argumentHint,
+                    source: "claude" as const,
+                  })));
                 }
               }).catch(() => { /* session may have been stopped */ });
             }
@@ -928,6 +956,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     reconnectMcpServer,
     restartWithMcpServers,
     supportedModels,
+    slashCommands,
     revertFiles,
     flushNow,
     resetStreaming,

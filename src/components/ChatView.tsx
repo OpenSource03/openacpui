@@ -5,9 +5,11 @@ import type { UIMessage } from "@/types";
 import { MessageBubble } from "./MessageBubble";
 import { SummaryBlock } from "./SummaryBlock";
 import { ToolCall } from "./ToolCall";
+import { ToolGroupBlock } from "./ToolGroupBlock";
 import { TurnChangesSummary } from "./TurnChangesSummary";
 import { extractTurnSummaries } from "@/lib/turn-changes";
 import type { TurnSummary } from "@/lib/turn-changes";
+import { computeToolGroups } from "@/lib/tool-groups";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 
 interface ChatViewProps {
@@ -29,9 +31,13 @@ interface ChatViewProps {
   onScrolledFromTop?: (scrolled: boolean) => void;
   /** Reports smooth top-scroll transition progress [0..1] for header/fade blending */
   onTopScrollProgress?: (progress: number) => void;
+  /** Send this queued user message next (interrupting current turn at safe boundary) */
+  onSendQueuedNow?: (messageId: string) => void;
+  /** Message ID explicitly marked as "send next" by the user */
+  sendNextId?: string | null;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef(0);
@@ -205,11 +211,26 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return () => clearTimeout(retry);
   }, [scrollToMessageId, onScrolledToMessage, clearSettleTimers]);
 
+  const nonQueuedMessages = useMemo(
+    () => messages.filter((message) => !message.isQueued),
+    [messages],
+  );
+
+  const queuedMessages = useMemo(
+    () => messages.filter((message) => message.isQueued),
+    [messages],
+  );
+
+  const renderMessages = useMemo(
+    () => [...nonQueuedMessages, ...queuedMessages],
+    [nonQueuedMessages, queuedMessages],
+  );
+
   // Pre-compute continuation IDs in O(n) forward pass
   const continuationIds = useMemo(() => {
     const ids = new Set<string>();
     let lastRole: string | null = null;
-    for (const msg of messages) {
+    for (const msg of renderMessages) {
       if (msg.role === "assistant") {
         if (lastRole === "assistant" || lastRole === "tool_call" || lastRole === "tool_result" || lastRole === "system" || lastRole === "summary") {
           ids.add(msg.id);
@@ -225,18 +246,78 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       }
     }
     return ids;
-  }, [messages]);
+  }, [renderMessages]);
 
   // Pre-compute per-turn change summaries, keyed by the last message index of each turn.
   // Only completed turns with file changes get a summary block rendered after them.
   const turnSummaryByEndIndex = useMemo(() => {
-    const summaries = extractTurnSummaries(messages, isProcessing);
+    const summaries = extractTurnSummaries(nonQueuedMessages, isProcessing);
     const map = new Map<number, TurnSummary>();
     for (const s of summaries) {
       map.set(s.endMessageIndex, s);
     }
     return map;
-  }, [messages, isProcessing]);
+  }, [nonQueuedMessages, isProcessing]);
+
+  // Pre-compute tool groups: contiguous tool_call sequences between assistant text messages.
+  // Finalized groups (with 2+ tools) render as a single ToolGroupBlock instead of individual ToolCalls.
+  const { groups: toolGroups, groupedIndices } = useMemo(
+    () => computeToolGroups(nonQueuedMessages, isProcessing),
+    [nonQueuedMessages, isProcessing],
+  );
+
+  // Finalized group keys (first tool message ID), used to detect newly formed groups.
+  const finalizedGroupKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const group of toolGroups.values()) {
+      if (group.isFinalized && group.tools.length > 0) {
+        keys.add(group.tools[0].id);
+      }
+    }
+    return keys;
+  }, [toolGroups]);
+
+  // Track which groups have been seen before (keyed by first tool message ID).
+  // Groups in this set render without animation (already known from session load or prior render).
+  // New groups forming during live streaming are NOT in this set → they animate.
+  const knownGroupKeysRef = useRef<Set<string>>(new Set());
+  const seededSessionIdRef = useRef<string | undefined | null>(null);
+  const pendingInitialSessionSeedRef = useRef(true);
+
+  // Session switch baseline seeding:
+  // some sessions hydrate messages asynchronously (first render can be empty).
+  // Keep reseeding until the first non-empty render so restored groups never animate.
+  if (seededSessionIdRef.current !== sessionId) {
+    seededSessionIdRef.current = sessionId;
+    knownGroupKeysRef.current = new Set();
+    pendingInitialSessionSeedRef.current = true;
+  }
+  if (pendingInitialSessionSeedRef.current) {
+    knownGroupKeysRef.current = new Set(finalizedGroupKeys);
+    if (renderMessages.length > 0) {
+      pendingInitialSessionSeedRef.current = false;
+    }
+  }
+
+  // Groups finalized in this render but not yet marked as known.
+  const animatingGroupKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const key of finalizedGroupKeys) {
+      if (!knownGroupKeysRef.current.has(key)) {
+        keys.add(key);
+      }
+    }
+    return keys;
+  }, [finalizedGroupKeys]);
+
+  // Mark new groups as known after commit to avoid render-phase mutations.
+  useEffect(() => {
+    if (animatingGroupKeys.size === 0) return;
+    const known = knownGroupKeysRef.current;
+    for (const key of animatingGroupKeys) {
+      known.add(key);
+    }
+  }, [animatingGroupKeys]);
 
   if (messages.length === 0) {
     return (
@@ -254,11 +335,39 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   return (
     <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
       <div className={`pt-14 ${extraBottomPadding ? "pb-56" : "pb-36"}`}>
-        {messages.map((msg, index) => {
+        {nonQueuedMessages.map((msg, index) => {
           // Determine the turn summary to render after this message (if any)
           const turnSummary = turnSummaryByEndIndex.get(index);
 
           if (msg.role === "tool_call") {
+            // Check if this tool_call is part of a finalized group
+            const group = toolGroups.get(index);
+            if (group && group.isFinalized) {
+              // This is the start of a finalized group — render ToolGroupBlock
+              const groupKey = group.tools[0].id;
+              const isNewGroup = animatingGroupKeys.has(groupKey);
+
+              // Collect any turn summaries that fall within this group's range
+              let groupTurnSummary: TurnSummary | undefined;
+              for (let gi = group.startIndex; gi <= group.endIndex; gi++) {
+                const ts = turnSummaryByEndIndex.get(gi);
+                if (ts) groupTurnSummary = ts;
+              }
+
+              return (
+                <Fragment key={`group-${groupKey}`}>
+                  <ToolGroupBlock tools={group.tools} animate={isNewGroup} />
+                  {groupTurnSummary && (
+                    <TurnChangesSummary summary={groupTurnSummary} onViewInPanel={onViewTurnChanges} />
+                  )}
+                </Fragment>
+              );
+            }
+            if (groupedIndices.has(index)) {
+              // This tool_call is inside a finalized group but not the start — skip
+              return null;
+            }
+            // Not in a finalized group — render individually (Feature 1 auto-collapse applies)
             return (
               <Fragment key={msg.id}>
                 <div data-message-id={msg.id} className="message-item"><ToolCall message={msg} /></div>
@@ -289,6 +398,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
                   isContinuation={continuationIds.has(msg.id)}
                   onRevert={onRevert}
                   onFullRevert={onFullRevert}
+                  onSendQueuedNow={onSendQueuedNow}
                 />
               </div>
               {turnSummary && (
@@ -298,7 +408,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
           );
         })}
         {/* Session-level processing indicator: shows while model is working but not outputting text or running tools */}
-        {isProcessing && !messages.some((m) =>
+        {isProcessing && !nonQueuedMessages.some((m) =>
           (m.role === "assistant" && m.isStreaming && (m.content || m.thinking)) ||
           (m.role === "tool_call" && !m.toolResult)
         ) && (
@@ -311,6 +421,19 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
             </div>
           </div>
         )}
+        {queuedMessages.map((msg) => (
+          <div key={msg.id} data-message-id={msg.id} className="message-item">
+            <MessageBubble
+              message={msg}
+              isSendNextQueued={sendNextId === msg.id}
+              showThinking={showThinking}
+              isContinuation={continuationIds.has(msg.id)}
+              onRevert={onRevert}
+              onFullRevert={onFullRevert}
+              onSendQueuedNow={onSendQueuedNow}
+            />
+          </div>
+        ))}
         <div ref={bottomRef} />
       </div>
     </ScrollArea>

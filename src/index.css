@@ -417,6 +417,82 @@ html.platform-win32 .drag-region {
   animation: slide-from-left 0.2s ease-out;
 }
 
+/* ── Tool group morph (newly finalized groups) ──
+   Simulates individual tool rows compressing into a single summary header. */
+.tool-group-morph-shell {
+  position: relative;
+  overflow: hidden;
+  will-change: height;
+  transition:
+    height var(--tool-group-morph-duration, 680ms) cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tool-group-morph-header {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 2;
+  opacity: 0;
+  transform: translateY(14px) scale(0.965);
+  transform-origin: top left;
+  pointer-events: none;
+  will-change: opacity, transform;
+  transition:
+    opacity calc(var(--tool-group-morph-duration, 680ms) * 0.38) ease calc(var(--tool-group-morph-duration, 680ms) * 0.24),
+    transform var(--tool-group-morph-duration, 680ms) cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tool-group-morph-header-in {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.tool-group-morph-tools {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  will-change: opacity;
+  transition: opacity calc(var(--tool-group-morph-duration, 680ms) * 0.72) ease;
+}
+
+.tool-group-morph-tools-out {
+  opacity: 0.2;
+}
+
+.tool-group-morph-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.tool-group-morph-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0.25rem;
+  font-size: 13px;
+  transform-origin: 12px 50%;
+  will-change: transform, opacity;
+  transition:
+    transform var(--tool-group-morph-duration, 680ms) cubic-bezier(0.16, 1, 0.3, 1),
+    opacity calc(var(--tool-group-morph-duration, 680ms) * 0.55) ease;
+  transition-delay: calc(var(--tool-row-index, 0) * 32ms);
+}
+
+.tool-group-morph-row-out {
+  opacity: 0;
+  transform: translateY(calc(-12px - (var(--tool-row-index, 0) * 4px))) scale(0.96);
+}
+
+/* Slower collapse for tool groups so the "compress" feels deliberate.
+   Default animate-collapsible-up is ~200ms — too fast for grouping. */
+.tool-group-collapse {
+  --tw-animate-duration: 0.4s;
+  animation-duration: 0.4s !important;
+  animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0) !important;
+}
+
 /* ── Streaming text: per-chunk tail fade-in (applied via DOM wrapper spans) ── */
 @keyframes stream-chunk-enter {
   from {

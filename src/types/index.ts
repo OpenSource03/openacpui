@@ -69,9 +69,11 @@ export type {
   ACPConfigOption,
   ACPConfigSelectOption,
   ACPConfigSelectGroup,
+  ACPAvailableCommand,
+  ACPAvailableCommandsUpdate,
 } from "./acp";
 
-export type { EngineId, EngineHookState, AppPermissionBehavior, AppPermissionBehavior as PermissionBehavior, RespondPermissionFn, SessionMeta } from "./engine";
+export type { EngineId, EngineHookState, AppPermissionBehavior, AppPermissionBehavior as PermissionBehavior, RespondPermissionFn, SessionMeta, SlashCommand } from "./engine";
 
 export type {
   CodexSessionEvent,

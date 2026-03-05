@@ -74,6 +74,7 @@ export function useSessionLifecycle({
     setInitialMessages,
     setInitialMeta,
     setInitialConfigOptions,
+    setInitialSlashCommands,
     setInitialPermission,
     setInitialRawAcpPermission,
     setStartOptions,
@@ -96,6 +97,7 @@ export function useSessionLifecycle({
     startOptionsRef,
     acpAgentIdRef,
     acpAgentSessionIdRef,
+    messageQueueRef,
     codexRawModelsRef,
     codexEffortRef,
     switchSessionRef,
@@ -175,7 +177,6 @@ export function useSessionLifecycle({
   // createSession now requires a projectId
   const createSession = useCallback(
     async (projectId: string, options?: StartOptions) => {
-      clearQueue();
       abandonEagerSession("new_draft");
       acpAgentIdRef.current = null;
       acpAgentSessionIdRef.current = null;
@@ -188,6 +189,7 @@ export function useSessionLifecycle({
       setInitialMeta(null);
       // Pre-populate config dropdowns from cache for ACP agents (before session starts)
       setInitialConfigOptions(options?.cachedConfigOptions ?? []);
+      setInitialSlashCommands([]);
       setInitialPermission(null);
       setInitialRawAcpPermission(null);
       // Explicitly clear ACP state — when activeSessionId is already DRAFT_ID,
@@ -220,14 +222,13 @@ export function useSessionLifecycle({
         prefetchCodexModels(options?.model);
       }
     },
-    [saveCurrentSession, seedBackgroundStore, eagerStartSession, abandonEagerSession, clearQueue, prefetchCodexModels, probeMcpServers],
+    [saveCurrentSession, seedBackgroundStore, eagerStartSession, abandonEagerSession, prefetchCodexModels, probeMcpServers],
   );
 
   const switchSession = useCallback(
     async (id: string) => {
       if (id === activeSessionIdRef.current) return;
 
-      clearQueue();
       abandonEagerSession("switch_session");
       acpAgentIdRef.current = null;
       acpAgentSessionIdRef.current = null;
@@ -261,6 +262,8 @@ export function useSessionLifecycle({
         // Restore pending permission so the hook picks it up on reset
         setInitialPermission(bgState.pendingPermission);
         setInitialRawAcpPermission(bgState.rawAcpPermission);
+        // Restore available slash commands from background store (ACP agents send these dynamically)
+        setInitialSlashCommands(bgState.slashCommands ?? []);
         setActiveSessionId(id);
         setDraftProjectId(null);
         // Clear sidebar badge + mark active, remove any leftover DRAFT_ID placeholder
@@ -307,7 +310,7 @@ export function useSessionLifecycle({
         );
       }
     },
-    [saveCurrentSession, seedBackgroundStore, abandonEagerSession, clearQueue],
+    [saveCurrentSession, seedBackgroundStore, abandonEagerSession],
   );
 
   // Keep switchSessionRef in sync for stable toast callbacks
@@ -328,6 +331,7 @@ export function useSessionLifecycle({
         liveSessionIdsRef.current.delete(id);
       }
       backgroundStoreRef.current.delete(id);
+      messageQueueRef.current.delete(id);
       bgAgentStore.clearSession(id);
       // Dismiss any permission toast for this session
       toast.dismiss(`permission-${id}`);
@@ -359,7 +363,6 @@ export function useSessionLifecycle({
   }, []);
 
   const deselectSession = useCallback(async () => {
-    clearQueue();
     abandonEagerSession("deselect");
     await saveCurrentSession();
     seedBackgroundStore();
@@ -371,7 +374,7 @@ export function useSessionLifecycle({
     setInitialRawAcpPermission(null);
     // Filter out any leftover DRAFT_ID placeholder from a pending ACP start
     setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
-  }, [saveCurrentSession, seedBackgroundStore, abandonEagerSession, clearQueue]);
+  }, [saveCurrentSession, seedBackgroundStore, abandonEagerSession]);
 
   const importCCSession = useCallback(
     async (projectId: string, ccSessionId: string) => {

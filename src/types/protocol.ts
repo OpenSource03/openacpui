@@ -11,6 +11,7 @@ export interface SystemInitEvent {
   claude_code_version: string;
   agents: string[];
   mcp_servers?: Array<{ name: string; status: string }>;
+  slash_commands?: string[];
 }
 
 export interface AuthStatusEvent {

@@ -1,7 +1,8 @@
 import type { UIMessage } from "@/types";
-import { formatInput, formatResult } from "@/components/lib/tool-formatting";
+import { formatInput, formatResult, isCompletionSentinel } from "@/components/lib/tool-formatting";
 
 export function GenericContent({ message }: { message: UIMessage }) {
+  const hasResult = message.toolResult && !isCompletionSentinel(message.toolResult);
   return (
     <div className="space-y-1.5 text-xs">
       {message.toolInput && (
@@ -9,9 +10,9 @@ export function GenericContent({ message }: { message: UIMessage }) {
           {formatInput(message.toolInput)}
         </pre>
       )}
-      {message.toolResult && (
+      {hasResult && (
         <pre className="max-h-48 overflow-auto rounded-md bg-foreground/[0.04] px-3 py-2 text-[11px] text-foreground/50 whitespace-pre-wrap wrap-break-word">
-          {formatResult(message.toolResult)}
+          {formatResult(message.toolResult!)}
         </pre>
       )}
     </div>

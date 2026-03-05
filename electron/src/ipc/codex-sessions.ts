@@ -28,6 +28,8 @@ import type {
   CodexItemStartedNotification,
   CodexItemCompletedNotification,
 } from "@shared/types/codex";
+import type { SkillsListResponse } from "@shared/types/codex-protocol/v2/SkillsListResponse";
+import type { AppsListResponse } from "@shared/types/codex-protocol/v2/AppsListResponse";
 
 // ── Session state ──
 
@@ -244,6 +246,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         cwd: string;
         model?: string;
         approvalPolicy?: string;
+        sandbox?: string;
         personality?: string;
         collaborationMode?: { mode: string; settings: { model: string; reasoning_effort: string | null; developer_instructions: string | null } };
       },
@@ -335,6 +338,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         };
         if (selectedModel) threadParams.model = selectedModel;
         if (options.approvalPolicy) threadParams.approvalPolicy = options.approvalPolicy;
+        if (options.sandbox) threadParams.sandbox = options.sandbox;
         if (options.personality) threadParams.personality = options.personality;
         // collaborationMode is set per-turn via turn/start, not on thread/start
 
@@ -535,6 +539,34 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
+  // ─── codex:list-skills ───
+  ipcMain.handle("codex:list-skills", async (_, sessionId: string) => {
+    const session = codexSessions.get(sessionId);
+    if (!session) return { skills: [], error: "Session not found" };
+    try {
+      const result = await session.rpc.request<SkillsListResponse>("skills/list", {
+        cwds: [session.cwd],
+      });
+      return { skills: result.data ?? [] };
+    } catch (err) {
+      log("codex", ` skills/list failed: ${extractErrorMessage(err)}`);
+      return { skills: [], error: extractErrorMessage(err) };
+    }
+  });
+
+  // ─── codex:list-apps ───
+  ipcMain.handle("codex:list-apps", async (_, sessionId: string) => {
+    const session = codexSessions.get(sessionId);
+    if (!session) return { apps: [], error: "Session not found" };
+    try {
+      const result = await session.rpc.request<AppsListResponse>("app/list", {});
+      return { apps: result.data ?? [] };
+    } catch (err) {
+      log("codex", ` app/list failed: ${extractErrorMessage(err)}`);
+      return { apps: [], error: extractErrorMessage(err) };
+    }
+  });
+
   // ─── codex:list-models ───
   ipcMain.handle("codex:list-models", async () => {
     // Try to use any active session's RPC first
@@ -632,6 +664,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         threadId: string;
         model?: string;
         approvalPolicy?: string;
+        sandbox?: string;
       },
     ) => {
       const internalId = crypto.randomUUID();
@@ -677,6 +710,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           persistExtendedHistory: false,
         };
         if (data.approvalPolicy) threadParams.approvalPolicy = data.approvalPolicy;
+        if (data.sandbox) threadParams.sandbox = data.sandbox;
 
         const threadResult = await rpc.request<CodexThreadResumeResponse>("thread/resume", threadParams);
         session.threadId = threadResult.thread.id;

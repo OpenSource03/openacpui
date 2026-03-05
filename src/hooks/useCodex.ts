@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { TodoItem, PermissionBehavior, ModelInfo, ImageAttachment, SessionMeta } from "@/types";
+import type { TodoItem, PermissionBehavior, ModelInfo, ImageAttachment, SessionMeta, SlashCommand } from "@/types";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "@/types/codex";
 import type { CodexTokenUsageNotification } from "@/types/codex";
 import type { CollaborationMode } from "@/types/codex-protocol/CollaborationMode";
@@ -80,6 +80,7 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   /** Reasoning effort for the current Codex session — sent on the next turn/start */
   const [codexEffort, setCodexEffort] = useState<string>("medium");
   const [authRequired, setAuthRequired] = useState(false);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
 
   // Refs for rAF streaming flush (avoid React 19 batching issues)
   const bufferRef = useRef(new CodexStreamingBuffer());
@@ -794,6 +795,37 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     const unsubApproval = window.claude.codex.onApprovalRequest(handleApproval);
     const unsubExit = window.claude.codex.onExit(handleExit);
 
+    // Fetch available skills and apps for slash command autocomplete
+    Promise.all([
+      window.claude.codex.listSkills(sessionId).catch(() => ({ skills: [] as never[] })),
+      window.claude.codex.listApps(sessionId).catch(() => ({ apps: [] as never[] })),
+    ]).then(([skillsResult, appsResult]) => {
+      const commands: SlashCommand[] = [];
+      for (const entry of skillsResult.skills ?? []) {
+        for (const skill of entry.skills) {
+          if (!skill.enabled) continue;
+          commands.push({
+            name: skill.name,
+            description: skill.interface?.shortDescription ?? skill.shortDescription ?? skill.description,
+            source: "codex-skill",
+            defaultPrompt: skill.interface?.defaultPrompt,
+            iconUrl: skill.interface?.iconSmall,
+          });
+        }
+      }
+      for (const app of appsResult.apps ?? []) {
+        if (!app.isEnabled || !app.isAccessible) continue;
+        commands.push({
+          name: app.name,
+          description: app.description ?? "",
+          source: "codex-app",
+          appSlug: app.id,
+          iconUrl: app.logoUrl ?? undefined,
+        });
+      }
+      if (commands.length > 0) setSlashCommands(commands);
+    });
+
     return () => {
       unsubEvent();
       unsubApproval();
@@ -1016,5 +1048,6 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
     authRequired, setAuthRequired,
     codexModels, setCodexModels,
     codexEffort, setCodexEffort,
+    slashCommands,
   };
 }

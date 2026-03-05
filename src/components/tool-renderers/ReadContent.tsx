@@ -35,5 +35,21 @@ export function ReadContent({ message }: { message: UIMessage }) {
     );
   }
 
+  // Path-only fallback — show file path even without content
+  // (ACP agents may complete reads without returning file content)
+  if (filePath) {
+    const startLine = Number(message.toolInput?.startLine ?? 0);
+    const endLine = Number(message.toolInput?.endLine ?? 0);
+    return (
+      <div className="group/read flex items-center gap-1.5 text-xs text-foreground/50 font-mono text-[11px]">
+        {filePath}
+        {startLine > 0 && endLine > 0 && (
+          <span className="text-foreground/30">L{startLine}–{endLine}</span>
+        )}
+        <OpenInEditorButton filePath={filePath} line={startLine || undefined} className="group-hover/read:text-foreground/25" />
+      </div>
+    );
+  }
+
   return <GenericContent message={message} />;
 }

@@ -36,7 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ImageAttachment, GrabbedElement, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, EngineId } from "@/types";
+import type { ImageAttachment, GrabbedElement, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, EngineId, SlashCommand } from "@/types";
 import { flattenConfigOptions } from "@/lib/acp-utils";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { resolveModelValue } from "@/lib/model-utils";
@@ -496,6 +496,8 @@ interface InputBarProps {
   agents?: InstalledAgent[];
   selectedAgent?: InstalledAgent | null;
   onAgentChange?: (agent: InstalledAgent | null) => void;
+  /** Slash commands available for the current engine session */
+  slashCommands?: SlashCommand[];
   acpConfigOptions?: ACPConfigOption[];
   onACPConfigChange?: (configId: string, value: string) => void;
   acpPermissionBehavior?: AcpPermissionBehavior;
@@ -646,6 +648,7 @@ export const InputBar = memo(function InputBar({
   agents,
   selectedAgent,
   onAgentChange,
+  slashCommands,
   acpConfigOptions,
   onACPConfigChange,
   acpPermissionBehavior,
@@ -666,6 +669,12 @@ export const InputBar = memo(function InputBar({
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
+
+  // Slash command picker state
+  const [showCommands, setShowCommands] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [commandIndex, setCommandIndex] = useState(0);
+  const commandListRef = useRef<HTMLDivElement>(null);
   const [fileCache, setFileCache] = useState<{ files: string[]; dirs: string[] } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
@@ -760,6 +769,16 @@ export const InputBar = memo(function InputBar({
 
   const results = showMentions ? mentionResults() : [];
 
+  // Slash command filtered results
+  const cmdResults = (() => {
+    if (!showCommands || !slashCommands?.length) return [];
+    const q = commandQuery.toLowerCase();
+    if (!q) return slashCommands.slice(0, 15);
+    return slashCommands
+      .filter(cmd => cmd.name.toLowerCase().includes(q) || cmd.description.toLowerCase().includes(q))
+      .slice(0, 15);
+  })();
+
   // Clamp mention index
   useEffect(() => {
     if (mentionIndex >= results.length) {
@@ -801,6 +820,44 @@ export const InputBar = memo(function InputBar({
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const selectCommand = useCallback((cmd: SlashCommand) => {
+    setShowCommands(false);
+    const el = editableRef.current;
+    if (!el) return;
+
+    // Build the replacement text based on source engine
+    let replacement: string;
+    switch (cmd.source) {
+      case "claude":
+      case "acp":
+        replacement = `/${cmd.name} `;
+        break;
+      case "codex-skill":
+        replacement = cmd.defaultPrompt
+          ? `$${cmd.name} ${cmd.defaultPrompt}`
+          : `$${cmd.name} `;
+        break;
+      case "codex-app":
+        replacement = `$${cmd.appSlug ?? cmd.name} `;
+        break;
+    }
+
+    el.textContent = replacement;
+
+    // Move cursor to end
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    el.focus();
+
+    // Update hasContent
+    hasContentRef.current = true;
+    setHasContent(true);
   }, []);
 
   const selectMention = useCallback(
@@ -942,6 +999,37 @@ export const InputBar = memo(function InputBar({
   }, [attachments, isSending, projectPath, onSend, closeMentions, grabbedElements]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Slash command picker keyboard navigation
+    if (showCommands && cmdResults.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCommandIndex((prev) => (prev + 1) % cmdResults.length);
+        // Scroll active item into view
+        requestAnimationFrame(() => {
+          commandListRef.current?.querySelector("[data-active=true]")?.scrollIntoView({ block: "nearest" });
+        });
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCommandIndex((prev) => (prev - 1 + cmdResults.length) % cmdResults.length);
+        requestAnimationFrame(() => {
+          commandListRef.current?.querySelector("[data-active=true]")?.scrollIntoView({ block: "nearest" });
+        });
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        selectCommand(cmdResults[commandIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowCommands(false);
+        return;
+      }
+    }
+
     if (showMentions && results.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -1011,6 +1099,7 @@ export const InputBar = memo(function InputBar({
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) {
       if (showMentions) closeMentions();
+      if (showCommands) setShowCommands(false);
       return;
     }
 
@@ -1019,6 +1108,7 @@ export const InputBar = memo(function InputBar({
 
     if (node.nodeType !== Node.TEXT_NODE) {
       if (showMentions) closeMentions();
+      if (showCommands) setShowCommands(false);
       return;
     }
 
@@ -1037,7 +1127,18 @@ export const InputBar = memo(function InputBar({
     } else {
       if (showMentions) closeMentions();
     }
-  }, [showMentions, closeMentions, projectPath]);
+
+    // Slash command detection — "/" at position 0 with no spaces (still typing the command name)
+    const fullText = (el.textContent ?? "").trimStart();
+    const slashMatch = fullText.match(/^\/(\S*)$/);
+    if (slashMatch && slashCommands?.length) {
+      setShowCommands(true);
+      setCommandQuery(slashMatch[1]);
+      setCommandIndex(0);
+    } else if (showCommands) {
+      setShowCommands(false);
+    }
+  }, [showMentions, showCommands, closeMentions, projectPath, slashCommands]);
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -1158,6 +1259,52 @@ export const InputBar = memo(function InputBar({
           </div>
         )}
 
+        {/* Slash command popup */}
+        {showCommands && cmdResults.length > 0 && (
+          <div
+            ref={commandListRef}
+            className="mx-2 mb-1 mt-2 max-h-64 overflow-y-auto rounded-lg border border-border/60 bg-popover p-1 shadow-lg"
+          >
+            {cmdResults.map((cmd, i) => (
+              <button
+                key={`${cmd.source}-${cmd.name}`}
+                data-active={i === commandIndex}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-start text-sm transition-colors ${
+                  i === commandIndex
+                    ? "bg-accent text-accent-foreground"
+                    : "text-popover-foreground hover:bg-muted/40"
+                }`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectCommand(cmd);
+                }}
+                onMouseEnter={() => setCommandIndex(i)}
+              >
+                {cmd.iconUrl ? (
+                  <img src={cmd.iconUrl} alt="" className="h-4 w-4 shrink-0 rounded" />
+                ) : (
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-bold text-muted-foreground">
+                    {cmd.source.startsWith("codex") ? "$" : "/"}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono text-xs font-medium">
+                      {cmd.source.startsWith("codex") ? "$" : "/"}{cmd.name}
+                    </span>
+                    {cmd.argumentHint && (
+                      <span className="text-xs text-muted-foreground">{cmd.argumentHint}</span>
+                    )}
+                  </div>
+                  {cmd.description && (
+                    <div className="truncate text-xs text-muted-foreground">{cmd.description}</div>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Input area — contentEditable with inline chip support */}
         <div
           className="relative px-4 pt-3.5 pb-2"
@@ -1170,7 +1317,9 @@ export const InputBar = memo(function InputBar({
                 ? "Compacting context..."
                 : isProcessing
                   ? `${selectedAgent?.name ?? "Claude"} is responding... (messages will be queued)`
-                  : "Ask anything, @ to tag files"}
+                  : slashCommands?.length
+                    ? "Ask anything, @ to tag files, / for commands"
+                    : "Ask anything, @ to tag files"}
             </div>
           )}
           <div

@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import {
   ChevronRight,
   AlertCircle,
@@ -30,18 +30,18 @@ import { GenericContent } from "./tool-renderers/GenericContent";
 
 // ── Main entry ──
 
-export const ToolCall = memo(function ToolCall({ message }: { message: UIMessage }) {
+export const ToolCall = memo(function ToolCall({ message, compact }: { message: UIMessage; compact?: boolean }) {
   const normalizedToolName = (message.toolName ?? "").toLowerCase();
   const isTask = normalizedToolName === "task" || normalizedToolName === "agent";
+  const content = isTask ? <TaskTool message={message} /> : <RegularTool message={message} />;
+
+  // compact: skip outer padding wrapper (used inside ToolGroupBlock to avoid double padding)
+  if (compact) return content;
 
   return (
     <div className="flex justify-start px-4 py-0.5">
       <div className="min-w-0 max-w-[85%]">
-        {isTask ? (
-          <TaskTool message={message} />
-        ) : (
-          <RegularTool message={message} />
-        )}
+        {content}
       </div>
     </div>
   );
@@ -56,7 +56,8 @@ export const ToolCall = memo(function ToolCall({ message }: { message: UIMessage
 // ── Regular tool (Read, Write, Edit, Bash, Grep, Glob, etc.) ──
 
 function RegularTool({ message }: { message: UIMessage }) {
-  const isEditLike = message.toolName === "Edit" || message.toolName === "Write" || message.toolName === "ExitPlanMode" || message.toolName === "AskUserQuestion";
+  const isInteractive = message.toolName === "ExitPlanMode" || message.toolName === "AskUserQuestion";
+  const isEditLike = message.toolName === "Edit" || message.toolName === "Write" || isInteractive;
   const [expanded, setExpanded] = useState(isEditLike);
   const hasResult = !!message.toolResult;
   const isRunning = !hasResult;
@@ -64,8 +65,30 @@ function RegularTool({ message }: { message: UIMessage }) {
   const Icon = getToolIcon(message.toolName ?? "");
   const summary = formatCompactSummary(message);
 
+  // Track whether toolResult was present at mount (persisted session → skip auto-expand)
+  const initialHadResult = useRef(hasResult);
+  // Track whether user manually toggled the collapsible (cancel auto-collapse)
+  const userToggled = useRef(false);
+  const autoCollapseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Auto-expand on result arrival, then auto-collapse after 2s
+  useEffect(() => {
+    if (!hasResult || initialHadResult.current || isEditLike || userToggled.current) return;
+    setExpanded(true);
+    autoCollapseTimer.current = setTimeout(() => {
+      if (!userToggled.current) setExpanded(false);
+    }, 2000);
+    return () => clearTimeout(autoCollapseTimer.current);
+  }, [hasResult, isEditLike]);
+
+  const handleOpenChange = (open: boolean) => {
+    userToggled.current = true;
+    clearTimeout(autoCollapseTimer.current);
+    setExpanded(open);
+  };
+
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded}>
+    <Collapsible open={expanded} onOpenChange={handleOpenChange}>
       <CollapsibleTrigger className="group relative flex w-full items-center gap-2 py-1 text-[13px] hover:text-foreground transition-colors cursor-pointer overflow-hidden">
 
         <div className="relative flex items-center gap-2 min-w-0">

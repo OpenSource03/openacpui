@@ -719,6 +719,18 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
+  ipcMain.handle("claude:slash-commands", async (_event, sessionId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session?.queryHandle?.supportedCommands) return { commands: [] };
+    try {
+      const commands = await session.queryHandle.supportedCommands();
+      return { commands: commands ?? [] };
+    } catch (err) {
+      log("SLASH_COMMANDS_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
+      return { commands: [], error: extractErrorMessage(err) };
+    }
+  });
+
   ipcMain.handle("claude:models-cache:get", async () => {
     const cached = getClaudeModelsCache();
     return { models: cached.models, updatedAt: cached.updatedAt };

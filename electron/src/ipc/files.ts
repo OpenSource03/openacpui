@@ -88,6 +88,44 @@ async function listProjectFiles(cwd: string): Promise<string[]> {
   }
 }
 
+/** Dirs to skip in the full filesystem walk (VCS internals + massive dependency dirs). */
+const EXPLORER_SKIP = new Set([".git", ".hg", ".svn", "node_modules"]);
+
+/**
+ * Walk the filesystem including gitignored files.
+ * Only skips VCS internals and node_modules (too massive).
+ * Used by the "Project Files" explorer panel.
+ */
+function listAllFiles(cwd: string, maxFiles = 10000): string[] {
+  const files: string[] = [];
+  const queue: string[] = [""];
+
+  while (queue.length > 0 && files.length < maxFiles) {
+    const rel = queue.shift()!;
+    const abs = rel ? path.join(cwd, rel) : cwd;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(abs, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
+
+      if (entry.isDirectory()) {
+        if (EXPLORER_SKIP.has(entry.name)) continue;
+        queue.push(entryRel);
+      } else if (entry.isFile()) {
+        files.push(entryRel);
+      }
+    }
+  }
+
+  return files.sort();
+}
+
 interface TreeNode {
   _file?: true;
   _dir?: true;
@@ -166,6 +204,24 @@ export function register(): void {
       return { files, dirs };
     } catch (err) {
       log("FILES:LIST_ERR", err instanceof Error ? err.message : String(err));
+      return { files: [], dirs: [] };
+    }
+  });
+
+  ipcMain.handle("files:list-all", async (_event, cwd: string) => {
+    try {
+      const files = listAllFiles(cwd);
+      const dirSet = new Set<string>();
+      for (const file of files) {
+        const parts = file.split("/");
+        for (let i = 1; i < parts.length; i++) {
+          dirSet.add(parts.slice(0, i).join("/") + "/");
+        }
+      }
+      const dirs = Array.from(dirSet).sort();
+      return { files, dirs };
+    } catch (err) {
+      log("FILES:LIST_ALL_ERR", err instanceof Error ? err.message : String(err));
       return { files: [], dirs: [] };
     }
   });

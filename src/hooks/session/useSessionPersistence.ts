@@ -20,7 +20,7 @@ export function useSessionPersistence({
   engines,
   activeSessionId,
 }: UseSessionPersistenceParams) {
-  const { engine } = engines;
+  const { claude, acp, codex, engine } = engines;
   const { messages, totalCost, sessionInfo } = engine;
   const { setSessions, setDraftMcpStatuses, setPreStartedSessionId } = setters;
   const {
@@ -285,8 +285,8 @@ export function useSessionPersistence({
     saveTimerRef.current = setTimeout(() => {
       const session = sessionsRef.current.find((s) => s.id === activeSessionId);
       if (!session) return;
-      // Strip isQueued from messages before persisting — queue state is runtime-only
-      const msgs = messagesRef.current.map((m) => (m.isQueued ? { ...m, isQueued: undefined } : m));
+      // Never persist queued messages — unsent queue state is runtime-only.
+      const msgs = messagesRef.current.filter((m) => !m.isQueued);
       const data: PersistedSession = {
         id: activeSessionId,
         projectId: session.projectId,
@@ -385,8 +385,8 @@ export function useSessionPersistence({
     if (!id || id === DRAFT_ID || messagesRef.current.length === 0) return;
     const session = sessionsRef.current.find((s) => s.id === id);
     if (!session) return;
-    // Strip isQueued from messages before persisting — queue state is runtime-only
-    const msgs = messagesRef.current.map((m) => (m.isQueued ? { ...m, isQueued: undefined } : m));
+    // Never persist queued messages — unsent queue state is runtime-only.
+    const msgs = messagesRef.current.filter((m) => !m.isQueued);
     const data: PersistedSession = {
       id,
       projectId: session.projectId,
@@ -408,6 +408,14 @@ export function useSessionPersistence({
   const seedBackgroundStore = useCallback(() => {
     const currentId = activeSessionIdRef.current;
     if (currentId && currentId !== DRAFT_ID && liveSessionIdsRef.current.has(currentId)) {
+      // Pick slash commands from the active engine hook
+      const sessionEngine = sessionsRef.current.find(s => s.id === currentId)?.engine ?? "claude";
+      const slashCommands = sessionEngine === "codex"
+        ? codex.slashCommands
+        : sessionEngine === "acp"
+          ? acp.slashCommands
+          : claude.slashCommands;
+
       backgroundStoreRef.current.initFromState(currentId, {
         messages: messagesRef.current,
         isProcessing: isProcessingRef.current,
@@ -416,9 +424,10 @@ export function useSessionPersistence({
         totalCost: totalCostRef.current,
         pendingPermission: pendingPermissionRef.current ?? null,
         rawAcpPermission: null, // ACP ref is internal to useACP — will be restored via initialRawAcpPermission
+        slashCommands,
       });
     }
-  }, []);
+  }, [claude.slashCommands, acp.slashCommands, codex.slashCommands]);
 
   // AI-generated title via background utility prompt (SDK Haiku or ACP utility session)
   const generateSessionTitle = useCallback(

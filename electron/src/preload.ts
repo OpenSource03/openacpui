@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld("claude", {
   setThinking: (sessionId: string, thinkingEnabled: boolean) =>
     ipcRenderer.invoke("claude:set-thinking", { sessionId, thinkingEnabled }),
   supportedModels: (sessionId: string) => ipcRenderer.invoke("claude:supported-models", sessionId),
+  slashCommands: (sessionId: string) => ipcRenderer.invoke("claude:slash-commands", sessionId),
   modelsCacheGet: () => ipcRenderer.invoke("claude:models-cache:get"),
   modelsCacheRevalidate: (options?: { cwd?: string }) => ipcRenderer.invoke("claude:models-cache:revalidate", options),
   mcpStatus: (sessionId: string) => ipcRenderer.invoke("claude:mcp-status", sessionId),
@@ -93,6 +94,7 @@ contextBridge.exposeInMainWorld("claude", {
   },
   files: {
     list: (cwd: string) => ipcRenderer.invoke("files:list", cwd),
+    listAll: (cwd: string) => ipcRenderer.invoke("files:list-all", cwd),
     readMultiple: (cwd: string, paths: string[]) => ipcRenderer.invoke("files:read-multiple", { cwd, paths }),
   },
   git: {
@@ -153,6 +155,8 @@ contextBridge.exposeInMainWorld("claude", {
       ipcRenderer.invoke("acp:set-config", { sessionId, configId, value }),
     getConfigOptions: (sessionId: string) =>
       ipcRenderer.invoke("acp:get-config-options", sessionId),
+    getAvailableCommands: (sessionId: string) =>
+      ipcRenderer.invoke("acp:get-available-commands", sessionId),
     onEvent: (callback: (data: unknown) => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on("acp:event", listener);
@@ -189,6 +193,8 @@ contextBridge.exposeInMainWorld("claude", {
     respondServerRequestError: (sessionId: string, rpcId: string | number, code: number, message: string) =>
       ipcRenderer.invoke("codex:server_request_error", { sessionId, rpcId, code, message }),
     compact: (sessionId: string) => ipcRenderer.invoke("codex:compact", sessionId),
+    listSkills: (sessionId: string) => ipcRenderer.invoke("codex:list-skills", sessionId),
+    listApps: (sessionId: string) => ipcRenderer.invoke("codex:list-apps", sessionId),
     listModels: () => ipcRenderer.invoke("codex:list-models"),
     authStatus: () => ipcRenderer.invoke("codex:auth-status"),
     login: (sessionId: string, type: "apiKey" | "chatgpt", apiKey?: string) =>

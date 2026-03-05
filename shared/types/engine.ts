@@ -1,6 +1,24 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { UIMessage, SessionInfo, PermissionRequest, ContextUsage } from "../../src/types/ui";
 
+/** Unified slash command representation — normalized from each engine's native format. */
+export interface SlashCommand {
+  /** The command string without leading slash (e.g., "compact", "help"). */
+  name: string;
+  /** Human-readable description shown in the autocomplete popup. */
+  description: string;
+  /** Placeholder hint for arguments (e.g., "<query>"), shown grayed after the command name. */
+  argumentHint?: string;
+  /** Engine-specific source type — used for execution routing. */
+  source: "claude" | "acp" | "codex-skill" | "codex-app";
+  /** For Codex skills: auto-fill text after the prefix. */
+  defaultPrompt?: string;
+  /** For Codex apps: the app slug for $app-slug prefix. */
+  appSlug?: string;
+  /** Icon URL for the autocomplete popup (Codex skills/apps may have icons). */
+  iconUrl?: string;
+}
+
 /** Metadata snapshot for restoring a session from the background store. */
 export interface SessionMeta {
   isProcessing: boolean;

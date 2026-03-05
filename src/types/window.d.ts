@@ -52,6 +52,10 @@ declare global {
       stop: (sessionId: string, reason?: string) => Promise<{ ok: boolean }>;
       interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
       supportedModels: (sessionId: string) => Promise<{ models: ModelInfo[]; error?: string }>;
+      slashCommands: (sessionId: string) => Promise<{
+        commands: Array<{ name: string; description?: string; argumentHint?: string }>;
+        error?: string;
+      }>;
       modelsCacheGet: () => Promise<{ models: ModelInfo[]; updatedAt?: number; error?: string }>;
       modelsCacheRevalidate: (options?: { cwd?: string }) => Promise<{ models: ModelInfo[]; updatedAt?: number; error?: string }>;
       mcpStatus: (sessionId: string) => Promise<{ servers: McpServerStatus[]; error?: string }>;
@@ -135,6 +139,7 @@ declare global {
       };
       files: {
         list: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
+        listAll: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
         readMultiple: (
           cwd: string,
           paths: string[],
@@ -201,6 +206,7 @@ declare global {
         respondPermission: (sessionId: string, requestId: string, optionId: string) => Promise<{ ok?: boolean; error?: string }>;
         setConfig: (sessionId: string, configId: string, value: string) => Promise<{ configOptions?: ACPConfigOption[]; error?: string }>;
         getConfigOptions: (sessionId: string) => Promise<{ configOptions?: ACPConfigOption[] }>;
+        getAvailableCommands: (sessionId: string) => Promise<{ commands?: import("./acp").ACPAvailableCommand[] }>;
         onEvent: (callback: (data: ACPSessionEvent) => void) => () => void;
         onPermissionRequest: (callback: (data: ACPPermissionEvent) => void) => () => void;
         onTurnComplete: (callback: (data: ACPTurnCompleteEvent) => void) => () => void;
@@ -236,6 +242,14 @@ declare global {
           message: string,
         ) => Promise<void>;
         compact: (sessionId: string) => Promise<{ error?: string }>;
+        listSkills: (sessionId: string) => Promise<{
+          skills: Array<import("./codex-protocol/v2/SkillsListEntry").SkillsListEntry>;
+          error?: string;
+        }>;
+        listApps: (sessionId: string) => Promise<{
+          apps: Array<import("./codex-protocol/v2/AppInfo").AppInfo>;
+          error?: string;
+        }>;
         listModels: () => Promise<{ models: CodexModel[]; error?: string }>;
         authStatus: () => Promise<{ account: unknown; requiresOpenaiAuth: boolean }>;
         login: (sessionId: string, type: "apiKey" | "chatgpt", apiKey?: string) => Promise<unknown>;

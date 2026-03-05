@@ -9,6 +9,7 @@ import { getMinChatWidth } from "@/lib/layout-constants";
 import type { GrabbedElement } from "@/types/ui";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
+import { ChatSearchBar } from "./ChatSearchBar";
 import { ChatView } from "./ChatView";
 import { InputBar } from "./InputBar";
 import { PermissionPrompt } from "./PermissionPrompt";
@@ -23,6 +24,8 @@ import { GitPanel } from "./GitPanel";
 import { FilesPanel } from "./FilesPanel";
 import { McpPanel } from "./McpPanel";
 import { ChangesPanel } from "./ChangesPanel";
+import { ProjectFilesPanel } from "./ProjectFilesPanel";
+import { FilePreviewOverlay } from "./FilePreviewOverlay";
 import { SettingsView } from "./SettingsView";
 import { CodexAuthDialog } from "./CodexAuthDialog";
 import { isMac } from "@/lib/utils";
@@ -40,11 +43,13 @@ export function AppLayout() {
     showSettings, setShowSettings,
     spaceCreatorOpen, setSpaceCreatorOpen, editingSpace,
     scrollToMessageId, setScrollToMessageId,
+    chatSearchOpen, setChatSearchOpen,
     changesPanelFocusTurn, setChangesPanelFocusTurn,
     spaceTerminals, activeSpaceTerminals,
     handleToggleTool, handleToolReorder, handleNewChat, handleSend,
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
     handleThinkingChange, handleStop, handleSelectSession,
+    handleSendQueuedNow,
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
     handleViewTurnChanges, handleCreateSpace, handleEditSpace,
     handleDeleteSpace, handleSaveSpace, handleMoveProjectToSpace,
@@ -63,6 +68,18 @@ export function AppLayout() {
 
   const handleRemoveGrabbedElement = useCallback((id: string) => {
     setGrabbedElements((prev) => prev.filter((e) => e.id !== id));
+  }, []);
+
+  // ── File preview overlay state ──
+
+  const [previewFile, setPreviewFile] = useState<{ path: string; sourceRect: DOMRect } | null>(null);
+
+  const handlePreviewFile = useCallback((filePath: string, sourceRect: DOMRect) => {
+    setPreviewFile({ path: filePath, sourceRect });
+  }, []);
+
+  const handleClosePreview = useCallback(() => {
+    setPreviewFile(null);
   }, []);
 
   // Wrap handleSend to clear grabbed elements after sending
@@ -228,6 +245,13 @@ export function AppLayout() {
                   onSeedDevExampleSpaceData={handleSeedDevExampleSpaceData}
                 />
               </div>
+              {chatSearchOpen && (
+                <ChatSearchBar
+                  messages={manager.messages}
+                  onNavigate={setScrollToMessageId}
+                  onClose={() => setChatSearchOpen(false)}
+                />
+              )}
               <ChatView
                 messages={manager.messages}
                 isProcessing={manager.isProcessing}
@@ -240,6 +264,8 @@ export function AppLayout() {
                 onFullRevert={manager.isConnected && manager.fullRevert ? manager.fullRevert : undefined}
                 onViewTurnChanges={handleViewTurnChanges}
                 onTopScrollProgress={handleTopScrollProgress}
+                onSendQueuedNow={handleSendQueuedNow}
+                sendNextId={manager.sendNextId}
               />
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
@@ -275,6 +301,7 @@ export function AppLayout() {
                     agents={agents}
                     selectedAgent={selectedAgent}
                     onAgentChange={handleAgentChange}
+                    slashCommands={manager.slashCommands}
                     acpConfigOptions={manager.acpConfigOptions}
                     onACPConfigChange={manager.setACPConfig}
                     acpPermissionBehavior={settings.acpPermissionBehavior}
@@ -452,6 +479,12 @@ export function AppLayout() {
                       onScrollToToolCall={setScrollToMessageId}
                     />
                   ),
+                  "project-files": (
+                    <ProjectFilesPanel
+                      cwd={activeProjectPath}
+                      onPreviewFile={handlePreviewFile}
+                    />
+                  ),
                   mcp: (
                     <McpPanel
                       projectId={activeProjectId ?? null}
@@ -533,6 +566,11 @@ export function AppLayout() {
           onCancel={() => manager.clearCodexAuthRequired()}
         />
       )}
+      <FilePreviewOverlay
+        filePath={previewFile?.path ?? null}
+        sourceRect={previewFile?.sourceRect ?? null}
+        onClose={handleClosePreview}
+      />
     </div>
   );
 }

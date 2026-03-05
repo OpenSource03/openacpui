@@ -18,7 +18,7 @@ import {
 } from "@/lib/layout-constants";
 import { resolveModelValue } from "@/lib/model-utils";
 import { isWindows } from "@/lib/utils";
-import type { ToolId } from "@/components/ToolPicker";
+import { COLUMN_TOOL_IDS, type ToolId } from "@/components/ToolPicker";
 import type { TodoItem, ImageAttachment, Space, SpaceColor, InstalledAgent, AcpPermissionBehavior, EngineId } from "@/types";
 import type { NotificationSettings } from "@/types/ui";
 
@@ -149,6 +149,8 @@ export function useAppOrchestrator() {
   const [scrollToMessageId, setScrollToMessageId] = useState<string | undefined>();
   // Focus turn index for the Changes panel (set by inline turn summary "View changes" click)
   const [changesPanelFocusTurn, setChangesPanelFocusTurn] = useState<number | undefined>();
+  // In-chat Ctrl+F / Cmd+F search overlay
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
   const spaceTerminals = useSpaceTerminals();
 
   const hasProjects = projectManager.projects.length > 0;
@@ -179,7 +181,7 @@ export function useAppOrchestrator() {
   const handleToolReorder = useCallback(
     (fromId: ToolId, toId: ToolId) => {
       const count = settings.toolOrder.filter(
-        (id) => settings.activeTools.has(id) && ["terminal", "git", "browser", "files", "mcp", "changes"].includes(id),
+        (id) => settings.activeTools.has(id) && COLUMN_TOOL_IDS.has(id),
       ).length;
       settings.setToolOrder((prev) => {
         const next = [...prev];
@@ -281,6 +283,10 @@ export function useAppOrchestrator() {
   const handleStop = useCallback(async () => {
     await manager.interrupt();
   }, [manager.interrupt]);
+
+  const handleSendQueuedNow = useCallback(async (messageId: string) => {
+    await manager.sendQueuedMessageNext(messageId);
+  }, [manager.sendQueuedMessageNext]);
 
   // Wrap session selection to also close settings view
   const handleSelectSession = useCallback(
@@ -581,6 +587,24 @@ export function useAppOrchestrator() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [settings.planMode, settings.setPlanMode, manager.setActivePlanMode, manager.activeSession?.engine, selectedAgent?.engine]);
 
+  // Cmd+F (Mac) / Ctrl+F — toggle in-chat search overlay
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "f") {
+        if (!manager.activeSessionId) return;
+        e.preventDefault();
+        setChatSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [manager.activeSessionId]);
+
+  // Close chat search when switching sessions
+  useEffect(() => {
+    setChatSearchOpen(false);
+  }, [manager.activeSessionId]);
+
   // Sync InputBar controls when sessionInfo.permissionMode changes (e.g. ExitPlanMode)
   useEffect(() => {
     const mode = manager.sessionInfo?.permissionMode;
@@ -604,7 +628,7 @@ export function useAppOrchestrator() {
 
   // Panel visibility flags
   const hasRightPanel = ((hasTodos && settings.activeTools.has("tasks")) || (hasAgents && settings.activeTools.has("agents"))) && !!manager.activeSessionId;
-  const hasToolsColumn = (settings.activeTools.has("terminal") || settings.activeTools.has("browser") || settings.activeTools.has("git") || settings.activeTools.has("files") || settings.activeTools.has("mcp") || settings.activeTools.has("changes")) && !!manager.activeSessionId;
+  const hasToolsColumn = [...settings.activeTools].some((id) => COLUMN_TOOL_IDS.has(id)) && !!manager.activeSessionId;
 
   // ── Dynamic Electron minimum window width ──
   const isIsland = settings.islandLayout;
@@ -683,6 +707,10 @@ export function useAppOrchestrator() {
     scrollToMessageId,
     setScrollToMessageId,
 
+    // In-chat search
+    chatSearchOpen,
+    setChatSearchOpen,
+
     // Changes panel
     changesPanelFocusTurn,
     setChangesPanelFocusTurn,
@@ -701,6 +729,7 @@ export function useAppOrchestrator() {
     handlePlanModeChange,
     handleThinkingChange,
     handleStop,
+    handleSendQueuedNow,
     handleSelectSession,
     handleCreateProject,
     handleImportCCSession,

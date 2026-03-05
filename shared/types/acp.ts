@@ -29,13 +29,21 @@ export interface ACPToolCall {
 export interface ACPToolCallUpdate {
   sessionUpdate: "tool_call_update"; toolCallId: string; status?: string;
   content?: unknown[]; rawOutput?: unknown; locations?: Array<{ path: string; line?: number }>;
+  /** Some ACP agents (e.g. OpenCode) include rawInput and kind in tool_call_update events */
+  rawInput?: unknown; kind?: string; title?: string;
 }
 export interface ACPPlan { sessionUpdate: "plan"; entries: Array<{ content: string; status: string; priority?: string }> }
 export interface ACPUsageUpdate { sessionUpdate: "usage_update"; size?: number; used?: number; cost?: { amount: number; currency: string } }
 export interface ACPSessionInfoUpdate { sessionUpdate: "session_info_update"; title?: string }
 export interface ACPCurrentModeUpdate { sessionUpdate: "current_mode_update"; currentModeId: string }
 export interface ACPConfigOptionUpdate { sessionUpdate: "config_option_update"; configOptions: ACPConfigOption[] }
-export interface ACPAvailableCommandsUpdate { sessionUpdate: "available_commands_update"; availableCommands: unknown[] }
+export interface ACPAvailableCommand {
+  name: string;
+  description: string;
+  input?: { hint?: string };
+}
+
+export interface ACPAvailableCommandsUpdate { sessionUpdate: "available_commands_update"; availableCommands: ACPAvailableCommand[] }
 
 // ACP Session Config Option types (model, mode, thought_level, etc.)
 export interface ACPConfigOption {

@@ -37,14 +37,17 @@ export function extractTaskSubagentSteps(
       toolName: rawTool.charAt(0).toUpperCase() + rawTool.slice(1),
       toolUseId: typeof item.id === "string" ? item.id : `acp-task-step-${i + 1}`,
       toolInput: title ? { description: title } : {},
-      ...(status || title
+      // Set toolResult when we have any completion info (status or title)
+      ...(status
         ? {
             toolResult: {
-              ...(status ? { status } : {}),
+              status,
               ...(title ? { content: title } : {}),
             },
           }
-        : {}),
+        : title
+          ? { toolResult: { content: title } }
+          : {}),
     });
   }
 

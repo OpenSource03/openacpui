@@ -31,6 +31,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
   const [initialMeta, setInitialMeta] = useState<InitialMeta | null>(null);
   const [initialConfigOptions, setInitialConfigOptions] = useState<ACPConfigOption[]>([]);
+  const [initialSlashCommands, setInitialSlashCommands] = useState<import("@/types").SlashCommand[]>([]);
   const [initialPermission, setInitialPermission] = useState<PermissionRequest | null>(null);
   const [initialRawAcpPermission, setInitialRawAcpPermission] = useState<ACPPermissionEvent | null>(null);
   const [acpMcpStatuses, setAcpMcpStatuses] = useState<McpServerStatus[]>([]);
@@ -57,7 +58,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
   // ── Engine hooks ──
   const claude = useClaude({ sessionId: claudeSessionId, initialMessages: activeEngine === "claude" ? initialMessages : [], initialMeta: activeEngine === "claude" ? initialMeta : null, initialPermission: activeEngine === "claude" ? initialPermission : null });
-  const acp = useACP({ sessionId: acpSessionId, initialMessages: isACP ? initialMessages : [], initialConfigOptions: isACP ? initialConfigOptions : [], initialMeta: isACP ? initialMeta : null, initialPermission: isACP ? initialPermission : null, initialRawAcpPermission: isACP ? initialRawAcpPermission : null, acpPermissionBehavior });
+  const acp = useACP({ sessionId: acpSessionId, initialMessages: isACP ? initialMessages : [], initialConfigOptions: isACP ? initialConfigOptions : [], initialSlashCommands: isACP ? initialSlashCommands : [], initialMeta: isACP ? initialMeta : null, initialPermission: isACP ? initialPermission : null, initialRawAcpPermission: isACP ? initialRawAcpPermission : null, acpPermissionBehavior });
   const codex = useCodex({ sessionId: codexSessionId, sessionModel: codexSessionModel, initialMessages: isCodex ? initialMessages : [], initialMeta: isCodex ? initialMeta : null, initialPermission: isCodex ? initialPermission : null });
 
   // Pick the active engine's state
@@ -96,7 +97,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   draftMcpStatusesRef.current = draftMcpStatuses;
   const materializingRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const messageQueueRef = useRef<QueuedMessage[]>([]);
+  const messageQueueRef = useRef<Map<string, QueuedMessage[]>>(new Map());
   const acpAgentIdRef = useRef<string | null>(null);
   const acpAgentSessionIdRef = useRef<string | null>(null);
   const codexRawModelsRef = useRef(codexRawModels);
@@ -176,6 +177,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setInitialMessages,
     setInitialMeta,
     setInitialConfigOptions,
+    setInitialSlashCommands,
     setInitialPermission,
     setInitialRawAcpPermission,
     setStartOptions,
@@ -197,7 +199,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   };
 
   // ── Compose sub-hooks ──
-  const { enqueueMessage, clearQueue } = useMessageQueue({ refs, setters, engines });
+  const { enqueueMessage, clearQueue, sendQueuedMessageNext, sendNextId } = useMessageQueue({ refs, setters, engines, activeSessionId });
 
   const { saveCurrentSession, seedBackgroundStore, generateSessionTitle } = useSessionPersistence({
     refs,
@@ -329,6 +331,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     sessionInfo: engine.sessionInfo,
     totalCost: engine.totalCost,
     send,
+    sendQueuedMessageNext,
+    sendNextId,
     seedDevExampleConversation,
     refreshSessions,
     queuedCount,
@@ -351,6 +355,11 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     contextUsage: engine.contextUsage,
     isCompacting: "isCompacting" in engine ? !!engine.isCompacting : false,
     compact: engine.compact,
+    slashCommands: isCodex
+      ? codex.slashCommands
+      : isACP
+        ? acp.slashCommands
+        : claude.slashCommands,
     acpConfigOptions: acp.configOptions,
     setACPConfig: acp.setConfig,
     mcpServerStatuses: isACP || isCodex

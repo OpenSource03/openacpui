@@ -25,6 +25,7 @@ import {
   formatTaskResult,
   formatInput,
   formatResult,
+  isCompletionSentinel,
 } from "@/components/lib/tool-formatting";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 
@@ -221,22 +222,34 @@ function SubagentStepRow({ step }: { step: SubagentToolStep }) {
         )}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="ms-5 mt-0.5 mb-1 border-s border-foreground/10 ps-2.5 text-[11px]">
-          <pre className="max-h-32 overflow-auto text-foreground/40 whitespace-pre-wrap wrap-break-word">
-            {formatInput(step.toolInput)}
-          </pre>
-          {step.toolResult && (
-            <>
-              <div className="my-0.5 text-[10px] font-medium text-foreground/30 uppercase tracking-wider">
-                Result
-              </div>
-              <pre className="max-h-32 overflow-auto text-foreground/40 whitespace-pre-wrap wrap-break-word">
-                {formatResult(step.toolResult)}
-              </pre>
-            </>
-          )}
-        </div>
+        <StepExpandedContent step={step} />
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+function StepExpandedContent({ step }: { step: SubagentToolStep }) {
+  const hasInput = step.toolInput && Object.keys(step.toolInput).length > 0;
+  const formattedResult = step.toolResult ? formatResult(step.toolResult) : "";
+  const hasResult = step.toolResult && !isCompletionSentinel(step.toolResult) && formattedResult;
+
+  return (
+    <div className="ms-5 mt-0.5 mb-1 border-s border-foreground/10 ps-2.5 text-[11px]">
+      {hasInput && (
+        <pre className="max-h-32 overflow-auto text-foreground/40 whitespace-pre-wrap wrap-break-word">
+          {formatInput(step.toolInput)}
+        </pre>
+      )}
+      {hasResult && (
+        <>
+          <div className="my-0.5 text-[10px] font-medium text-foreground/30 uppercase tracking-wider">
+            Result
+          </div>
+          <pre className="max-h-32 overflow-auto text-foreground/40 whitespace-pre-wrap wrap-break-word">
+            {formattedResult}
+          </pre>
+        </>
+      )}
+    </div>
   );
 }

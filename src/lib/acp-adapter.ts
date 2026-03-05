@@ -59,27 +59,53 @@ export function normalizeToolInput(
 
     case "read": {
       const filePath = locations?.[0]?.path
+        ?? (typeof raw.filePath === "string" ? raw.filePath : null)
         ?? (firstParsed?.path ? resolveRelativePath(firstParsed.path, raw.cwd as string | undefined) : null);
-      if (filePath) return { file_path: filePath };
+      if (filePath) {
+        const result: Record<string, unknown> = { file_path: filePath };
+        // Preserve line range info for display (ACP agents send these)
+        if (typeof raw.startLineNumberBaseOne === "number") result.startLine = raw.startLineNumberBaseOne;
+        if (typeof raw.endLineNumberBaseOne === "number") result.endLine = raw.endLineNumberBaseOne;
+        return result;
+      }
       // Can't determine file path — fall back to Bash-like display
       return shellCommand ? { command: shellCommand } : raw;
     }
 
     case "execute":
+      // Subagent/task calls — normalize to Task-like input shape
+      if (typeof raw.agentName === "string" || typeof raw.task === "string") {
+        const result: Record<string, unknown> = {};
+        if (typeof raw.agentName === "string") result.subagent_type = raw.agentName;
+        if (typeof raw.task === "string") { result.description = raw.task; result.prompt = raw.task; }
+        return result;
+      }
       return shellCommand ? { command: shellCommand } : raw;
 
     case "search":
-      // ACP search is a shell command (rg, find, etc.) — normalize to Bash shape
+      // ACP agents may send structured search input instead of shell commands
+      if (typeof raw.query === "string") {
+        const result: Record<string, unknown> = { pattern: raw.query };
+        if (typeof raw.includePattern === "string") result.glob = raw.includePattern;
+        if (typeof raw.path === "string") result.path = raw.path;
+        return result;
+      }
+      // Shell-command-based search (rg, find, etc.) — normalize to Bash shape
       return shellCommand ? { command: shellCommand } : raw;
 
     case "edit": {
       // file_path from locations; old_string/new_string come from content[] via normalizeToolResult
       const filePath = locations?.[0]?.path
+        ?? (typeof raw.filePath === "string" ? raw.filePath : null)
         ?? (firstParsed?.path ? resolveRelativePath(firstParsed.path, raw.cwd as string | undefined) : null);
       const result: Record<string, unknown> = {};
       if (filePath) result.file_path = filePath;
       if (typeof raw.old_string === "string") result.old_string = raw.old_string;
       if (typeof raw.new_string === "string") result.new_string = raw.new_string;
+      // Preserve content for create_file (Write renderer uses toolInput.content)
+      if (typeof raw.content === "string" && !result.old_string && !result.new_string) {
+        result.content = raw.content;
+      }
       return Object.keys(result).length > 0 ? result : (shellCommand ? { command: shellCommand } : raw);
     }
 
@@ -267,6 +293,26 @@ export function deriveToolName(
       if (titleLower === "find" || titleLower === "fd") return "Glob";
       return title;
     }
+    // Title-based resolution: ACP agents use descriptive tool titles
+    // that map more precisely than the coarse `kind` categories.
+    const titleLower = title.toLowerCase();
+    const titleMap: Record<string, string> = {
+      run_subagent: "Task",
+      grep_search: "Grep",
+      file_search: "Glob",
+      codebase_search: "Grep",
+      create_file: "Write",
+      create_new_file: "Write",
+      write_file: "Write",
+      write_to_file: "Write",
+      insert_text: "Edit",
+      replace_in_file: "Edit",
+      edit_file: "Edit",
+      read_file: "Read",
+      list_dir: "Read",
+    };
+    if (titleMap[titleLower]) return titleMap[titleLower];
+
     const kindMap: Record<string, string> = {
       read: "Read",
       edit: "Edit",

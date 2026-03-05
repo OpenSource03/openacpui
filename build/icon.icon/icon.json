@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "extended-gray:1.00000,1.00000",
-      "extended-gray:1.00000,1.00000"
+      "display-p3:0.85426,0.92032,1.00000,1.00000",
+      "display-p3:0.82799,0.79850,1.00000,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -19,17 +19,21 @@
     {
       "layers" : [
         {
+          "fill" : "automatic",
           "glass" : true,
           "image-name" : "harnss.pngdark.png",
           "name" : "harnss.pngdark",
           "opacity-specializations" : [
+            {
+              "value" : 1
+            },
             {
               "appearance" : "dark",
               "value" : 0
             }
           ],
           "position" : {
-            "scale" : 0.8,
+            "scale" : 0.9,
             "translation-in-points" : [
               0,
               0
@@ -40,6 +44,15 @@
           "glass" : true,
           "image-name" : "harnss-light 2.png",
           "name" : "harnss-light 2",
+          "opacity-specializations" : [
+            {
+              "value" : 0
+            },
+            {
+              "appearance" : "dark",
+              "value" : 1
+            }
+          ],
           "position" : {
             "scale" : 0.8,
             "translation-in-points" : [

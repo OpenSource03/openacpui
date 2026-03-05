@@ -50,7 +50,12 @@ export function formatCompactSummary(message: UIMessage): string {
   if (input.command) return String(input.command).split("\n")[0];
   if (input.file_path) return String(input.file_path).split("/").pop() ?? "";
   if (filePathFromResult) return filePathFromResult.split("/").pop() ?? filePathFromResult;
-  if (input.pattern) return String(input.pattern);
+  if (input.pattern) {
+    const pat = String(input.pattern);
+    const glob = input.glob ? ` in ${String(input.glob)}` : "";
+    const suffix = getSearchResultSuffix(result);
+    return pat + glob + suffix;
+  }
   if (input.query) return String(input.query).slice(0, 60);
   if (input.url) {
     try {
@@ -59,6 +64,18 @@ export function formatCompactSummary(message: UIMessage): string {
       return String(input.url).slice(0, 60);
     }
   }
+  return "";
+}
+
+/** Derive a short suffix like " → 3 files" from structured Grep/Glob results. */
+function getSearchResultSuffix(result: UIMessage["toolResult"]): string {
+  if (!result || !("mode" in result)) return "";
+  const numFiles = "numFiles" in result ? Number(result.numFiles) : 0;
+  const numLines = "numLines" in result ? Number(result.numLines) : 0;
+  const mode = String(result.mode);
+  if (mode === "files_with_matches" && numFiles > 0) return ` → ${numFiles} file${numFiles !== 1 ? "s" : ""}`;
+  if (mode === "content" && numLines > 0) return ` → ${numLines} line${numLines !== 1 ? "s" : ""}`;
+  if (numFiles === 0 && numLines === 0) return " → no matches";
   return "";
 }
 
@@ -175,8 +192,19 @@ export function formatBashResult(result: UIMessage["toolResult"]): string {
   return parts.join("\n") || "(no output)";
 }
 
+/** Check if a tool result is the synthetic `{ status: "completed" }` marker
+ *  created by closePendingTools (ACP fast-tool fallback). */
+export function isCompletionSentinel(result: UIMessage["toolResult"]): boolean {
+  if (!result) return false;
+  const keys = Object.keys(result);
+  return keys.length === 1 && result.status === "completed";
+}
+
 export function formatResult(result: UIMessage["toolResult"]): string {
   if (!result) return "";
+
+  // Synthetic completion marker from closePendingTools — no real output
+  if (isCompletionSentinel(result)) return "";
 
   if (result.file) {
     const { filePath, numLines, totalLines } = result.file;

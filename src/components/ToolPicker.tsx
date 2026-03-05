@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { Terminal, Globe, GitBranch, FileText, ListTodo, Bot, Plug, SquareArrowOutUpRight, FileDiff } from "lucide-react";
+import { Terminal, Globe, GitBranch, FileText, FolderTree, ListTodo, Bot, Plug, SquareArrowOutUpRight, FileDiff } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export type ToolId = "terminal" | "browser" | "git" | "files" | "tasks" | "agents" | "mcp" | "changes";
+export type ToolId = "terminal" | "browser" | "git" | "files" | "project-files" | "tasks" | "agents" | "mcp" | "changes";
 
 interface ToolDef {
   id: ToolId;
@@ -22,9 +22,13 @@ const PANEL_TOOLS_MAP: Record<string, ToolDef> = {
   browser: { id: "browser", label: "Browser", icon: Globe },
   git: { id: "git", label: "Source Control", icon: GitBranch },
   files: { id: "files", label: "Open Files", icon: FileText },
+  "project-files": { id: "project-files", label: "Project Files", icon: FolderTree },
   mcp: { id: "mcp", label: "MCP Servers", icon: Plug },
   changes: { id: "changes", label: "Changes", icon: FileDiff },
 };
+
+/** Tool IDs that render in the tools column (not contextual right-panel tools). */
+export const COLUMN_TOOL_IDS = new Set<ToolId>(Object.keys(PANEL_TOOLS_MAP) as ToolId[]);
 
 const CONTEXTUAL_TOOLS: ToolDef[] = [
   { id: "tasks", label: "Tasks", icon: ListTodo },
