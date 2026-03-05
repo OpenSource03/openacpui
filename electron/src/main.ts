@@ -22,6 +22,7 @@ import { log } from "./lib/logger";
 import { migrateFromOpenAcpUi } from "./lib/migration";
 import { glassEnabled, liquidGlass } from "./lib/glass";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
+import { initPostHog, shutdownPostHog } from "./lib/posthog";
 import { sessions } from "./ipc/claude-sessions";
 import { acpSessions } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
@@ -173,6 +174,16 @@ codexSessionsIpc.register(getMainWindow);
 mcpIpc.register();
 settingsIpc.register();
 
+// Listen for analytics settings changes and reinitialize PostHog
+import { onSettingsChanged } from "./ipc/settings";
+import { reinitPostHog } from "./lib/posthog";
+onSettingsChanged((settings) => {
+  // Reinitialize PostHog when analytics settings change
+  if ("analyticsEnabled" in settings) {
+    reinitPostHog();
+  }
+});
+
 // --- DevTools in separate window via remote debugging ---
 let devToolsWindow: BrowserWindow | null = null;
 
@@ -257,12 +268,15 @@ ipcMain.handle("speech:request-mic-permission", async () => {
   return { granted: true };
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Migrate data from old "OpenACP UI" app directory before anything reads it
   migrateFromOpenAcpUi();
 
   createWindow();
   initAutoUpdater(getMainWindow);
+
+  // Initialize PostHog analytics (if enabled in settings)
+  await initPostHog();
 
   // Allow microphone access for Whisper voice dictation (getUserMedia in renderer)
   session.defaultSession.setPermissionRequestHandler(
@@ -297,8 +311,11 @@ app.whenReady().then(() => {
   }
 });
 
-app.on("will-quit", () => {
+app.on("will-quit", async () => {
   globalShortcut.unregisterAll();
+
+  // Shutdown PostHog client (flush pending events)
+  await shutdownPostHog();
 });
 
 app.on("window-all-closed", () => {

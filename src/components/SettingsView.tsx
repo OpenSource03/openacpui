@@ -10,6 +10,7 @@ import {
   Palette,
   Sparkles,
   Users,
+  BarChart3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { AgentSettings } from "@/components/settings/AgentSettings";
@@ -20,13 +21,14 @@ import { McpSettings } from "@/components/settings/McpSettings";
 import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
 import { AboutSettings } from "@/components/settings/AboutSettings";
+import { AnalyticsSettings } from "@/components/settings/AnalyticsSettings";
 import { isMac } from "@/lib/utils";
 import type { InstalledAgent, ThemeOption } from "@/types";
 import type { AppSettings } from "@/types/ui";
 
 // ── Section definitions ──
 
-type SettingsSection = "general" | "appearance" | "notifications" | "agents" | "mcp" | "engines" | "skills" | "custom-agents" | "advanced" | "about";
+type SettingsSection = "general" | "appearance" | "notifications" | "analytics" | "agents" | "mcp" | "engines" | "skills" | "custom-agents" | "advanced" | "about";
 
 interface NavItem {
   id: SettingsSection;
@@ -40,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "general", label: "General", icon: SlidersHorizontal },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "agents", label: "ACP Agents", icon: Bot },
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "engines", label: "Engines", icon: Cpu },
@@ -132,6 +135,13 @@ export const SettingsView = memo(function SettingsView({
       case "notifications":
         return (
           <NotificationsSettings
+            appSettings={appSettings}
+            onUpdateAppSettings={updateAppSettings}
+          />
+        );
+      case "analytics":
+        return (
+          <AnalyticsSettings
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
           />
