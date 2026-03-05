@@ -11,6 +11,13 @@ import type { EngineId, AppPermissionBehavior } from "./engine";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "./codex";
 import type { Model as CodexModel } from "./codex-protocol/v2/Model";
 import type { CollaborationMode } from "./codex-protocol/CollaborationMode";
+import type {
+  JiraProjectConfig,
+  JiraBoard,
+  JiraIssue,
+  JiraGetBoardsParams,
+  JiraGetIssuesParams,
+} from "@shared/types/jira";
 
 interface SessionListItem {
   id: string;
@@ -283,6 +290,20 @@ declare global {
       settings: {
         get: () => Promise<AppSettings>;
         set: (patch: Partial<AppSettings>) => Promise<{ ok?: boolean; error?: string }>;
+      };
+      jira: {
+        getConfig: (projectId: string) => Promise<JiraProjectConfig | null>;
+        saveConfig: (projectId: string, config: JiraProjectConfig) => Promise<void>;
+        deleteConfig: (projectId: string) => Promise<void>;
+        authenticate: (
+          instanceUrl: string,
+          method: "oauth" | "apitoken",
+          apiToken?: string
+        ) => Promise<{ ok?: boolean; error?: string }>;
+        authStatus: (instanceUrl: string) => Promise<{ hasToken: boolean }>;
+        logout: (instanceUrl: string) => Promise<void>;
+        getBoards: (params: JiraGetBoardsParams) => Promise<JiraBoard[]>;
+        getIssues: (params: JiraGetIssuesParams) => Promise<JiraIssue[]>;
       };
       speech: {
         /** Triggers macOS native dictation (Cocoa startDictation: selector). Returns { ok: false } on non-macOS. */

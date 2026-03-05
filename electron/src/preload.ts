@@ -242,6 +242,20 @@ contextBridge.exposeInMainWorld("claude", {
     get: () => ipcRenderer.invoke("settings:get"),
     set: (patch: Record<string, unknown>) => ipcRenderer.invoke("settings:set", patch),
   },
+  jira: {
+    getConfig: (projectId: string) => ipcRenderer.invoke("jira:get-config", projectId),
+    saveConfig: (projectId: string, config: unknown) =>
+      ipcRenderer.invoke("jira:save-config", { projectId, config }),
+    deleteConfig: (projectId: string) => ipcRenderer.invoke("jira:delete-config", projectId),
+    authenticate: (instanceUrl: string, method: "oauth" | "apitoken", apiToken?: string) =>
+      ipcRenderer.invoke("jira:authenticate", { instanceUrl, method, apiToken }),
+    authStatus: (instanceUrl: string) => ipcRenderer.invoke("jira:auth-status", instanceUrl),
+    logout: (instanceUrl: string) => ipcRenderer.invoke("jira:logout", instanceUrl),
+    getBoards: (params: { instanceUrl: string; projectKey?: string }) =>
+      ipcRenderer.invoke("jira:get-boards", params),
+    getIssues: (params: { instanceUrl: string; boardId: string; maxResults?: number }) =>
+      ipcRenderer.invoke("jira:get-issues", params),
+  },
   speech: {
     startNativeDictation: () => ipcRenderer.invoke("speech:start-native-dictation"),
     getPlatform: () => ipcRenderer.invoke("speech:get-platform"),
