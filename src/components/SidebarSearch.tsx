@@ -96,9 +96,9 @@ export const SidebarSearch = memo(function SidebarSearch({
   };
 
   return (
-    <div ref={containerRef} className="relative no-drag px-2 pb-1">
-      <div className="glass-outline relative overflow-hidden rounded-lg" style={{ "--island-fill": "var(--sidebar)" } as React.CSSProperties}>
-        <Search className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sidebar-foreground/30" />
+    <div ref={containerRef} className="relative no-drag px-3 pb-3 pt-1">
+      <div className="glass-outline relative overflow-hidden rounded-xl transition-all focus-within:ring-2 focus-within:ring-primary/20" style={{ "--island-fill": "var(--sidebar-accent)" } as React.CSSProperties}>
+        <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sidebar-foreground/40" />
         <input
           ref={inputRef}
           value={query}
@@ -109,7 +109,7 @@ export const SidebarSearch = memo(function SidebarSearch({
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder="Search chats..."
-          className="w-full rounded-lg bg-sidebar-accent/50 py-1.5 pe-7 ps-8 text-sm text-sidebar-foreground placeholder:text-sidebar-foreground/30 outline-none transition-colors focus:bg-sidebar-accent"
+          className="w-full bg-black/5 py-1.5 pe-8 ps-9 text-[13px] text-sidebar-foreground placeholder:text-sidebar-foreground/40 outline-none transition-colors focus:bg-black/10 dark:bg-white/5 dark:focus:bg-white/10"
         />
         {query && (
           <button
@@ -119,13 +119,13 @@ export const SidebarSearch = memo(function SidebarSearch({
             }}
             className="absolute end-2 top-1/2 -translate-y-1/2 text-sidebar-foreground/40 hover:text-sidebar-foreground"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
       {showDropdown && (
-        <div className="absolute inset-x-2 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-sidebar-border bg-popover p-1 shadow-lg">
+        <div className="absolute inset-x-3 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-xl border border-sidebar-border bg-popover p-1.5 shadow-xl glass-outline" style={{ "--island-fill": "var(--popover)" } as React.CSSProperties}>
           {isSearching && (
             <p className="px-2 py-3 text-center text-xs text-muted-foreground">Searching...</p>
           )}
@@ -148,10 +148,10 @@ export const SidebarSearch = memo(function SidebarSearch({
                     setIsOpen(false);
                     setQuery("");
                   }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-start text-[13px] hover:bg-accent"
                 >
                   <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 truncate">
+                  <span className="min-w-0 truncate font-medium">
                     {highlightMatch(r.title, query)}
                   </span>
                 </button>
@@ -173,9 +173,9 @@ export const SidebarSearch = memo(function SidebarSearch({
                     setIsOpen(false);
                     setQuery("");
                   }}
-                  className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-start hover:bg-accent"
+                  className="flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-start hover:bg-accent"
                 >
-                  <span className="text-sm wrap-break-word line-clamp-2">
+                  <span className="text-[13px] wrap-break-word line-clamp-2">
                     {highlightMatch(r.snippet, query)}
                   </span>
                   <span className="text-[11px] text-muted-foreground truncate">

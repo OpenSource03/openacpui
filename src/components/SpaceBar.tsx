@@ -125,9 +125,9 @@ export const SpaceBar = memo(function SpaceBar({
         <TooltipTrigger asChild>
           <button
             onClick={onOpenSettings}
-            className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/40 transition-colors hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            className="mb-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sidebar-foreground/40 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
           >
-            <Settings className="h-4 w-4" />
+            <Settings className="h-4.5 w-4.5" />
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
@@ -177,10 +177,10 @@ export const SpaceBar = memo(function SpaceBar({
                           onDropProject(projectId, space.id);
                         }
                       }}
-                      className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-all ${
+                      className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all ${
                         isActive
-                          ? "text-sidebar-foreground bg-sidebar-accent"
-                          : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                          ? "bg-black/10 text-sidebar-foreground shadow-sm dark:bg-white/15"
+                          : "text-sidebar-foreground/60 hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
                       } ${isDragOver ? "ring-2 ring-primary scale-110" : ""}`}
                     >
                       <SpaceIcon space={space} />
@@ -217,9 +217,9 @@ export const SpaceBar = memo(function SpaceBar({
         <TooltipTrigger asChild>
           <button
             onClick={onCreateSpace}
-            className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/40 transition-colors hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            className="mb-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sidebar-foreground/40 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4.5 w-4.5" />
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">

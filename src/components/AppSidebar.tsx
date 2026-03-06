@@ -160,26 +160,26 @@ export const AppSidebar = memo(function AppSidebar({
   return (
     <div
       className={`flex shrink-0 flex-col overflow-hidden bg-sidebar transition-[width] duration-200 ${
-        isOpen ? "w-[260px] ps-2" : "w-0"
+        isOpen ? "w-[280px] ps-2" : "w-0"
       }`}
     >
       <div
-        className={`drag-region flex h-[46px] items-center gap-1 pe-2 ${isMac ? "ps-[84px]" : "ps-0"}`}
+        className={`drag-region flex h-[52px] items-center gap-2 pe-3 ${isMac ? "ps-[84px]" : "ps-2"}`}
       >
         <Button
           variant="ghost"
           size="icon"
-          className="no-drag h-7 w-7 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+          className="no-drag h-8 w-8 rounded-full text-sidebar-foreground/70 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
           onClick={onToggleSidebar}
         >
-          <PanelLeft className="h-4 w-4" />
+          <PanelLeft className="h-4.5 w-4.5" />
         </Button>
 
         <div className="flex-1" />
 
         <button
           onClick={onCreateProject}
-          className="no-drag flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+          className="no-drag flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium text-sidebar-foreground/70 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
         >
           <Plus className="h-3.5 w-3.5 shrink-0" />
           <span>Add project</span>
@@ -197,7 +197,7 @@ export const AppSidebar = memo(function AppSidebar({
         style={{ maskImage: maskValue, WebkitMaskImage: maskValue }}
       >
         <ScrollArea ref={scrollRef} className="h-full">
-          <div className={`px-2 pt-2 pb-8 ${slideClass}`}>
+          <div className={`px-3 pt-2 pb-8 ${slideClass}`}>
             {filteredProjects.map((project) => {
               const projectSessions = sessions.filter(
                 (s) => s.projectId === project.id,

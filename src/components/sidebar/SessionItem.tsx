@@ -37,7 +37,7 @@ export function SessionItem({
 
   if (isEditing) {
     return (
-      <div className="flex items-center gap-1 px-1">
+      <div className="flex items-center gap-1 px-1 ps-2">
         <input
           autoFocus
           value={editTitle}
@@ -47,7 +47,7 @@ export function SessionItem({
             if (e.key === "Enter") handleRename();
             if (e.key === "Escape") setIsEditing(false);
           }}
-          className="flex-1 rounded bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-sidebar-ring"
+          className="flex-1 rounded-lg bg-black/5 px-2 py-1 text-[13px] text-sidebar-foreground outline-none ring-1 ring-sidebar-ring dark:bg-white/5"
         />
       </div>
     );
@@ -57,10 +57,10 @@ export function SessionItem({
     <div className="group relative">
       <button
         onClick={onSelect}
-        className={`flex w-full min-w-0 items-center gap-2 rounded-md ps-2 pe-6 py-1 text-start text-[13px] transition-colors ${
+        className={`flex w-full min-w-0 items-center gap-2.5 rounded-lg ps-4 pe-8 py-1.5 text-start text-[13px] font-medium transition-all ${
           isActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50"
+            ? "bg-primary/10 text-primary dark:bg-primary/15"
+            : "text-sidebar-foreground/75 hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/5"
         }`}
       >
         {session.hasPendingPermission ? (
@@ -81,15 +81,15 @@ export function SessionItem({
         )}
       </button>
 
-      <div className="absolute end-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute end-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-all group-hover:opacity-100">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 w-5 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:!bg-black/10 dark:hover:!bg-sidebar-accent/50"
+              className="h-6 w-6 rounded-md text-sidebar-foreground/60 hover:bg-black/10 hover:text-sidebar-foreground dark:hover:bg-white/10"
             >
-              <MoreHorizontal className="h-3 w-3" />
+              <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent

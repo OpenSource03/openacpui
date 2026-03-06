@@ -43,6 +43,41 @@ interface SessionEntry {
 
 export const sessions = new Map<string, SessionEntry>();
 
+function summarizeSpawnOptions(options: Record<string, unknown>): Record<string, unknown> {
+  const mcpServers = options.mcpServers;
+  const mcpSummary = mcpServers && typeof mcpServers === "object"
+    ? Object.entries(mcpServers as Record<string, unknown>).map(([name, config]) => ({
+      name,
+      transport:
+        config && typeof config === "object" && "type" in config
+          ? (config as { type?: unknown }).type ?? "stdio"
+          : "stdio",
+    }))
+    : undefined;
+
+  return {
+    cwd: options.cwd,
+    sessionId: options.sessionId,
+    resume: options.resume,
+    forkSession: options.forkSession,
+    resumeSessionAt: options.resumeSessionAt,
+    permissionMode: options.permissionMode,
+    model: options.model,
+    includePartialMessages: options.includePartialMessages,
+    thinking: options.thinking,
+    settingSources: options.settingSources,
+    enableFileCheckpointing: options.enableFileCheckpointing,
+    extraArgs: options.extraArgs,
+    envKeys:
+      options.env && typeof options.env === "object"
+        ? Object.keys(options.env as Record<string, unknown>).sort()
+        : undefined,
+    mcpServers: mcpSummary,
+    canUseTool: "[callback]",
+    stderr: "[callback]",
+  };
+}
+
 function summarizeEvent(event: Record<string, unknown>): string {
   switch (event.type) {
     case "system": {
@@ -372,7 +407,7 @@ async function restartSession(
     queryOptions.mcpServers = await buildSdkMcpConfig(mcpServers);
   }
 
-  log("SESSION_RESTART_SPAWN", { sessionId, options: { ...queryOptions, canUseTool: "[callback]", stderr: "[callback]" } });
+  log("SESSION_RESTART_SPAWN", { sessionId, options: summarizeSpawnOptions(queryOptions) });
 
   let q;
   try {
@@ -480,7 +515,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         queryOptions.mcpServers = await buildSdkMcpConfig(options.mcpServers);
       }
 
-      log("SPAWN", { sessionId, resume: options.resume || null, options: { ...queryOptions, canUseTool: "[callback]", stderr: "[callback]" } });
+      log("SPAWN", { sessionId, resume: options.resume || null, options: summarizeSpawnOptions(queryOptions) });
 
       const q = query({ prompt: channel, options: queryOptions });
       session.queryHandle = q;
