@@ -32,6 +32,12 @@ async function oneShotSdkQuery(
 
   try {
     const query = await getSDK();
+    const cliPath = getCliPath();
+    if (cliPath) {
+      log("SDK_CLI_PATH", `${logLabel} path=${cliPath}`);
+    } else {
+      log("SDK_CLI_PATH", `${logLabel} unresolved; relying on SDK fallback`);
+    }
     let eventCount = 0;
     let lastEventType = "none";
     let lastResultSubtype = "none";
@@ -49,7 +55,7 @@ async function oneShotSdkQuery(
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         persistSession: false,
-        pathToClaudeCodeExecutable: getCliPath(),
+        pathToClaudeCodeExecutable: cliPath,
         env: { ...process.env, ...clientAppEnv() },
         stderr: (data: string) => {
           const trimmed = data.trim();

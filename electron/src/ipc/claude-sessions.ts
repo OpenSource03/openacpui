@@ -214,6 +214,14 @@ function buildThinkingConfig(thinkingEnabled?: boolean): { type: "adaptive" } | 
     : { type: "adaptive" };
 }
 
+function logSdkCliPath(context: string, cliPath?: string): void {
+  if (cliPath) {
+    log("SDK_CLI_PATH", `${context} path=${cliPath}`);
+    return;
+  }
+  log("SDK_CLI_PATH", `${context} unresolved; relying on SDK fallback`);
+}
+
 let modelsRevalidationPromise: Promise<{ models: Array<Record<string, unknown>>; updatedAt?: number; error?: string }> | null = null;
 
 async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Array<Record<string, unknown>>; updatedAt?: number; error?: string }> {
@@ -226,12 +234,14 @@ async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Arra
 
     try {
       const query = await getSDK();
+      const cliPath = getCliPath();
+      logSdkCliPath("models-revalidate", cliPath);
       const queryOptions: Record<string, unknown> = {
         cwd: cwd?.trim() || os.homedir(),
         includePartialMessages: true,
         thinking: buildThinkingConfig(true),
         settingSources: ["user", "project"],
-        pathToClaudeCodeExecutable: getCliPath(),
+        pathToClaudeCodeExecutable: cliPath,
         ...fileCheckpointOptions(),
       };
 
@@ -319,6 +329,8 @@ async function restartSession(
   const mcpServers = mcpServersOverride ?? opts.mcpServers;
   const query = await getSDK();
   const newChannel = new AsyncChannel<unknown>();
+  const cliPath = getCliPath();
+  logSdkCliPath(`restart session=${sessionId.slice(0, 8)}`, cliPath);
 
   const newSession: SessionEntry = {
     channel: newChannel,
@@ -350,7 +362,7 @@ async function restartSession(
     thinking: buildThinkingConfig(opts.thinkingEnabled),
     canUseTool,
     settingSources: ["user", "project"],
-    pathToClaudeCodeExecutable: getCliPath(),
+    pathToClaudeCodeExecutable: cliPath,
     ...fileCheckpointOptions(),
     resume: sessionId,
     stderr: (data: string) => {
@@ -439,13 +451,15 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         });
       };
 
+      const cliPath = getCliPath();
+      logSdkCliPath(`start session=${sessionId.slice(0, 8)}`, cliPath);
       const queryOptions: Record<string, unknown> = {
         cwd: options.cwd || process.cwd(),
         includePartialMessages: true,
         thinking: buildThinkingConfig(options.thinkingEnabled),
         canUseTool,
         settingSources: ["user", "project"],
-        pathToClaudeCodeExecutable: getCliPath(),
+        pathToClaudeCodeExecutable: cliPath,
         ...fileCheckpointOptions(),
         stderr: (data: string) => {
           const trimmed = data.trim();
