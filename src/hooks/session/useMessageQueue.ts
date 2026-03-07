@@ -9,6 +9,7 @@ import {
   finalizeQueuedMessage,
   prioritizeQueuedEntry,
   removeQueuedEntry,
+  removeQueuedMessage,
 } from "./message-queue-utils";
 import { buildCodexCollabMode, DRAFT_ID } from "./types";
 import type { SharedSessionRefs, SharedSessionSetters, EngineHooks, QueuedMessage } from "./types";
@@ -183,7 +184,18 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
     isDrainingRef.current = true;
 
     const handleSendError = (message = "Failed to send queued message.") => {
-      clearQueueForSession(activeId, targetSetMessages);
+      const currentQueue = messageQueueRef.current.get(activeId) ?? [];
+      const nextQueue = removeQueuedEntry(currentQueue, next.messageId);
+      if (nextQueue.length > 0) {
+        messageQueueRef.current.set(activeId, nextQueue);
+      } else {
+        messageQueueRef.current.delete(activeId);
+        boundaryWaitRef.current.delete(activeId);
+      }
+      inFlightQueuedIdRef.current.delete(activeId);
+      setSendNextId((prev) => prev === next.messageId ? null : prev);
+      syncActiveQueueState();
+      targetSetMessages((prev) => removeQueuedMessage(prev, next.messageId));
       targetSetMessages((prev) => [
         ...prev,
         {
