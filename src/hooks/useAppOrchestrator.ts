@@ -10,9 +10,12 @@ import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
 import { useNotifications } from "@/hooks/useNotifications";
 import {
+  APP_SIDEBAR_WIDTH,
   getMinChatWidth,
   getResizeHandleWidth,
   getToolPickerWidth,
+  ISLAND_LAYOUT_MARGIN,
+  WINDOWS_FRAME_BUFFER_WIDTH,
   MIN_RIGHT_PANEL_WIDTH,
   MIN_TOOLS_PANEL_WIDTH,
 } from "@/lib/layout-constants";
@@ -636,14 +639,14 @@ export function useAppOrchestrator() {
   // ── Dynamic Electron minimum window width ──
   const isIsland = settings.islandLayout;
   const minChatWidth = getMinChatWidth(isIsland);
-  const margins = isIsland ? 16 : 0;
+  const margins = isIsland ? ISLAND_LAYOUT_MARGIN : 0;
   const handleW = getResizeHandleWidth(isIsland);
   const pickerW = getToolPickerWidth(isIsland);
   // Windows native frame borders consume extra pixels from the content area
-  const winFrameBuffer = isWindows ? 16 : 0;
+  const winFrameBuffer = isWindows ? WINDOWS_FRAME_BUFFER_WIDTH : 0;
 
   useEffect(() => {
-    const sidebarW = sidebar.isOpen ? 260 : 0;
+    const sidebarW = sidebar.isOpen ? APP_SIDEBAR_WIDTH : 0;
     let minW = sidebarW + margins + minChatWidth + winFrameBuffer;
 
     if (manager.activeSessionId) {

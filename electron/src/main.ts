@@ -3,6 +3,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, session, shell, syst
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
+import { getBootstrapMinWindowWidth } from "../../src/lib/layout-constants";
 
 // Packaged .app bundles launched from Finder get a minimal PATH (/usr/bin:/bin).
 // Inherit the user's shell PATH so child processes (SDK's `node`, git, etc.) resolve.
@@ -68,8 +69,9 @@ function createWindow(): void {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1200,
     height: 800,
-    // Matches the renderer's stricter island-layout minimum before first IPC sync.
-    minWidth: 1664,
+    // Matches the renderer's stricter island-layout minimum before first IPC sync,
+    // including the extra Windows frame buffer.
+    minWidth: getBootstrapMinWindowWidth(process.platform),
     minHeight: 600,
     // Packaged builds get the icon from the .app bundle / electron-builder config
     ...(!app.isPackaged && { icon: path.join(__dirname, "../../build/icon.png") }),
