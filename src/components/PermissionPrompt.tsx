@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ShieldAlert, Check, X, Send, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CHAT_INPUT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
+import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
 import type { PermissionRequest, RespondPermissionFn } from "@/types";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -59,7 +59,7 @@ function ExitPlanModePrompt({ request, onRespond }: PermissionPromptProps) {
   };
 
   return (
-    <div className={`mx-auto w-full px-4 pb-4 ${CHAT_INPUT_MAX_WIDTH_CLASS}`}>
+    <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/55 shadow-lg backdrop-blur-lg">
         <div className="flex flex-col gap-3 px-4 py-3.5">
           <p className="text-[13px] text-foreground">
@@ -183,7 +183,7 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
   });
 
   return (
-    <div className={`mx-auto w-full px-4 pb-4 ${CHAT_INPUT_MAX_WIDTH_CLASS}`}>
+    <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/55 shadow-lg backdrop-blur-lg">
         {questions.map((q, qi) => (
           <div
@@ -272,7 +272,7 @@ export function PermissionPrompt({ request, onRespond, showAcceptForSession }: P
   const detail = formatToolDetail(request);
 
   return (
-    <div className={`mx-auto w-full px-4 pb-4 ${CHAT_INPUT_MAX_WIDTH_CLASS}`}>
+    <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-border/60 bg-background/55 px-4 py-3 shadow-lg backdrop-blur-lg">
         <ShieldAlert className="h-5 w-5 shrink-0 text-foreground/60" />
 
