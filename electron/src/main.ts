@@ -310,11 +310,32 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on("will-quit", async () => {
+app.on("will-quit", (event) => {
   globalShortcut.unregisterAll();
 
-  // Shutdown PostHog client (flush pending events)
-  await shutdownPostHog();
+  // When an update is being installed, let the updater control the quit lifecycle.
+  // In that case, fire-and-forget PostHog shutdown and do not delay quit.
+  if (getIsInstallingUpdate()) {
+    void shutdownPostHog();
+    return;
+  }
+
+  // For normal quits, delay process exit until PostHog has flushed pending events.
+  event.preventDefault();
+
+  shutdownPostHog()
+    .catch((err) => {
+      // Log and continue exit even if analytics shutdown fails
+      log(
+        "POSTHOG",
+        `Error shutting down PostHog: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    })
+    .finally(() => {
+      app.exit(0);
+    });
 });
 
 app.on("window-all-closed", () => {
