@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { motion } from "motion/react";
 import { ArrowRight, FolderOpen } from "lucide-react";
 
@@ -6,6 +6,25 @@ import { ArrowRight, FolderOpen } from "lucide-react";
 
 const EASE_OUT: [number, number, number, number] = [0.22, 0.68, 0, 1];
 const DISPLAY_FONT = "'Instrument Serif', Georgia, serif";
+const SIDEBAR_ARROW_HEIGHT = 360;
+const SIDEBAR_ARROW_TIP_INSET = 18;
+const SIDEBAR_ARROW_BASE_SPAN = 642;
+const SIDEBAR_ARROW_TAIL_GAP = 36;
+const SIDEBAR_ARROW_HEAD_LENGTH = 34;
+const SIDEBAR_ARROW_HEAD_SPREAD = 19;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function rotateVector(x: number, y: number, radians: number) {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return {
+    x: x * cos - y * sin,
+    y: x * sin + y * cos,
+  };
+}
 
 // ── Ambient Gradient Orbs ─────────────────────────────────────────────
 
@@ -133,17 +152,106 @@ function SkeletonChat() {
  *  Placed as a direct child of the outer `relative` container so the arrow
  *  tip can sit on the sidebar boundary while the tail starts beneath the
  *  centered caption. */
-function SidebarArrow() {
-  // Matches the hand-drawn reference more closely:
-  // tail on the right, long sweep underneath, then a sharper rise into the sidebar.
+interface SidebarArrowProps {
+  anchorRef: RefObject<HTMLElement | null>;
+}
+
+function SidebarArrow({ anchorRef }: SidebarArrowProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [metrics, setMetrics] = useState({ svgWidth: 900, tailX: 660 });
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const anchor = anchorRef.current;
+    if (!container || !anchor) {
+      return;
+    }
+
+    const updateMetrics = () => {
+      const containerRect = container.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      const nextWidth = Math.max(containerRect.width, 1);
+      const maxTailX = Math.max(nextWidth - 24, SIDEBAR_ARROW_TIP_INSET + 120);
+      const minTailX = Math.min(660, maxTailX);
+      const anchoredTailX =
+        anchorRect.right - containerRect.left + SIDEBAR_ARROW_TAIL_GAP;
+      const nextTailX = clamp(anchoredTailX, minTailX, maxTailX);
+
+      setMetrics((prevMetrics) => {
+        const widthChanged = Math.abs(prevMetrics.svgWidth - nextWidth) >= 1;
+        const tailChanged = Math.abs(prevMetrics.tailX - nextTailX) >= 1;
+        if (!widthChanged && !tailChanged) {
+          return prevMetrics;
+        }
+        return { svgWidth: nextWidth, tailX: nextTailX };
+      });
+    };
+
+    updateMetrics();
+
+    const observer = new ResizeObserver(() => {
+      updateMetrics();
+    });
+
+    observer.observe(container);
+    observer.observe(anchor);
+
+    const fontReady = document.fonts?.ready;
+    if (fontReady) {
+      void fontReady.then(() => {
+        updateMetrics();
+      });
+    }
+
+    window.addEventListener("resize", updateMetrics);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateMetrics);
+    };
+  }, [anchorRef]);
+
+  const usableWidth = Math.max(metrics.svgWidth, 1);
+  const tipX = SIDEBAR_ARROW_TIP_INSET;
+  const tailX = metrics.tailX;
+  const span = Math.max(tailX - tipX, 1);
+  const scaleX = (offset: number) => tipX + (offset / SIDEBAR_ARROW_BASE_SPAN) * span;
+  const endPoint = { x: tipX, y: 18 };
+  const endControlPoint = { x: scaleX(92), y: 136 };
+
+  // Keep the tip pinned near the sidebar while the sweep length expands.
   const curvePath = [
-    "M 660 104",
-    "C 760 122, 790 235, 720 272",
-    "C 635 318, 470 312, 330 258",
-    "C 210 212, 110 136, 18 18",
+    `M ${tailX.toFixed(2)} 104`,
+    `C ${scaleX(742).toFixed(2)} 122, ${scaleX(772).toFixed(2)} 235, ${scaleX(702).toFixed(2)} 272`,
+    `C ${scaleX(617).toFixed(2)} 318, ${scaleX(452).toFixed(2)} 312, ${scaleX(312).toFixed(2)} 258`,
+    `C ${scaleX(192).toFixed(2)} 212, ${endControlPoint.x.toFixed(2)} 136, ${endPoint.x} ${endPoint.y}`,
   ].join(" ");
 
-  const arrowHead = "M 72 44 L 18 18 L 44 74";
+  const tangentX = endPoint.x - endControlPoint.x;
+  const tangentY = endPoint.y - endControlPoint.y;
+  const tangentLength = Math.hypot(tangentX, tangentY) || 1;
+  const unitTangentX = tangentX / tangentLength;
+  const unitTangentY = tangentY / tangentLength;
+  const headLength = clamp(span * 0.055, SIDEBAR_ARROW_HEAD_LENGTH, 48);
+  const headSpread = clamp(headLength * 0.56, SIDEBAR_ARROW_HEAD_SPREAD, 26);
+  const baseCenter = {
+    x: endPoint.x - unitTangentX * headLength,
+    y: endPoint.y - unitTangentY * headLength,
+  };
+  const upperWingDirection = rotateVector(unitTangentX, unitTangentY, Math.PI / 2);
+  const lowerWingDirection = rotateVector(unitTangentX, unitTangentY, -Math.PI / 2);
+  const upperWing = {
+    x: baseCenter.x + upperWingDirection.x * headSpread,
+    y: baseCenter.y + upperWingDirection.y * headSpread,
+  };
+  const lowerWing = {
+    x: baseCenter.x + lowerWingDirection.x * headSpread,
+    y: baseCenter.y + lowerWingDirection.y * headSpread,
+  };
+  const arrowHead = [
+    `M ${upperWing.x.toFixed(2)} ${upperWing.y.toFixed(2)}`,
+    `L ${endPoint.x} ${endPoint.y}`,
+    `L ${lowerWing.x.toFixed(2)} ${lowerWing.y.toFixed(2)}`,
+  ].join(" ");
 
   return (
     <>
@@ -165,6 +273,7 @@ function SidebarArrow() {
 
       {/* Arrow */}
       <motion.div
+        ref={containerRef}
         className="pointer-events-none absolute inset-x-0 z-[2] h-[360px]"
         style={{ top: "calc(50% - 42px)" }}
         initial={{ opacity: 0 }}
@@ -172,7 +281,7 @@ function SidebarArrow() {
         transition={{ delay: 0.5, duration: 0.4 }}
       >
         <svg
-          viewBox="0 0 900 360"
+          viewBox={`0 0 ${usableWidth} ${SIDEBAR_ARROW_HEIGHT}`}
           preserveAspectRatio="none"
           fill="none"
           className="h-full w-full text-foreground/[0.16]"
@@ -217,6 +326,7 @@ export const WelcomeScreen = memo(function WelcomeScreen({
   hasProjects,
   onCreateProject,
 }: WelcomeScreenProps) {
+  const subtitleRef = useRef<HTMLParagraphElement | null>(null);
 
   // --- No projects state ---
   if (!hasProjects) {
@@ -284,7 +394,7 @@ export const WelcomeScreen = memo(function WelcomeScreen({
       />
 
       {/* Hand-drawn arrow from center to sidebar edge */}
-      <SidebarArrow />
+      <SidebarArrow anchorRef={subtitleRef} />
 
       {/* Central content */}
       <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6">
@@ -307,7 +417,10 @@ export const WelcomeScreen = memo(function WelcomeScreen({
             >
               Continue building
             </h1>
-            <p className="max-w-[320px] text-center text-base leading-relaxed text-muted-foreground">
+            <p
+              ref={subtitleRef}
+              className="max-w-[320px] text-center text-base leading-relaxed text-muted-foreground"
+            >
               Pick up an existing thread or start fresh.
             </p>
           </motion.div>
