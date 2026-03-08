@@ -306,6 +306,7 @@ async function restartSession(
   sessionId: string,
   getMainWindow: () => BrowserWindow | null,
   mcpServersOverride?: McpServerInput[],
+  cwdOverride?: string,
 ): Promise<{ ok?: boolean; error?: string; restarted?: boolean }> {
   const session = sessions.get(sessionId);
   if (!session?.queryHandle || !session.startOptions) {
@@ -328,6 +329,7 @@ async function restartSession(
 
   const opts = session.startOptions;
   const mcpServers = mcpServersOverride ?? opts.mcpServers;
+  const cwd = cwdOverride || opts.cwd || process.cwd();
   const query = await getSDK();
   const newChannel = new AsyncChannel<unknown>();
   const cliPath = await getClaudeBinaryPath();
@@ -338,7 +340,7 @@ async function restartSession(
     queryHandle: null,
     eventCounter: session.eventCounter,
     pendingPermissions: new Map(),
-    startOptions: { ...opts, mcpServers },
+    startOptions: { ...opts, cwd, mcpServers },
   };
 
   const canUseTool = (toolName: string, input: unknown, context: { toolUseID: string; suggestions: unknown; decisionReason: string }) => {
@@ -358,7 +360,7 @@ async function restartSession(
   };
 
   const queryOptions: Record<string, unknown> = {
-    cwd: opts.cwd || process.cwd(),
+    cwd,
     includePartialMessages: true,
     thinking: buildThinkingConfig(opts.thinkingEnabled),
     canUseTool,
@@ -794,7 +796,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   });
 
   // Restart the session with a new MCP server list (e.g., after add/remove)
-  ipcMain.handle("claude:restart-session", async (_event, { sessionId, mcpServers }: { sessionId: string; mcpServers?: McpServerInput[] }) => {
-    return restartSession(sessionId, getMainWindow, mcpServers);
+  ipcMain.handle("claude:restart-session", async (_event, { sessionId, mcpServers, cwd }: { sessionId: string; mcpServers?: McpServerInput[]; cwd?: string }) => {
+    return restartSession(sessionId, getMainWindow, mcpServers, cwd);
   });
 }

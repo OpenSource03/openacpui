@@ -9,6 +9,8 @@ interface AdvancedSettingsProps {
   appSettings: AppSettings | null;
   onUpdateAppSettings: (patch: Partial<AppSettings>) => Promise<void>;
   section: "engines" | "advanced";
+  /** Resets the welcome wizard so it shows again. Dev-only. */
+  onReplayWelcome: () => void;
 }
 
 // ── Component ──
@@ -17,6 +19,7 @@ export const AdvancedSettings = memo(function AdvancedSettings({
   appSettings,
   onUpdateAppSettings,
   section,
+  onReplayWelcome,
 }: AdvancedSettingsProps) {
   const [codexClientName, setCodexClientName] = useState("Harnss");
   const [codexBinarySource, setCodexBinarySource] = useState<"auto" | "managed" | "custom">("auto");
@@ -192,6 +195,20 @@ export const AdvancedSettings = memo(function AdvancedSettings({
                   checked={showDevFillInChatTitleBar}
                   onCheckedChange={handleDevFillToggle}
                 />
+              </SettingRow>
+            )}
+
+            {canConfigureDevFill && (
+              <SettingRow
+                label="Replay welcome wizard"
+                description="Reset the onboarding flag and relaunch the welcome wizard."
+              >
+                <button
+                  onClick={onReplayWelcome}
+                  className="rounded-md border border-foreground/10 bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-foreground/20 hover:bg-foreground/[0.03]"
+                >
+                  Replay
+                </button>
               </SettingRow>
             )}
 

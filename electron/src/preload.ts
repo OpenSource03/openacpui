@@ -63,8 +63,8 @@ contextBridge.exposeInMainWorld("claude", {
     ipcRenderer.invoke("claude:mcp-reconnect", { sessionId, serverName }),
   revertFiles: (sessionId: string, checkpointId: string) =>
     ipcRenderer.invoke("claude:revert-files", { sessionId, checkpointId }),
-  restartSession: (sessionId: string, mcpServers?: unknown[]) =>
-    ipcRenderer.invoke("claude:restart-session", { sessionId, mcpServers }),
+  restartSession: (sessionId: string, mcpServers?: unknown[], cwd?: string) =>
+    ipcRenderer.invoke("claude:restart-session", { sessionId, mcpServers, cwd }),
   readFile: (filePath: string) => ipcRenderer.invoke("file:read", filePath),
   openInEditor: (filePath: string, line?: number, editor?: string) => ipcRenderer.invoke("file:open-in-editor", { filePath, line, editor }),
   openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
@@ -147,8 +147,8 @@ contextBridge.exposeInMainWorld("claude", {
     prompt: (sessionId: string, text: string, images?: unknown[]) =>
       ipcRenderer.invoke("acp:prompt", { sessionId, text, images }),
     stop: (sessionId: string) => ipcRenderer.invoke("acp:stop", sessionId),
-    reloadSession: (sessionId: string, mcpServers?: unknown[]) =>
-      ipcRenderer.invoke("acp:reload-session", { sessionId, mcpServers }),
+    reloadSession: (sessionId: string, mcpServers?: unknown[], cwd?: string) =>
+      ipcRenderer.invoke("acp:reload-session", { sessionId, mcpServers, cwd }),
     reviveSession: (options: { agentId: string; cwd: string; agentSessionId?: string; mcpServers?: unknown[] }) =>
       ipcRenderer.invoke("acp:revive-session", options),
     cancel: (sessionId: string) => ipcRenderer.invoke("acp:cancel", sessionId),

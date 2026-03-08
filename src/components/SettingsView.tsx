@@ -66,6 +66,8 @@ interface SettingsViewProps {
   onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;
   sidebarOpen?: boolean;
+  /** Resets the welcome wizard so it shows again. Dev-only. */
+  onReplayWelcome: () => void;
 }
 
 // ── Component ──
@@ -85,6 +87,7 @@ export const SettingsView = memo(function SettingsView({
   onTransparencyChange,
   glassSupported,
   sidebarOpen = false,
+  onReplayWelcome,
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
 
@@ -158,6 +161,7 @@ export const SettingsView = memo(function SettingsView({
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
             section="engines"
+            onReplayWelcome={onReplayWelcome}
           />
         );
       case "advanced":
@@ -166,6 +170,7 @@ export const SettingsView = memo(function SettingsView({
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
             section="advanced"
+            onReplayWelcome={onReplayWelcome}
           />
         );
       case "skills":
@@ -191,7 +196,7 @@ export const SettingsView = memo(function SettingsView({
       default:
         return null;
     }
-  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, autoGroupTools, onAutoGroupToolsChange, transparency, onTransparencyChange, glassSupported]);
+  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, autoGroupTools, onAutoGroupToolsChange, transparency, onTransparencyChange, glassSupported, onReplayWelcome]);
 
   return (
     <div className="island flex flex-1 flex-col overflow-hidden rounded-lg bg-background">

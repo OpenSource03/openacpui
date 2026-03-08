@@ -26,8 +26,9 @@ interface GitPanelProps {
   cwd?: string;
   collapsedRepos?: Set<string>;
   onToggleRepoCollapsed?: (path: string) => void;
-  selectedWorktreePath?: string;
-  onSelectWorktreePath?: (path: string | null) => void;
+  selectedWorktreePath?: string | null;
+  onSelectWorktreePath?: (path: string | null) => Promise<{ ok?: boolean; error?: string } | void> | { ok?: boolean; error?: string } | void;
+  confirmWorktreeRestart?: boolean;
   /** Active session engine — used to route commit message generation */
   activeEngine?: EngineId;
   /** Active session ID — used for ACP utility prompts */
@@ -40,6 +41,7 @@ export const GitPanel = memo(function GitPanel({
   onToggleRepoCollapsed,
   selectedWorktreePath,
   onSelectWorktreePath,
+  confirmWorktreeRestart = false,
   activeEngine,
   activeSessionId,
 }: GitPanelProps) {
@@ -60,6 +62,10 @@ export const GitPanel = memo(function GitPanel({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [isRemovingWorktree, setIsRemovingWorktree] = useState(false);
   const [isPruningWorktrees, setIsPruningWorktrees] = useState(false);
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
+  const [pendingWorktreePath, setPendingWorktreePath] = useState<string | null>(null);
+  const [restartError, setRestartError] = useState<string | null>(null);
+  const [isApplyingWorktree, setIsApplyingWorktree] = useState(false);
 
   const selectableRepos = useMemo(() => git.repoStates.map((rs) => rs.repo), [git.repoStates]);
   const linkedWorktrees = useMemo(
@@ -101,6 +107,40 @@ export const GitPanel = memo(function GitPanel({
     });
   }, [linkedWorktrees, removeSourcePath, selectedCwdValue, selectableRepos]);
 
+  const applyWorktreeSelection = useCallback(async (nextPath: string | null) => {
+    if (!onSelectWorktreePath) return true;
+
+    setIsApplyingWorktree(true);
+    setRestartError(null);
+    try {
+      const result = await onSelectWorktreePath(nextPath);
+      if (result && "error" in result && result.error) {
+        setRestartError(result.error);
+        return false;
+      }
+      setRestartDialogOpen(false);
+      setPendingWorktreePath(null);
+      return true;
+    } finally {
+      setIsApplyingWorktree(false);
+    }
+  }, [onSelectWorktreePath]);
+
+  const requestWorktreeSelection = useCallback((nextPath: string | null) => {
+    const normalizedNext = nextPath?.trim() || null;
+    const normalizedCurrent = selectedWorktreePath?.trim() || null;
+    if (normalizedNext === normalizedCurrent) return;
+
+    if (confirmWorktreeRestart && activeSessionId) {
+      setPendingWorktreePath(normalizedNext);
+      setRestartError(null);
+      setRestartDialogOpen(true);
+      return;
+    }
+
+    void applyWorktreeSelection(normalizedNext);
+  }, [activeSessionId, applyWorktreeSelection, confirmWorktreeRestart, selectedWorktreePath]);
+
   const handleRemoveWorktree = useCallback(async () => {
     if (!removeSourcePath || !removeTargetPath) return;
     setIsRemovingWorktree(true);
@@ -111,7 +151,9 @@ export const GitPanel = memo(function GitPanel({
         setRemoveError(result.error);
         return;
       }
-      if (selectedWorktreePath === removeTargetPath) onSelectWorktreePath?.(null);
+      if (selectedWorktreePath === removeTargetPath) {
+        requestWorktreeSelection(null);
+      }
       setRemoveDialogOpen(false);
       setRemoveTargetPath("");
       setRemoveForce(false);
@@ -119,7 +161,7 @@ export const GitPanel = memo(function GitPanel({
     } finally {
       setIsRemovingWorktree(false);
     }
-  }, [git, onSelectWorktreePath, removeForce, removeSourcePath, removeTargetPath, selectedWorktreePath]);
+  }, [git, removeForce, removeSourcePath, removeTargetPath, requestWorktreeSelection, selectedWorktreePath]);
 
   const handlePruneWorktrees = useCallback(async () => {
     if (!removeSourcePath) return;
@@ -150,7 +192,7 @@ export const GitPanel = memo(function GitPanel({
       }
 
       const nextPath = result?.path ?? createWorktreePath.trim();
-      onSelectWorktreePath?.(nextPath);
+      requestWorktreeSelection(nextPath);
       setCreateDialogOpen(false);
       setCreateWorktreePath("");
       setCreateBranchName("");
@@ -159,7 +201,7 @@ export const GitPanel = memo(function GitPanel({
     } finally {
       setIsCreatingWorktree(false);
     }
-  }, [createSourcePath, createWorktreePath, createBranchName, createFromRef, git, onSelectWorktreePath]);
+  }, [createSourcePath, createWorktreePath, createBranchName, createFromRef, git, requestWorktreeSelection]);
 
   if (!cwd) {
     return (
@@ -235,7 +277,7 @@ export const GitPanel = memo(function GitPanel({
           </div>
           <InlineSelector
             value={selectedCwdValue}
-            onChange={onSelectWorktreePath}
+            onChange={requestWorktreeSelection}
             options={repoOptions}
           />
         </div>
@@ -413,6 +455,65 @@ export const GitPanel = memo(function GitPanel({
               disabled={!removeSourcePath || !removeTargetPath || isRemovingWorktree}
             >
               {isRemovingWorktree ? "Removing..." : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={restartDialogOpen}
+        onOpenChange={(open) => {
+          if (isApplyingWorktree) return;
+          setRestartDialogOpen(open);
+          if (!open) {
+            setPendingWorktreePath(null);
+            setRestartError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="text-sm">Restart Agent in Selected Worktree</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-foreground/75">
+              The active session will restart so the agent runs in this worktree.
+            </p>
+            <div className="rounded border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground/80">
+              {pendingWorktreePath ?? cwd ?? "Project root"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Conversation history is preserved. Any in-flight turn must finish first.
+            </p>
+            {restartError && (
+              <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300/90">
+                {restartError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => {
+                setRestartDialogOpen(false);
+                setPendingWorktreePath(null);
+                setRestartError(null);
+              }}
+              disabled={isApplyingWorktree}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => {
+                void applyWorktreeSelection(pendingWorktreePath);
+              }}
+              disabled={isApplyingWorktree}
+            >
+              {isApplyingWorktree ? "Restarting..." : "Restart Agent"}
             </Button>
           </DialogFooter>
         </DialogContent>

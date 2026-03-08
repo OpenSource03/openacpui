@@ -17,6 +17,8 @@ import { TodoPanel } from "./TodoPanel";
 import { BackgroundAgentsPanel } from "./BackgroundAgentsPanel";
 import { ToolPicker } from "./ToolPicker";
 import { WelcomeScreen } from "./WelcomeScreen";
+import { WelcomeWizard } from "./welcome/WelcomeWizard";
+import { WELCOME_COMPLETED_KEY } from "./welcome/shared";
 import { SpaceCreator } from "./SpaceCreator";
 import { ToolsPanel } from "./ToolsPanel";
 import { BrowserPanel } from "./BrowserPanel";
@@ -48,7 +50,7 @@ export function AppLayout() {
     spaceTerminals, activeSpaceTerminals,
     handleToggleTool, handleToolReorder, handleNewChat, handleSend,
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
-    handleThinkingChange, handleStop, handleSelectSession,
+    handleThinkingChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
     handleSendQueuedNow,
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
     handleViewTurnChanges, handleCreateSpace, handleEditSpace,
@@ -57,6 +59,23 @@ export function AppLayout() {
   } = o;
 
   const glassOverlayStyle = useSpaceTheme(spaceManager.activeSpace, resolvedTheme);
+
+  // ── Welcome wizard (first-run onboarding) ──
+
+  const [welcomeCompleted, setWelcomeCompleted] = useState(
+    () => localStorage.getItem(WELCOME_COMPLETED_KEY) === "true",
+  );
+
+  const handleWelcomeComplete = useCallback(() => {
+    localStorage.setItem(WELCOME_COMPLETED_KEY, "true");
+    setWelcomeCompleted(true);
+  }, []);
+
+  const handleReplayWelcome = useCallback(() => {
+    localStorage.removeItem(WELCOME_COMPLETED_KEY);
+    setWelcomeCompleted(false);
+    setShowSettings(false);
+  }, [setShowSettings]);
 
   // ── Element Grab state (browser inspector → chat context) ──
 
@@ -205,6 +224,7 @@ export function AppLayout() {
             onTransparencyChange={settings.setTransparency}
             glassSupported={glassSupported}
             sidebarOpen={sidebar.isOpen}
+            onReplayWelcome={handleReplayWelcome}
           />
         )}
         {/* Keep chat area mounted (hidden) when settings is open to avoid
@@ -269,6 +289,9 @@ export function AppLayout() {
                 onTopScrollProgress={handleTopScrollProgress}
                 onSendQueuedNow={handleSendQueuedNow}
                 sendNextId={manager.sendNextId}
+                agents={agents}
+                selectedAgent={selectedAgent}
+                onAgentChange={handleAgentChange}
               />
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
@@ -470,7 +493,8 @@ export function AppLayout() {
                       collapsedRepos={settings.collapsedRepos}
                       onToggleRepoCollapsed={settings.toggleRepoCollapsed}
                       selectedWorktreePath={activeProjectPath}
-                      onSelectWorktreePath={settings.setGitCwd}
+                      onSelectWorktreePath={handleAgentWorktreeChange}
+                      confirmWorktreeRestart={!!manager.activeSessionId && !manager.isDraft}
                       activeEngine={manager.activeSession?.engine}
                       activeSessionId={manager.activeSessionId}
                     />
@@ -580,6 +604,26 @@ export function AppLayout() {
         sourceRect={previewFile?.sourceRect ?? null}
         onClose={handleClosePreview}
       />
+      {/* Welcome wizard — full-screen overlay on first run */}
+      {!welcomeCompleted && (
+        <WelcomeWizard
+          theme={settings.theme}
+          onThemeChange={settings.setTheme}
+          islandLayout={settings.islandLayout}
+          onIslandLayoutChange={settings.setIslandLayout}
+          transparency={settings.transparency}
+          onTransparencyChange={settings.setTransparency}
+          glassSupported={glassSupported}
+          permissionMode={settings.permissionMode}
+          onPermissionModeChange={handlePermissionModeChange}
+          onCreateProject={handleCreateProject}
+          hasProjects={hasProjects}
+          agents={agents}
+          onSaveAgent={saveAgent}
+          onDeleteAgent={deleteAgent}
+          onComplete={handleWelcomeComplete}
+        />
+      )}
     </div>
   );
 }

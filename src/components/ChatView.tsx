@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback, memo } from "react";
+import { motion } from "motion/react";
 import { Minus } from "lucide-react";
+import type { InstalledAgent, UIMessage } from "@/types";
+import { AgentIcon } from "./AgentIcon";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { UIMessage } from "@/types";
 import { MessageBubble } from "./MessageBubble";
 import { SummaryBlock } from "./SummaryBlock";
 import { ToolCall } from "./ToolCall";
@@ -27,6 +29,16 @@ const EMPTY_TOOL_GROUP_INFO: ToolGroupInfo = {
   groupedIndices: new Set(),
 };
 
+/** CDN icons for built-in engines; matches InputBar's ENGINE_ICONS */
+const ENGINE_ICONS: Record<string, string> = {
+  claude: "https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg",
+  codex: "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
+};
+
+function getAgentIcon(agent: InstalledAgent): string | undefined {
+  return ENGINE_ICONS[agent.engine] ?? agent.icon;
+}
+
 interface ChatViewProps {
   messages: UIMessage[];
   isProcessing: boolean;
@@ -51,9 +63,15 @@ interface ChatViewProps {
   onSendQueuedNow?: (messageId: string) => void;
   /** Message ID explicitly marked as "send next" by the user */
   sendNextId?: string | null;
+  /** Available agents for the engine picker in the empty state */
+  agents?: InstalledAgent[];
+  /** Currently selected agent */
+  selectedAgent?: InstalledAgent | null;
+  /** Switch to a different agent/engine */
+  onAgentChange?: (agent: InstalledAgent | null) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const bottomLockedRef = useRef(true);
@@ -480,14 +498,64 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   }, [finalizedGroupKeys]);
 
   if (messages.length === 0) {
+    const showAgentPicker = agents && agents.length > 1 && onAgentChange;
+
     return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <div className="text-center">
-          <p className="text-lg">Send a message to start</p>
-          <p className="mt-1 text-sm text-muted-foreground/60">
-            Your conversation will appear here
-          </p>
-        </div>
+      <div className="flex flex-1 items-center justify-center">
+        <motion.div
+          className="flex flex-col items-center gap-5"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.22, 0.68, 0, 1] }}
+        >
+          <div className="flex flex-col items-center gap-3">
+            <h2
+              className="text-3xl italic text-foreground/20"
+              style={{ fontFamily: "'Instrument Serif', Georgia, serif" }}
+            >
+              Send a message to start
+            </h2>
+            <p
+              className="text-sm italic text-muted-foreground/30"
+              style={{ fontFamily: "'Instrument Serif', Georgia, serif" }}
+            >
+              Your conversation will appear here
+            </p>
+          </div>
+
+          {showAgentPicker && (
+            <motion.div
+              className="flex items-center gap-3"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.4, ease: [0.22, 0.68, 0, 1] }}
+            >
+              {agents.map((agent) => {
+                const isSelected = agent.engine === "claude"
+                  ? selectedAgent == null || selectedAgent.engine === "claude"
+                  : selectedAgent?.id === agent.id;
+
+                return (
+                  <button
+                    key={agent.id}
+                    title={agent.name}
+                    onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
+                    className={`rounded-full p-2 transition-all ${
+                      isSelected
+                        ? "bg-foreground/[0.06] ring-1 ring-foreground/[0.08] scale-110"
+                        : "opacity-30 hover:opacity-60 hover:scale-105"
+                    }`}
+                  >
+                    <AgentIcon
+                      icon={getAgentIcon(agent)}
+                      size={20}
+                    />
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </motion.div>
       </div>
     );
   }

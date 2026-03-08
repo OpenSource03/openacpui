@@ -244,6 +244,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setActivePlanMode,
     setActiveThinking,
     restartAcpSession,
+    restartActiveSessionInCurrentWorktree,
     fullRevertSession,
     send,
   } = useSessionLifecycle({
@@ -328,6 +329,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setActivePermissionMode,
     setActivePlanMode,
     setActiveThinking,
+    restartActiveSessionInCurrentWorktree,
     setDraftAgent,
     messages: engine.messages,
     isProcessing: engine.isProcessing,

@@ -4,6 +4,9 @@
 @import "@xterm/xterm/css/xterm.css";
 @plugin "@tailwindcss/typography";
 
+/* Welcome wizard fonts — Instrument Serif for display titles, Sora for body */
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@400;500;600;700&display=swap");
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -505,6 +508,15 @@ html.platform-win32 .drag-region {
 
 .stream-chunk-enter {
   animation: stream-chunk-enter 0.32s ease-out both;
+}
+
+/* ── Welcome screen: skeleton shimmer pulse ── */
+@keyframes skeleton-shimmer {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+.skeleton-line {
+  animation: skeleton-shimmer 2.5s ease-in-out infinite;
 }
 
 /* ── Global scrollbar styling — thin, themed, always subtly visible ──
