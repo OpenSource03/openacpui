@@ -5,9 +5,11 @@ import type { UIMessage } from "@/types";
 export interface ToolGroup {
   /** The tool_call messages in this group. */
   tools: UIMessage[];
-  /** Index of the first tool_call in the messages array. */
+  /** Ordered grouped messages: tool_call plus in-between thinking-only assistant messages. */
+  messages: UIMessage[];
+  /** Index of the first grouped message in the messages array. */
   startIndex: number;
-  /** Index of the last tool_call in the messages array. */
+  /** Index of the last grouped message in the messages array. */
   endIndex: number;
   /** True when a subsequent assistant text message closes the group. */
   isFinalized: boolean;
@@ -31,6 +33,11 @@ function isGroupableToolCall(msg: UIMessage): boolean {
   return !EXCLUDED_TOOL_NAMES.has(name);
 }
 
+/** Returns true for assistant messages that contain only thinking text. */
+function isAssistantThinkingOnly(msg: UIMessage): boolean {
+  return msg.role === "assistant" && !!msg.thinking && !msg.content;
+}
+
 /** Returns true if the message is an assistant message with non-empty text content. */
 function isAssistantText(msg: UIMessage): boolean {
   return msg.role === "assistant" && !!msg.content;
@@ -42,8 +49,8 @@ function isAssistantText(msg: UIMessage): boolean {
  * Compute tool groups from a messages array.
  *
  * A group is a contiguous sequence of groupable tool_call messages (possibly
- * interleaved with tool_result, system, or summary messages) that falls between
- * two assistant text messages.
+ * interleaved with tool_result, system, summary, or thinking-only assistant
+ * messages) that falls between two assistant text messages.
  *
  * Groups are "finalized" when a closing assistant text message exists after them.
  * Only finalized groups with 2+ tools are included in the result.
@@ -56,27 +63,30 @@ export function computeToolGroups(
   const groupedIndices = new Set<number>();
 
   let currentTools: UIMessage[] = [];
+  let currentMessages: UIMessage[] = [];
   let currentStartIndex = -1;
 
   const finalizeGroup = () => {
     // Only create groups with 2+ tools
     if (currentTools.length >= 2) {
-      const lastToolIndex = findLastToolIndex(messages, currentStartIndex, currentTools);
+      const lastGroupedIndex = findLastGroupedIndex(messages, currentStartIndex, currentMessages);
       const group: ToolGroup = {
         tools: [...currentTools],
+        messages: [...currentMessages],
         startIndex: currentStartIndex,
-        endIndex: lastToolIndex,
+        endIndex: lastGroupedIndex,
         isFinalized: true,
       };
       groups.set(currentStartIndex, group);
-      // Mark all tool_call indices in this group
-      for (let i = currentStartIndex; i <= lastToolIndex; i++) {
-        if (messages[i].role === "tool_call" && isGroupableToolCall(messages[i])) {
+      const groupedMessageIds = new Set(currentMessages.map((message) => message.id));
+      for (let i = currentStartIndex; i <= lastGroupedIndex; i++) {
+        if (groupedMessageIds.has(messages[i].id)) {
           groupedIndices.add(i);
         }
       }
     }
     currentTools = [];
+    currentMessages = [];
     currentStartIndex = -1;
   };
 
@@ -86,6 +96,9 @@ export function computeToolGroups(
     if (isGroupableToolCall(msg)) {
       if (currentStartIndex === -1) currentStartIndex = i;
       currentTools.push(msg);
+      currentMessages.push(msg);
+    } else if (isAssistantThinkingOnly(msg)) {
+      if (currentStartIndex !== -1) currentMessages.push(msg);
     } else if (isAssistantText(msg)) {
       // Assistant text closes the current group
       finalizeGroup();
@@ -104,15 +117,15 @@ export function computeToolGroups(
   return { groups, groupedIndices };
 }
 
-/** Find the index of the last tool_call message in a group within the messages array. */
-function findLastToolIndex(
+/** Find the index of the last grouped message in a group within the messages array. */
+function findLastGroupedIndex(
   messages: UIMessage[],
   startIndex: number,
-  tools: UIMessage[],
+  groupedMessages: UIMessage[],
 ): number {
-  const lastToolId = tools[tools.length - 1].id;
+  const lastGroupedId = groupedMessages[groupedMessages.length - 1].id;
   for (let i = messages.length - 1; i >= startIndex; i--) {
-    if (messages[i].id === lastToolId) return i;
+    if (messages[i].id === lastGroupedId) return i;
   }
   return startIndex;
 }

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { ShieldAlert, Check, X, Send, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
+import { buildAskUserQuestionResult, getAskUserQuestionKey } from "@/lib/ask-user-question";
 import type { PermissionRequest, RespondPermissionFn } from "@/types";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -24,7 +26,7 @@ interface QuestionOption {
 }
 
 interface Question {
-  id: string;
+  id?: string;
   question: string;
   header: string;
   isOther?: boolean;
@@ -58,7 +60,7 @@ function ExitPlanModePrompt({ request, onRespond }: PermissionPromptProps) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+    <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/55 shadow-lg backdrop-blur-lg">
         <div className="flex flex-col gap-3 px-4 py-3.5">
           <p className="text-[13px] text-foreground">
@@ -128,16 +130,16 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
   const questions = (request.toolInput.questions ?? []) as Question[];
   const [selections, setSelections] = useState<Record<string, Set<string>>>(() => {
     const init: Record<string, Set<string>> = {};
-    for (const q of questions) {
-      init[q.id] = new Set();
+    for (const [index, q] of questions.entries()) {
+      init[getAskUserQuestionKey(q, index)] = new Set();
     }
     return init;
   });
   const [freeText, setFreeText] = useState<Record<string, string>>({});
 
-  const toggleOption = (questionId: string, label: string, multiSelect: boolean) => {
+  const toggleOption = (questionKey: string, label: string, multiSelect: boolean) => {
     setSelections((prev) => {
-      const current = prev[questionId] ?? new Set();
+      const current = prev[questionKey] ?? new Set();
       const next = new Set(current);
       if (multiSelect) {
         if (next.has(label)) next.delete(label);
@@ -149,25 +151,13 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
           next.add(label);
         }
       }
-      return { ...prev, [questionId]: next };
+      return { ...prev, [questionKey]: next };
     });
-    setFreeText((prev) => ({ ...prev, [questionId]: "" }));
+    setFreeText((prev) => ({ ...prev, [questionKey]: "" }));
   };
 
   const handleSubmit = () => {
-    const answers: Record<string, string> = {};
-    const answersByQuestionId: Record<string, string[]> = {};
-    for (const q of questions) {
-      const custom = freeText[q.id]?.trim();
-      if (custom) {
-        answers[q.question] = custom;
-        answersByQuestionId[q.id] = [custom];
-      } else {
-        const selected = [...(selections[q.id] ?? [])];
-        answers[q.question] = selected.join(", ");
-        answersByQuestionId[q.id] = selected;
-      }
-    }
+    const { answers, answersByQuestionId } = buildAskUserQuestionResult(questions, selections, freeText);
     onRespond("allow", {
       questions: request.toolInput.questions,
       answers,
@@ -175,30 +165,32 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
     });
   };
 
-  const hasAllAnswers = questions.every((q) => {
-    const custom = freeText[q.id]?.trim();
-    const selected = selections[q.id];
+  const hasAllAnswers = questions.every((q, index) => {
+    const questionKey = getAskUserQuestionKey(q, index);
+    const custom = freeText[questionKey]?.trim();
+    const selected = selections[questionKey];
     return custom || (selected && selected.size > 0);
   });
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+    <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/55 shadow-lg backdrop-blur-lg">
         {questions.map((q, qi) => (
           <div
-            key={q.id}
+            key={q.id ?? `${qi}-${q.question}`}
             className={`flex flex-col gap-3 px-4 py-3.5 ${qi > 0 ? "border-t border-border/40" : ""}`}
           >
             <p className="text-[13px] text-foreground">{q.question}</p>
 
             <div className="grid grid-cols-2 gap-1.5">
               {(q.options ?? []).map((opt) => {
-                const isSelected = selections[q.id]?.has(opt.label);
+                const questionKey = getAskUserQuestionKey(q, qi);
+                const isSelected = selections[questionKey]?.has(opt.label);
                 return (
                   <button
                     key={opt.label}
                     type="button"
-                    onClick={() => toggleOption(q.id, opt.label, q.multiSelect)}
+                    onClick={() => toggleOption(questionKey, opt.label, q.multiSelect)}
                     className={`flex flex-col items-start rounded-lg border px-3 py-2 text-start transition-colors ${
                       isSelected
                         ? "border-border bg-accent text-foreground"
@@ -215,12 +207,13 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
             <input
               type={q.isSecret ? "password" : "text"}
               placeholder="Or type your own answer..."
-              value={freeText[q.id] ?? ""}
+              value={freeText[getAskUserQuestionKey(q, qi)] ?? ""}
               onChange={(e) => {
                 const value = e.target.value;
-                setFreeText((prev) => ({ ...prev, [q.id]: value }));
+                const questionKey = getAskUserQuestionKey(q, qi);
+                setFreeText((prev) => ({ ...prev, [questionKey]: value }));
                 if (value.trim()) {
-                  setSelections((prev) => ({ ...prev, [q.id]: new Set() }));
+                  setSelections((prev) => ({ ...prev, [questionKey]: new Set() }));
                 }
               }}
               onKeyDown={(e) => {
@@ -271,7 +264,7 @@ export function PermissionPrompt({ request, onRespond, showAcceptForSession }: P
   const detail = formatToolDetail(request);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+    <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-border/60 bg-background/55 px-4 py-3 shadow-lg backdrop-blur-lg">
         <ShieldAlert className="h-5 w-5 shrink-0 text-foreground/60" />
 

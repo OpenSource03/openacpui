@@ -2,6 +2,12 @@ import { BrowserWindow, ipcMain } from "electron";
 import crypto from "crypto";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
+import {
+  appendTerminalHistory,
+  EMPTY_TERMINAL_HISTORY,
+  readTerminalHistory,
+} from "../lib/terminal-history";
+import type { TerminalHistoryState } from "../lib/terminal-history";
 
 interface TerminalEntry {
   pty: {
@@ -14,6 +20,12 @@ interface TerminalEntry {
   cols: number;
   rows: number;
   spaceId: string;
+  createdAt: number;
+  history: TerminalHistoryState;
+  seq: number;
+  exited: boolean;
+  exitCode: number | null;
+  destroyed: boolean;
 }
 
 export const terminals = new Map<string, TerminalEntry>();
@@ -46,15 +58,40 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
       });
 
-      terminals.set(terminalId, { pty: ptyProcess, cols: cols || 80, rows: rows || 24, spaceId: spaceId || "default" });
+      const entry: TerminalEntry = {
+        pty: ptyProcess,
+        cols: cols || 80,
+        rows: rows || 24,
+        spaceId: spaceId || "default",
+        createdAt: Date.now(),
+        history: EMPTY_TERMINAL_HISTORY,
+        seq: 0,
+        exited: false,
+        exitCode: null,
+        destroyed: false,
+      };
+      terminals.set(terminalId, entry);
 
       ptyProcess.onData((data: string) => {
-        safeSend(getMainWindow, "terminal:data", { terminalId, data });
+        if (entry.destroyed) return;
+        entry.history = appendTerminalHistory(entry.history, data);
+        entry.seq += 1;
+        safeSend(getMainWindow, "terminal:data", { terminalId, data, seq: entry.seq });
       });
 
       ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+        if (entry.destroyed) return;
         log("TERMINAL", `Terminal ${terminalId.slice(0, 8)} exited with code ${exitCode}`);
-        terminals.delete(terminalId);
+        entry.exited = true;
+        entry.exitCode = exitCode;
+        const exitNotice = "\r\n\x1b[2m[process exited]\x1b[0m\r\n";
+        entry.history = appendTerminalHistory(entry.history, exitNotice);
+        entry.seq += 1;
+        safeSend(getMainWindow, "terminal:data", {
+          terminalId,
+          data: exitNotice,
+          seq: entry.seq,
+        });
         safeSend(getMainWindow, "terminal:exit", { terminalId, exitCode });
       });
 
@@ -70,6 +107,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("terminal:write", (_event, { terminalId, data }: { terminalId: string; data: string }) => {
     const term = terminals.get(terminalId);
     if (!term) return { error: "Terminal not found" };
+    if (term.exited) return { error: "Terminal has exited" };
     term.pty.write(data);
     return { ok: true };
   });
@@ -77,6 +115,11 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("terminal:resize", (_event, { terminalId, cols, rows }: { terminalId: string; cols: number; rows: number }) => {
     const term = terminals.get(terminalId);
     if (!term) return { error: "Terminal not found" };
+    if (term.exited) {
+      term.cols = cols;
+      term.rows = rows;
+      return { ok: true };
+    }
     try {
       term.pty.resize(cols, rows);
       term.cols = cols;
@@ -87,10 +130,36 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     return { ok: true };
   });
 
+  ipcMain.handle("terminal:snapshot", (_event, terminalId: string) => {
+    const term = terminals.get(terminalId);
+    if (!term) return { error: "Terminal not found" };
+    return {
+      output: readTerminalHistory(term.history),
+      seq: term.seq,
+      exited: term.exited,
+      exitCode: term.exitCode,
+    };
+  });
+
+  ipcMain.handle("terminal:list", () => {
+    return {
+      terminals: Array.from(terminals.entries())
+        .map(([terminalId, term]) => ({
+          terminalId,
+          spaceId: term.spaceId,
+          createdAt: term.createdAt,
+          exited: term.exited,
+          exitCode: term.exitCode,
+        }))
+        .sort((a, b) => a.createdAt - b.createdAt),
+    };
+  });
+
   ipcMain.handle("terminal:destroy", (_event, terminalId: string) => {
     const term = terminals.get(terminalId);
     if (term) {
-      term.pty.kill();
+      term.destroyed = true;
+      if (!term.exited) term.pty.kill();
       terminals.delete(terminalId);
       log("TERMINAL", `Destroyed terminal ${terminalId.slice(0, 8)}`);
     }
@@ -100,7 +169,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("terminal:destroy-space", (_event, spaceId: string) => {
     for (const [terminalId, term] of terminals.entries()) {
       if (term.spaceId !== spaceId) continue;
-      term.pty.kill();
+      term.destroyed = true;
+      if (!term.exited) term.pty.kill();
       terminals.delete(terminalId);
       log("TERMINAL", `Destroyed terminal ${terminalId.slice(0, 8)} for space ${spaceId}`);
     }

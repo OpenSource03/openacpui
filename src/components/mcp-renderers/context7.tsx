@@ -48,16 +48,15 @@ function parseContext7Libraries(text: string): Context7Library[] {
   return entries;
 }
 
-export function Context7LibraryList({ rawText }: { data: unknown; rawText?: string | null }) {
-  const text = rawText ?? "";
-  const libraries = parseContext7Libraries(text);
+function Context7LibraryListView({ rawText }: { rawText: string }) {
+  const libraries = parseContext7Libraries(rawText);
 
   if (libraries.length === 0) {
     // Fallback: render raw text if parsing fails
-    if (text.trim()) {
+    if (rawText.trim()) {
       return (
         <div className="prose dark:prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
-          <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{rawText}</ReactMarkdown>
         </div>
       );
     }
@@ -131,6 +130,10 @@ export function Context7LibraryList({ rawText }: { data: unknown; rawText?: stri
   );
 }
 
+export function Context7LibraryList({ rawText }: { data: unknown; rawText?: string | null }) {
+  return <Context7LibraryListView rawText={rawText ?? ""} />;
+}
+
 // ── Context7: Documentation query (query-docs) ──
 
 interface Context7DocSnippet {
@@ -185,17 +188,16 @@ function parseContext7Docs(text: string): Context7DocSnippet[] {
   return snippets;
 }
 
-export function Context7DocsResult({ rawText, toolInput }: { data: unknown; toolInput: Record<string, unknown>; rawText?: string | null }) {
-  const text = rawText ?? "";
-  const snippets = parseContext7Docs(text);
+function Context7DocsResultView({ rawText, toolInput }: { rawText: string; toolInput: Record<string, unknown> }) {
+  const snippets = parseContext7Docs(rawText);
   const query = String(toolInput.query ?? "");
   const libraryId = String(toolInput.libraryId ?? "");
 
   if (snippets.length === 0) {
-    if (text.trim()) {
+    if (rawText.trim()) {
       return (
         <div className="prose dark:prose-invert prose-xs max-w-none text-foreground/70 wrap-break-word">
-          <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{rawText}</ReactMarkdown>
         </div>
       );
     }
@@ -254,4 +256,8 @@ export function Context7DocsResult({ rawText, toolInput }: { data: unknown; tool
       ))}
     </div>
   );
+}
+
+export function Context7DocsResult({ rawText, toolInput }: { data: unknown; toolInput: Record<string, unknown>; rawText?: string | null }) {
+  return <Context7DocsResultView rawText={rawText ?? ""} toolInput={toolInput} />;
 }

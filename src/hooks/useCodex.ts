@@ -30,6 +30,7 @@ import {
   codexPlanToTodos,
   imageAttachmentsToCodexInputs,
 } from "@/lib/codex-adapter";
+import { suppressNextSessionCompletion } from "@/lib/notification-utils";
 import { useEngineBase } from "./useEngineBase";
 
 interface UseCodexOptions {
@@ -895,11 +896,13 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
 
   const stop = useCallback(async () => {
     if (!sessionId) return;
+    suppressNextSessionCompletion(sessionId);
     await window.claude.codex.stop(sessionId);
   }, [sessionId]);
 
   const interrupt = useCallback(async () => {
     if (!sessionId) return;
+    suppressNextSessionCompletion(sessionId);
     await window.claude.codex.interrupt(sessionId);
   }, [sessionId]);
 

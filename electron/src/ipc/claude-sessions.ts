@@ -4,11 +4,12 @@ import os from "os";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { AsyncChannel } from "../lib/async-channel";
-import { getSDK, getCliPath, clientAppEnv } from "../lib/sdk";
+import { getSDK, clientAppEnv } from "../lib/sdk";
 import type { QueryHandle } from "../lib/sdk";
 import { getMcpAuthHeaders } from "../lib/mcp-oauth-flow";
 import { getClaudeModelsCache, setClaudeModelsCache } from "../lib/claude-model-cache";
 import { extractErrorMessage } from "../lib/error-utils";
+import { getClaudeBinaryPath, getClaudeBinaryStatus, getClaudeVersion } from "../lib/claude-binary";
 
 /** SDK options for file checkpointing — enables Write/Edit/NotebookEdit revert support */
 function fileCheckpointOptions(): Record<string, unknown> {
@@ -249,6 +250,14 @@ function buildThinkingConfig(thinkingEnabled?: boolean): { type: "adaptive" } | 
     : { type: "adaptive" };
 }
 
+function logSdkCliPath(context: string, cliPath?: string): void {
+  if (cliPath) {
+    log("SDK_CLI_PATH", `${context} path=${cliPath}`);
+    return;
+  }
+  log("SDK_CLI_PATH", `${context} unresolved; relying on SDK fallback`);
+}
+
 let modelsRevalidationPromise: Promise<{ models: Array<Record<string, unknown>>; updatedAt?: number; error?: string }> | null = null;
 
 async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Array<Record<string, unknown>>; updatedAt?: number; error?: string }> {
@@ -261,12 +270,14 @@ async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Arra
 
     try {
       const query = await getSDK();
+      const cliPath = await getClaudeBinaryPath({ installIfMissing: false, allowSdkFallback: true }).catch(() => undefined);
+      logSdkCliPath("models-revalidate", cliPath);
       const queryOptions: Record<string, unknown> = {
         cwd: cwd?.trim() || os.homedir(),
         includePartialMessages: true,
         thinking: buildThinkingConfig(true),
         settingSources: ["user", "project"],
-        pathToClaudeCodeExecutable: getCliPath(),
+        pathToClaudeCodeExecutable: cliPath,
         ...fileCheckpointOptions(),
       };
 
@@ -330,6 +341,7 @@ async function restartSession(
   sessionId: string,
   getMainWindow: () => BrowserWindow | null,
   mcpServersOverride?: McpServerInput[],
+  cwdOverride?: string,
 ): Promise<{ ok?: boolean; error?: string; restarted?: boolean }> {
   const session = sessions.get(sessionId);
   if (!session?.queryHandle || !session.startOptions) {
@@ -352,15 +364,18 @@ async function restartSession(
 
   const opts = session.startOptions;
   const mcpServers = mcpServersOverride ?? opts.mcpServers;
+  const cwd = cwdOverride || opts.cwd || process.cwd();
   const query = await getSDK();
   const newChannel = new AsyncChannel<unknown>();
+  const cliPath = await getClaudeBinaryPath();
+  logSdkCliPath(`restart session=${sessionId.slice(0, 8)}`, cliPath);
 
   const newSession: SessionEntry = {
     channel: newChannel,
     queryHandle: null,
     eventCounter: session.eventCounter,
     pendingPermissions: new Map(),
-    startOptions: { ...opts, mcpServers },
+    startOptions: { ...opts, cwd, mcpServers },
   };
 
   const canUseTool = (toolName: string, input: unknown, context: { toolUseID: string; suggestions: unknown; decisionReason: string }) => {
@@ -380,12 +395,12 @@ async function restartSession(
   };
 
   const queryOptions: Record<string, unknown> = {
-    cwd: opts.cwd || process.cwd(),
+    cwd,
     includePartialMessages: true,
     thinking: buildThinkingConfig(opts.thinkingEnabled),
     canUseTool,
     settingSources: ["user", "project"],
-    pathToClaudeCodeExecutable: getCliPath(),
+    pathToClaudeCodeExecutable: cliPath,
     ...fileCheckpointOptions(),
     resume: sessionId,
     stderr: (data: string) => {
@@ -474,13 +489,15 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         });
       };
 
+      const cliPath = await getClaudeBinaryPath();
+      logSdkCliPath(`start session=${sessionId.slice(0, 8)}`, cliPath);
       const queryOptions: Record<string, unknown> = {
         cwd: options.cwd || process.cwd(),
         includePartialMessages: true,
         thinking: buildThinkingConfig(options.thinkingEnabled),
         canUseTool,
         settingSources: ["user", "project"],
-        pathToClaudeCodeExecutable: getCliPath(),
+        pathToClaudeCodeExecutable: cliPath,
         ...fileCheckpointOptions(),
         stderr: (data: string) => {
           const trimmed = data.trim();
@@ -775,6 +792,18 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     return revalidateClaudeModelsCache(options?.cwd);
   });
 
+  ipcMain.handle("claude:version", async () => {
+    try {
+      return { version: await getClaudeVersion() };
+    } catch (err) {
+      return { error: extractErrorMessage(err) };
+    }
+  });
+
+  ipcMain.handle("claude:binary-status", async () => {
+    return getClaudeBinaryStatus();
+  });
+
   ipcMain.handle("claude:mcp-reconnect", async (_event, { sessionId, serverName }: { sessionId: string; serverName: string }) => {
     const session = sessions.get(sessionId);
     if (!session?.queryHandle) return { error: "No active session" };
@@ -802,7 +831,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   });
 
   // Restart the session with a new MCP server list (e.g., after add/remove)
-  ipcMain.handle("claude:restart-session", async (_event, { sessionId, mcpServers }: { sessionId: string; mcpServers?: McpServerInput[] }) => {
-    return restartSession(sessionId, getMainWindow, mcpServers);
+  ipcMain.handle("claude:restart-session", async (_event, { sessionId, mcpServers, cwd }: { sessionId: string; mcpServers?: McpServerInput[]; cwd?: string }) => {
+    return restartSession(sessionId, getMainWindow, mcpServers, cwd);
   });
 }

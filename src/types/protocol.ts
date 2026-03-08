@@ -129,6 +129,8 @@ export interface ToolUseResult {
   totalToolUseCount?: number;
   /** AskUserQuestion answers keyed by question text */
   answers?: Record<string, unknown>;
+  /** AskUserQuestion answers keyed by stable question id when available */
+  answersByQuestionId?: Record<string, unknown>;
   /** ACP agents include a detailed version of the result (e.g., unified diff for edits/reads) */
   detailedContent?: string;
 }
@@ -168,6 +170,8 @@ export interface SystemStatusEvent {
   type: "system";
   subtype: "status";
   session_id?: string;
+  status?: string;
+  permissionMode?: string;
 }
 
 export interface SystemCompactBoundaryEvent {

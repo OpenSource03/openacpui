@@ -1,5 +1,6 @@
-import type { UIMessage, SubagentToolStep, TodoItem } from "@/types";
+import type { UIMessage, SubagentToolStep } from "@/types";
 import { getMcpCompactSummary } from "@/components/McpToolContent";
+import { getTodoItems } from "@/lib/todo-utils";
 
 // ── Compact summary for collapsed tool line ──
 
@@ -42,11 +43,18 @@ export function formatCompactSummary(message: UIMessage): string {
     return slashParts.length >= 2 ? slashParts.slice(1).join("/") : toolName;
   }
 
-  if (input.todos && Array.isArray(input.todos)) {
-    const todos = input.todos as TodoItem[];
+  if (toolName === "TodoWrite" && input.todos != null) {
+    const todos = getTodoItems(input.todos);
     const completed = todos.filter((t) => t.status === "completed").length;
     return `${completed}/${todos.length} completed`;
   }
+  // ToolSearch — show query and match count
+  if (toolName === "ToolSearch") {
+    const query = String(input.query ?? "");
+    const display = query.startsWith("select:") ? query.slice(7) : query;
+    return display.slice(0, 60);
+  }
+
   if (input.command) return String(input.command).split("\n")[0];
   if (input.file_path) return String(input.file_path).split("/").pop() ?? "";
   if (filePathFromResult) return filePathFromResult.split("/").pop() ?? filePathFromResult;

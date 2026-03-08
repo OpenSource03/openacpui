@@ -10,6 +10,7 @@ import {
   Palette,
   Sparkles,
   Users,
+  BarChart3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { AgentSettings } from "@/components/settings/AgentSettings";
@@ -20,13 +21,14 @@ import { McpSettings } from "@/components/settings/McpSettings";
 import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
 import { AboutSettings } from "@/components/settings/AboutSettings";
+import { AnalyticsSettings } from "@/components/settings/AnalyticsSettings";
 import { isMac } from "@/lib/utils";
 import type { InstalledAgent, ThemeOption } from "@/types";
 import type { AppSettings } from "@/types/ui";
 
 // ── Section definitions ──
 
-type SettingsSection = "general" | "appearance" | "notifications" | "agents" | "mcp" | "engines" | "skills" | "custom-agents" | "advanced" | "about";
+type SettingsSection = "general" | "appearance" | "notifications" | "analytics" | "agents" | "mcp" | "engines" | "skills" | "custom-agents" | "advanced" | "about";
 
 interface NavItem {
   id: SettingsSection;
@@ -40,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "general", label: "General", icon: SlidersHorizontal },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "agents", label: "ACP Agents", icon: Bot },
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "engines", label: "Engines", icon: Cpu },
@@ -60,10 +63,14 @@ interface SettingsViewProps {
   onThemeChange: (t: ThemeOption) => void;
   islandLayout: boolean;
   onIslandLayoutChange: (enabled: boolean) => void;
+  autoGroupTools: boolean;
+  onAutoGroupToolsChange: (enabled: boolean) => void;
   transparency: boolean;
   onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;
   sidebarOpen?: boolean;
+  /** Resets the welcome wizard so it shows again. Dev-only. */
+  onReplayWelcome: () => void;
 }
 
 // ── Component ──
@@ -77,10 +84,13 @@ export const SettingsView = memo(function SettingsView({
   onThemeChange,
   islandLayout,
   onIslandLayoutChange,
+  autoGroupTools,
+  onAutoGroupToolsChange,
   transparency,
   onTransparencyChange,
   glassSupported,
   sidebarOpen = false,
+  onReplayWelcome,
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
 
@@ -124,6 +134,8 @@ export const SettingsView = memo(function SettingsView({
             onThemeChange={onThemeChange}
             islandLayout={islandLayout}
             onIslandLayoutChange={onIslandLayoutChange}
+            autoGroupTools={autoGroupTools}
+            onAutoGroupToolsChange={onAutoGroupToolsChange}
             transparency={transparency}
             onTransparencyChange={onTransparencyChange}
             glassSupported={glassSupported}
@@ -132,6 +144,13 @@ export const SettingsView = memo(function SettingsView({
       case "notifications":
         return (
           <NotificationsSettings
+            appSettings={appSettings}
+            onUpdateAppSettings={updateAppSettings}
+          />
+        );
+      case "analytics":
+        return (
+          <AnalyticsSettings
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
           />
@@ -152,6 +171,7 @@ export const SettingsView = memo(function SettingsView({
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
             section="engines"
+            onReplayWelcome={onReplayWelcome}
           />
         );
       case "advanced":
@@ -160,6 +180,7 @@ export const SettingsView = memo(function SettingsView({
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
             section="advanced"
+            onReplayWelcome={onReplayWelcome}
           />
         );
       case "skills":
@@ -185,7 +206,7 @@ export const SettingsView = memo(function SettingsView({
       default:
         return null;
     }
-  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, transparency, onTransparencyChange, glassSupported]);
+  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, autoGroupTools, onAutoGroupToolsChange, transparency, onTransparencyChange, glassSupported, onReplayWelcome]);
 
   return (
     <div className="island flex flex-1 flex-col overflow-hidden rounded-lg bg-background">

@@ -4,6 +4,7 @@ import type { UIMessage, ChatSession, ImageAttachment, McpServerConfig, Project 
 import type { ACPConfigOption } from "../../types/acp";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
+import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import { buildSdkContent } from "../../lib/protocol";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { bgAgentStore } from "../../lib/background-agent-store";
@@ -11,6 +12,8 @@ import {
   DRAFT_ID,
   DEFAULT_PERMISSION_MODE,
   getEffectiveClaudePermissionMode,
+  getCodexApprovalPolicy,
+  getCodexSandboxMode,
   buildCodexCollabMode,
 } from "./types";
 import type { SharedSessionRefs, SharedSessionSetters, EngineHooks, StartOptions } from "./types";
@@ -258,6 +261,7 @@ export function useSessionLifecycle({
           isConnected: bgState.isConnected,
           sessionInfo: bgState.sessionInfo,
           totalCost: bgState.totalCost,
+          isCompacting: bgState.isCompacting,
         });
         // Restore pending permission so the hook picks it up on reset
         setInitialPermission(bgState.pendingPermission);
@@ -322,10 +326,13 @@ export function useSessionLifecycle({
       if (!session) return;
       if (liveSessionIdsRef.current.has(id)) {
         if (session.engine === "codex") {
+          suppressNextSessionCompletion(id);
           await window.claude.codex.stop(id);
         } else if (session.engine === "acp") {
+          suppressNextSessionCompletion(id);
           await window.claude.acp.stop(id);
         } else {
+          suppressNextSessionCompletion(id);
           await window.claude.stop(id, "session_delete");
         }
         liveSessionIdsRef.current.delete(id);
@@ -466,6 +473,7 @@ export function useSessionLifecycle({
       // Model change requires eager Claude session restart only when the draft engine is Claude.
       if (preStartedSessionIdRef.current && draftEngine === "claude") {
         const oldId = preStartedSessionIdRef.current;
+        suppressNextSessionCompletion(oldId);
         window.claude.stop(oldId, "draft_model_change");
         liveSessionIdsRef.current.delete(oldId);
         backgroundStoreRef.current.delete(oldId);
@@ -644,19 +652,19 @@ export function useSessionLifecycle({
   }, [claude.setThinkingEnabled]);
 
   // Update MCP servers for the active ACP session, preserving conversation context.
-  const restartAcpSession = useCallback(async (servers: McpServerConfig[]) => {
+  const restartAcpSession = useCallback(async (servers: McpServerConfig[], cwdOverride?: string): Promise<{ ok?: boolean; error?: string }> => {
     const currentId = activeSessionIdRef.current;
-    if (!currentId || currentId === DRAFT_ID) return;
+    if (!currentId || currentId === DRAFT_ID) return { ok: true };
 
     const session = sessionsRef.current.find(s => s.id === currentId);
     const project = session ? findProject(session.projectId) : null;
     const agentId = acpAgentIdRef.current;
-    if (!session || !project || !agentId) return;
+    if (!session || !project || !agentId) return { error: "ACP session cannot be restarted right now." };
 
     // Probe servers so we get accurate statuses (including needs-auth) before any reload
     const probeResults = await window.claude.mcp.probe(servers);
     // Guard: session may have changed during async probe
-    if (activeSessionIdRef.current !== currentId) return;
+    if (activeSessionIdRef.current !== currentId) return { ok: true };
     setAcpMcpStatuses(probeResults.map(r => ({
       name: r.name,
       status: toMcpStatusState(r.status),
@@ -664,23 +672,25 @@ export function useSessionLifecycle({
     })));
 
     // Try session/load first — updates MCP on the existing connection, no context loss
-    const reloadResult = await window.claude.acp.reloadSession(currentId, servers);
+    const nextCwd = cwdOverride ?? getProjectCwd(project);
+    const reloadResult = await window.claude.acp.reloadSession(currentId, servers, nextCwd);
     if (reloadResult.supportsLoad && reloadResult.ok) {
       // session/load succeeded — session ID and process unchanged, context preserved
-      return;
+      return { ok: true };
     }
 
     // Fall back to stop + restart (agent doesn't support session/load, or reload failed)
     const currentMessages = messagesRef.current;
     const currentCost = totalCostRef.current;
 
+    suppressNextSessionCompletion(currentId);
     await window.claude.acp.stop(currentId);
     liveSessionIdsRef.current.delete(currentId);
     backgroundStoreRef.current.delete(currentId);
 
     const result = await window.claude.acp.start({
       agentId,
-      cwd: getProjectCwd(project),
+      cwd: nextCwd,
       mcpServers: servers,
     });
     if (result.error || !result.sessionId) {
@@ -692,9 +702,9 @@ export function useSessionLifecycle({
         role: "system" as const,
         content: errorMsg,
         isError: true,
-        timestamp: Date.now(),
+          timestamp: Date.now(),
       }]);
-      return;
+      return { error: errorMsg };
     }
 
     const newId = result.sessionId;
@@ -708,7 +718,82 @@ export function useSessionLifecycle({
     setInitialMeta({ isProcessing: false, isConnected: true, sessionInfo: null, totalCost: currentCost });
     if (result.configOptions?.length) setInitialConfigOptions(result.configOptions);
     setActiveSessionId(newId);
-  }, [findProject]);
+    return { ok: true };
+  }, [findProject, getProjectCwd]);
+
+  const restartActiveSessionInCurrentWorktree = useCallback(async (): Promise<{ ok?: boolean; error?: string }> => {
+    const currentId = activeSessionIdRef.current;
+    if (!currentId || currentId === DRAFT_ID) return { ok: true };
+    if (isProcessingRef.current) {
+      return { error: "Wait for the current turn to finish before restarting in another worktree." };
+    }
+
+    const session = sessionsRef.current.find((s) => s.id === currentId);
+    if (!session) return { error: "Active session not found." };
+    const project = findProject(session.projectId);
+    if (!project) return { error: "Project not found." };
+    const nextCwd = getProjectCwd(project);
+    const mcpServers = await window.claude.mcp.list(session.projectId);
+
+    if (session.engine === "acp") {
+      return restartAcpSession(mcpServers, nextCwd);
+    }
+
+    if (session.engine === "codex") {
+      let codexThreadId: string | undefined = session.codexThreadId;
+      if (!codexThreadId) {
+        try {
+          const persisted = await window.claude.sessions.load(session.projectId, currentId);
+          codexThreadId = persisted?.codexThreadId;
+        } catch {
+          // Ignore persistence lookup failure; we'll surface the missing thread below.
+        }
+      }
+
+      if (!codexThreadId) {
+        return { error: "Codex session cannot be restarted in another worktree because no thread ID is available." };
+      }
+
+      const resumeResult = await window.claude.codex.resume({
+        cwd: nextCwd,
+        threadId: codexThreadId,
+        model: session.model,
+        approvalPolicy: getCodexApprovalPolicy(startOptionsRef.current),
+        sandbox: getCodexSandboxMode(startOptionsRef.current),
+      });
+
+      if (resumeResult.error || !resumeResult.sessionId) {
+        return { error: resumeResult.error || "Failed to restart Codex session in the selected worktree." };
+      }
+
+      const newId = resumeResult.sessionId;
+      liveSessionIdsRef.current.add(newId);
+      setSessions((prev) => prev.map((s) =>
+        s.id === currentId
+          ? { ...s, id: newId, codexThreadId: resumeResult.threadId ?? codexThreadId }
+          : s,
+      ));
+      setInitialMessages(messagesRef.current);
+      setInitialMeta({ isProcessing: false, isConnected: true, sessionInfo: null, totalCost: totalCostRef.current });
+      setActiveSessionId(newId);
+
+      suppressNextSessionCompletion(currentId);
+      await window.claude.codex.stop(currentId);
+      liveSessionIdsRef.current.delete(currentId);
+      backgroundStoreRef.current.delete(currentId);
+      return { ok: true };
+    }
+
+    const restartResult = await window.claude.restartSession(currentId, mcpServers, nextCwd);
+    if (restartResult?.error) {
+      return { error: restartResult.error };
+    }
+    if (restartResult?.restarted) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    await claude.refreshMcpStatus();
+    return { ok: true };
+  }, [claude.refreshMcpStatus, findProject, getProjectCwd, restartAcpSession]);
 
   // Full revert: rewind files + fork a new SDK session truncated to the checkpoint.
   const fullRevertSession = useCallback(async (checkpointId: string) => {
@@ -747,6 +832,7 @@ export function useSessionLifecycle({
     }
 
     // 4. Stop old session — cleanup runs async in the event loop's finally block
+    suppressNextSessionCompletion(currentId);
     await window.claude.stop(currentId, "revert_restart");
     liveSessionIdsRef.current.delete(currentId);
     backgroundStoreRef.current.delete(currentId);
@@ -1049,6 +1135,7 @@ export function useSessionLifecycle({
     setActivePlanMode,
     setActiveThinking,
     restartAcpSession,
+    restartActiveSessionInCurrentWorktree,
     fullRevertSession,
     send,
   };

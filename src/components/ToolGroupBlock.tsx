@@ -7,11 +7,14 @@ import {
 } from "@/components/ui/collapsible";
 import type { UIMessage } from "@/types";
 import { ToolCall } from "./ToolCall";
+import { ThinkingBlock } from "./ThinkingBlock";
 import { getToolLabel, getToolIcon } from "@/components/lib/tool-metadata";
 import { formatCompactSummary } from "@/components/lib/tool-formatting";
 
 interface ToolGroupBlockProps {
   tools: UIMessage[];
+  messages: UIMessage[];
+  showThinking?: boolean;
   /** When true (live streaming), runs a one-time tools -> group morph animation.
    *  When false (restored session), renders collapsed immediately. */
   animate: boolean;
@@ -52,6 +55,8 @@ function ToolGroupHeaderContent({
 
 export const ToolGroupBlock = memo(function ToolGroupBlock({
   tools,
+  messages,
+  showThinking = true,
   animate,
 }: ToolGroupBlockProps) {
   // Lock animation decision at mount. Parent re-renders may flip `animate` to false
@@ -153,6 +158,13 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
     });
   }, [tools]);
 
+  const groupedRows = useMemo(() => {
+    return messages.filter((message) => {
+      if (message.role === "tool_call") return true;
+      return showThinking && message.role === "assistant" && !!message.thinking && !message.content;
+    });
+  }, [messages, showThinking]);
+
   if (isMorphing) {
     const shellStyle: CSSProperties = {
       "--tool-group-morph-duration": `${morphDurationMs}ms`,
@@ -217,8 +229,18 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
               Uses tool-group-collapse for a slower, smoother animation than default. */}
           <CollapsibleContent className="tool-group-collapse">
             <div className="mt-0.5">
-              {tools.map((tool) => (
-                <ToolCall key={tool.id} message={tool} compact />
+              {groupedRows.map((message) => (
+                message.role === "tool_call" ? (
+                  <ToolCall key={message.id} message={message} compact />
+                ) : (
+                  <div key={message.id} className="py-1">
+                    <ThinkingBlock
+                      thinking={message.thinking ?? ""}
+                      isStreaming={message.isStreaming}
+                      thinkingComplete={message.thinkingComplete}
+                    />
+                  </div>
+                )
               ))}
             </div>
           </CollapsibleContent>
@@ -228,5 +250,7 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
   );
 }, (prev, next) =>
   prev.tools === next.tools &&
+  prev.messages === next.messages &&
+  prev.showThinking === next.showThinking &&
   prev.animate === next.animate,
 );

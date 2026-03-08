@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { UIMessage, ChatSession, McpServerConfig, Project, ImageAttachment, EngineId } from "../../types";
 import { toMcpStatusState } from "../../lib/mcp-utils";
+import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
@@ -108,6 +109,7 @@ export function useDraftMaterialization({
       }
     } else {
       // Draft was abandoned before eager start completed
+      suppressNextSessionCompletion(result.sessionId);
       window.claude.stop(result.sessionId, "draft_abandoned");
     }
   }, []);
@@ -187,6 +189,7 @@ export function useDraftMaterialization({
   const abandonEagerSession = useCallback((reason = "cleanup") => {
     const id = preStartedSessionIdRef.current;
     if (!id) return;
+    suppressNextSessionCompletion(id);
     window.claude.stop(id, reason);
     liveSessionIdsRef.current.delete(id);
     backgroundStoreRef.current.delete(id);
@@ -403,6 +406,7 @@ export function useDraftMaterialization({
               isConnected: bgState.isConnected,
               sessionInfo: bgState.sessionInfo,
               totalCost: bgState.totalCost,
+              isCompacting: bgState.isCompacting,
             });
           }
         } else {

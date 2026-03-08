@@ -87,7 +87,7 @@ export function useEngineBase({
     }
     setPendingPermission(initialPermission ?? null);
     setContextUsage(null);
-    setIsCompacting(false);
+    setIsCompacting(initialMeta?.isCompacting ?? false);
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Shared rAF scheduling — engines provide their own flush function

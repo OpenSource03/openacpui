@@ -21,6 +21,7 @@ import { useSessionPersistence } from "./session/useSessionPersistence";
 import { useDraftMaterialization } from "./session/useDraftMaterialization";
 import { useSessionRevival } from "./session/useSessionRevival";
 import { useSessionLifecycle } from "./session/useSessionLifecycle";
+import { suppressNextSessionCompletion } from "@/lib/notification-utils";
 
 export function useSessionManager(projects: Project[], acpPermissionBehavior: AcpPermissionBehavior = "ask", onSpaceChange?: (spaceId: string) => void) {
   // ── Core state ──
@@ -83,6 +84,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   startOptionsRef.current = startOptions;
   const isProcessingRef = useRef(engine.isProcessing);
   isProcessingRef.current = engine.isProcessing;
+  const isCompactingRef = useRef("isCompacting" in engine ? !!engine.isCompacting : false);
+  isCompactingRef.current = "isCompacting" in engine ? !!engine.isCompacting : false;
   const isConnectedRef = useRef(engine.isConnected);
   isConnectedRef.current = engine.isConnected;
   const sessionInfoRef = useRef(engine.sessionInfo);
@@ -150,6 +153,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     messagesRef,
     totalCostRef,
     isProcessingRef,
+    isCompactingRef,
     isConnectedRef,
     sessionInfoRef,
     pendingPermissionRef,
@@ -240,6 +244,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setActivePlanMode,
     setActiveThinking,
     restartAcpSession,
+    restartActiveSessionInCurrentWorktree,
     fullRevertSession,
     send,
   } = useSessionLifecycle({
@@ -324,6 +329,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setActivePermissionMode,
     setActivePlanMode,
     setActiveThinking,
+    restartActiveSessionInCurrentWorktree,
     setDraftAgent,
     messages: engine.messages,
     isProcessing: engine.isProcessing,
@@ -344,6 +350,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       if (activeSessionIdRef.current === DRAFT_ID
           && startOptionsRef.current.engine === "acp"
           && isProcessingRef.current) {
+        suppressNextSessionCompletion(activeSessionIdRef.current);
         await window.claude.acp.abortPendingStart();
         acp.setIsProcessing(false);
         return;

@@ -62,6 +62,8 @@ pnpm build     # tsup (electron/) + Vite (renderer) production build
 pnpm start     # Run Electron with pre-built dist/
 ```
 
+**Dev logs**: Main process logs go to `logs/main-{timestamp}.log` (dev) or `{userData}/logs/main-{timestamp}.log` (packaged). Check the latest file with `ls -t logs/main-*.log | head -1 | xargs cat`.
+
 ## Architecture
 
 ### SDK-Based Session Management
@@ -316,6 +318,7 @@ The three session IPC handlers share extracted utilities:
 - **Text overflow** — use `wrap-break-word` on containers with user content
 - **No `any`** — use proper types, never `as any`
 - **No unsafe `as` casts** — use discriminated unions and type guards instead of `as Record<string, unknown>`
+- **No false optionals** — never mark props/parameters as optional (`?`) when they are always provided by every caller. Optional means "sometimes absent" — if every call site passes the value, make it required. Lazy `?` hides broken contracts and leads to unnecessary null checks.
 - **pnpm** — always use pnpm for package management
 - **Memo optimization** — components use `React.memo` with custom comparators for performance
 - **Component decomposition** — large components are split into focused sub-components in subdirectories (git/, tool-renderers/, mcp-renderers/, sidebar/)

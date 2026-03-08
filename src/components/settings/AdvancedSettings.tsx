@@ -9,6 +9,8 @@ interface AdvancedSettingsProps {
   appSettings: AppSettings | null;
   onUpdateAppSettings: (patch: Partial<AppSettings>) => Promise<void>;
   section: "engines" | "advanced";
+  /** Resets the welcome wizard so it shows again. Dev-only. */
+  onReplayWelcome: () => void;
 }
 
 // ── Component ──
@@ -17,10 +19,13 @@ export const AdvancedSettings = memo(function AdvancedSettings({
   appSettings,
   onUpdateAppSettings,
   section,
+  onReplayWelcome,
 }: AdvancedSettingsProps) {
   const [codexClientName, setCodexClientName] = useState("Harnss");
   const [codexBinarySource, setCodexBinarySource] = useState<"auto" | "managed" | "custom">("auto");
   const [codexCustomBinaryPath, setCodexCustomBinaryPath] = useState("");
+  const [claudeBinarySource, setClaudeBinarySource] = useState<"auto" | "managed" | "custom">("auto");
+  const [claudeCustomBinaryPath, setClaudeCustomBinaryPath] = useState("");
   const [showDevFillInChatTitleBar, setShowDevFillInChatTitleBar] = useState(false);
 
   useEffect(() => {
@@ -28,6 +33,8 @@ export const AdvancedSettings = memo(function AdvancedSettings({
       setCodexClientName(appSettings.codexClientName || "Harnss");
       setCodexBinarySource(appSettings.codexBinarySource || "auto");
       setCodexCustomBinaryPath(appSettings.codexCustomBinaryPath || "");
+      setClaudeBinarySource(appSettings.claudeBinarySource || "auto");
+      setClaudeCustomBinaryPath(appSettings.claudeCustomBinaryPath || "");
       setShowDevFillInChatTitleBar(!!appSettings.showDevFillInChatTitleBar);
     }
   }, [appSettings]);
@@ -60,6 +67,23 @@ export const AdvancedSettings = memo(function AdvancedSettings({
     [onUpdateAppSettings],
   );
 
+  const handleClaudeBinarySourceChange = useCallback(
+    async (source: "auto" | "managed" | "custom") => {
+      setClaudeBinarySource(source);
+      await onUpdateAppSettings({ claudeBinarySource: source });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const handleClaudeCustomPathSave = useCallback(
+    async (value: string) => {
+      const next = value.trim();
+      setClaudeCustomBinaryPath(next);
+      await onUpdateAppSettings({ claudeCustomBinaryPath: next });
+    },
+    [onUpdateAppSettings],
+  );
+
   const handleDevFillToggle = useCallback(
     async (checked: boolean) => {
       setShowDevFillInChatTitleBar(checked);
@@ -86,12 +110,59 @@ export const AdvancedSettings = memo(function AdvancedSettings({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-6 py-2">
-          {/* ── Codex Server section ── */}
+          {/* ── Claude Code section ── */}
+          {section === "engines" && (
+            <div className="py-3">
+              <div className="mb-1 flex items-center gap-2">
+                <Server className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Claude Code
+                </span>
+              </div>
+
+              <SettingRow
+                label="Claude binary source"
+                description="Choose how Harnss resolves the Claude executable."
+              >
+                <select
+                  value={claudeBinarySource}
+                  onChange={(e) => handleClaudeBinarySourceChange(e.target.value as "auto" | "managed" | "custom")}
+                  className={`${selectClass} w-44`}
+                >
+                  <option value="auto">Auto detect</option>
+                  <option value="managed">Managed install</option>
+                  <option value="custom">Custom path</option>
+                </select>
+              </SettingRow>
+
+              {claudeBinarySource === "custom" && (
+                <SettingRow
+                  label="Custom Claude path"
+                  description="Absolute path to claude executable (claude or claude.exe)."
+                >
+                  <input
+                    type="text"
+                    value={claudeCustomBinaryPath}
+                    onChange={(e) => setClaudeCustomBinaryPath(e.target.value)}
+                    onBlur={(e) => handleClaudeCustomPathSave(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleClaudeCustomPathSave(e.currentTarget.value);
+                    }}
+                    spellCheck={false}
+                    className="h-8 w-80 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                    placeholder="Absolute path to claude executable"
+                  />
+                </SettingRow>
+              )}
+            </div>
+          )}
+
+          {/* ── Codex section ── */}
           <div className="py-3">
             <div className="mb-1 flex items-center gap-2">
               <Server className="h-4 w-4 text-muted-foreground" />
               <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Codex Server
+                Codex
               </span>
             </div>
 
@@ -124,6 +195,20 @@ export const AdvancedSettings = memo(function AdvancedSettings({
                   checked={showDevFillInChatTitleBar}
                   onCheckedChange={handleDevFillToggle}
                 />
+              </SettingRow>
+            )}
+
+            {canConfigureDevFill && (
+              <SettingRow
+                label="Replay welcome wizard"
+                description="Reset the onboarding flag and relaunch the welcome wizard."
+              >
+                <button
+                  onClick={onReplayWelcome}
+                  className="rounded-md border border-foreground/10 bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-foreground/20 hover:bg-foreground/[0.03]"
+                >
+                  Replay
+                </button>
               </SettingRow>
             )}
 

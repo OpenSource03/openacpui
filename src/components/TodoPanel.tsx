@@ -2,14 +2,16 @@ import { Circle, CheckCircle2, Loader2, ListChecks } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PanelHeader } from "@/components/PanelHeader";
 import type { TodoItem } from "@/types";
+import { getTodoItems } from "@/lib/todo-utils";
 
 interface TodoPanelProps {
   todos: TodoItem[];
 }
 
 export function TodoPanel({ todos }: TodoPanelProps) {
-  const completed = todos.filter((t) => t.status === "completed").length;
-  const total = todos.length;
+  const items = getTodoItems(todos);
+  const completed = items.filter((t) => t.status === "completed").length;
+  const total = items.length;
   const progress = total > 0 ? (completed / total) * 100 : 0;
   const allDone = completed === total;
 
@@ -44,7 +46,7 @@ export function TodoPanel({ todos }: TodoPanelProps) {
       {/* Scrollable todo list */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-2 py-2 space-y-0.5">
-          {todos.map((todo, i) => (
+          {items.map((todo, i) => (
             <div
               key={i}
               className={`flex items-start gap-2.5 rounded-md px-2 py-1.5 ${

@@ -68,8 +68,10 @@ interface ToolsPanelProps {
   spaceId: string;
   tabs: TerminalTab[];
   activeTabId: string | null;
+  terminalsReady: boolean;
   onSetActiveTab: (tabId: string | null) => void;
   onCreateTerminal: () => Promise<void>;
+  onEnsureTerminal: () => Promise<void>;
   onCloseTerminal: (tabId: string) => Promise<void>;
   resolvedTheme: ResolvedTheme;
 }
@@ -78,17 +80,24 @@ export function ToolsPanel({
   spaceId,
   tabs,
   activeTabId,
+  terminalsReady,
   onSetActiveTab,
   onCreateTerminal,
+  onEnsureTerminal,
   onCloseTerminal,
   resolvedTheme,
 }: ToolsPanelProps) {
+  const handleCreateTerminal = () => {
+    if (!terminalsReady) return Promise.resolve();
+    return onCreateTerminal();
+  };
+
   // Auto-create first terminal
   useEffect(() => {
-    if (tabs.length === 0) {
-      onCreateTerminal();
+    if (terminalsReady && tabs.length === 0) {
+      void onEnsureTerminal();
     }
-  }, [spaceId, tabs.length, onCreateTerminal]);
+  }, [spaceId, terminalsReady, tabs.length, onEnsureTerminal]);
 
   return (
     <div className="flex h-full flex-col">
@@ -98,7 +107,7 @@ export function ToolsPanel({
         activeTabId={activeTabId}
         onSelectTab={(id) => onSetActiveTab(id)}
         onCloseTab={onCloseTerminal}
-        onNewTab={onCreateTerminal}
+        onNewTab={handleCreateTerminal}
         headerIcon={TerminalIcon}
         headerLabel=""
         renderTabIcon={() => <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
@@ -117,16 +126,23 @@ export function ToolsPanel({
             <TerminalInstance terminalId={tab.terminalId} isVisible={tab.id === activeTabId} resolvedTheme={resolvedTheme} />
           </div>
         ))}
-        {tabs.length === 0 && (
+        {tabs.length === 0 && terminalsReady && (
           <div className="flex h-full items-center justify-center">
             <button
               type="button"
-              onClick={onCreateTerminal}
+              onClick={() => {
+                void handleCreateTerminal();
+              }}
               className="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-foreground/40 transition-colors hover:bg-foreground/[0.04] hover:text-foreground/60 cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5" />
               New Terminal
             </button>
+          </div>
+        )}
+        {tabs.length === 0 && !terminalsReady && (
+          <div className="flex h-full items-center justify-center text-xs text-foreground/35">
+            Restoring terminals...
           </div>
         )}
       </div>
@@ -146,6 +162,9 @@ function TerminalInstance({
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
+  const lastSeqRef = useRef(0);
+  const pendingChunksRef = useRef<Array<{ seq: number; data: string }>>([]);
+  const hydratedRef = useRef(false);
   const [ready, setReady] = useState(false);
 
   // Initialize xterm
@@ -197,18 +216,42 @@ function TerminalInstance({
         window.claude.terminal.write(terminalId, data);
       });
 
-      // Wire up PTY → xterm
-      unsubData = window.claude.terminal.onData(({ terminalId: id, data }) => {
-        if (id === terminalId && !disposed) {
-          term.write(data);
+      // Subscribe before fetching a snapshot so we can queue chunks that arrive
+      // while the terminal is remounting and replay them after hydration.
+      unsubData = window.claude.terminal.onData(({ terminalId: id, data, seq }) => {
+        if (id !== terminalId || disposed) return;
+        if (!hydratedRef.current) {
+          pendingChunksRef.current.push({ seq, data });
+          return;
         }
+        if (seq <= lastSeqRef.current) return;
+        lastSeqRef.current = seq;
+        term.write(data);
       });
 
       unsubExit = window.claude.terminal.onExit(({ terminalId: id }) => {
-        if (id === terminalId && !disposed) {
-          term.write("\r\n\x1b[2m[process exited]\x1b[0m\r\n");
-        }
+        if (id !== terminalId || disposed) return;
+        term.options.disableStdin = true;
       });
+
+      const snapshot = await window.claude.terminal.snapshot(terminalId);
+      if (disposed) return;
+
+      if (snapshot.output) {
+        term.write(snapshot.output);
+      }
+      lastSeqRef.current = snapshot.seq ?? 0;
+      term.options.disableStdin = !!snapshot.exited;
+      hydratedRef.current = true;
+
+      const missedChunks = pendingChunksRef.current
+        .filter((chunk) => chunk.seq > lastSeqRef.current)
+        .sort((a, b) => a.seq - b.seq);
+      pendingChunksRef.current = [];
+      for (const chunk of missedChunks) {
+        lastSeqRef.current = chunk.seq;
+        term.write(chunk.data);
+      }
 
       // Report initial size to PTY
       const dims = fitAddon.proposeDimensions();
@@ -226,6 +269,9 @@ function TerminalInstance({
       xtermRef.current?.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;
+      lastSeqRef.current = 0;
+      pendingChunksRef.current = [];
+      hydratedRef.current = false;
     };
   }, [terminalId]);
 

@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback, useEffect, useState } from "react";
+import { memo, startTransition, useMemo, useCallback, useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,31 +9,39 @@ import {
   ACCESS_ICON,
   ACCESS_COLOR,
   ACCESS_LABEL,
-  getToolAccess,
-  extractFilePath,
-  extractFiles,
   formatRanges,
   getRelativePath,
 } from "@/lib/file-access";
+import {
+  buildSessionCacheKey,
+  computeFilePanelData,
+  getCachedFilePanelData,
+  type FilePanelData,
+} from "@/lib/session-derived-data";
 import type { EngineId, UIMessage } from "@/types";
 
 interface FilesPanelProps {
+  sessionId?: string | null;
   messages: UIMessage[];
   cwd?: string;
   activeEngine?: EngineId;
   onScrollToToolCall?: (messageId: string) => void;
+  enabled?: boolean;
 }
 
 export const FilesPanel = memo(function FilesPanel({
+  sessionId,
   messages,
   cwd,
   activeEngine,
   onScrollToToolCall,
+  enabled = true,
 }: FilesPanelProps) {
   const [hasClaudeMd, setHasClaudeMd] = useState(false);
+  const [data, setData] = useState<FilePanelData | null>(null);
 
   useEffect(() => {
-    if (activeEngine !== "claude" || !cwd) {
+    if (!enabled || activeEngine !== "claude" || !cwd) {
       setHasClaudeMd(false);
       return;
     }
@@ -52,31 +60,49 @@ export const FilesPanel = memo(function FilesPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeEngine, cwd]);
+  }, [activeEngine, cwd, enabled]);
 
-  const files = useMemo(
-    () => extractFiles(messages, cwd, activeEngine === "claude" && hasClaudeMd),
-    [messages, cwd, activeEngine, hasClaudeMd],
+  const cacheSessionId = sessionId ?? "no-session";
+  const cacheKey = useMemo(
+    () => buildSessionCacheKey(cacheSessionId, messages, `${cwd ?? ""}:${activeEngine ?? ""}:${hasClaudeMd ? "claude-md" : "no-claude-md"}`),
+    [activeEngine, cacheSessionId, cwd, hasClaudeMd, messages],
   );
 
-  const handleClick = useCallback(
-    (filePath: string) => {
-      if (!onScrollToToolCall) return;
-      // Find the last tool_call message that references this file
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (msg.role !== "tool_call" || !msg.toolName || !msg.toolInput) continue;
-        const access = getToolAccess(msg.toolName);
-        if (!access) continue;
-        const path = extractFilePath(msg.toolName, msg.toolInput);
-        if (path === filePath) {
-          onScrollToToolCall(msg.id);
-          return;
-        }
-      }
-    },
-    [messages, onScrollToToolCall],
-  );
+  useEffect(() => {
+    if (!enabled) return;
+
+    const cached = getCachedFilePanelData(cacheSessionId, cacheKey);
+    if (cached) {
+      setData(cached);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const next = computeFilePanelData(
+        cacheSessionId,
+        cacheKey,
+        messages,
+        cwd,
+        activeEngine === "claude" && hasClaudeMd,
+      );
+      if (cancelled) return;
+      startTransition(() => setData(next));
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeEngine, cacheKey, cacheSessionId, cwd, enabled, hasClaudeMd, messages]);
+
+  const files = data?.files ?? [];
+
+  const handleClick = useCallback((filePath: string) => {
+    if (!onScrollToToolCall) return;
+    const messageId = data?.lastToolCallIdByFile.get(filePath);
+    if (messageId) onScrollToToolCall(messageId);
+  }, [data, onScrollToToolCall]);
 
   return (
     <div className="flex h-full flex-col">
@@ -88,7 +114,13 @@ export const FilesPanel = memo(function FilesPanel({
         )}
       </PanelHeader>
 
-      {files.length === 0 ? (
+      {enabled && !data ? (
+        <div className="flex flex-1 items-center justify-center p-4">
+          <p className="text-center text-xs text-muted-foreground/70">
+            Indexing files from this session...
+          </p>
+        </div>
+      ) : files.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-4">
           <p className="text-center text-xs text-muted-foreground/70">
             Files accessed during this session will appear here

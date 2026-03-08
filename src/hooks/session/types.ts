@@ -32,6 +32,7 @@ export interface InitialMeta {
   isConnected: boolean;
   sessionInfo: SessionInfo | null;
   totalCost: number;
+  isCompacting?: boolean;
 }
 
 export interface QueuedMessage {
@@ -52,6 +53,7 @@ export interface SharedSessionRefs {
   messagesRef: React.MutableRefObject<UIMessage[]>;
   totalCostRef: React.MutableRefObject<number>;
   isProcessingRef: React.MutableRefObject<boolean>;
+  isCompactingRef: React.MutableRefObject<boolean>;
   isConnectedRef: React.MutableRefObject<boolean>;
   sessionInfoRef: React.MutableRefObject<SessionInfo | null>;
   pendingPermissionRef: React.MutableRefObject<PermissionRequest | null>;

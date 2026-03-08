@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { ImageAttachment, GrabbedElement, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, EngineId, SlashCommand } from "@/types";
 import { flattenConfigOptions } from "@/lib/acp-utils";
+import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { resolveModelValue } from "@/lib/model-utils";
 import { isMac } from "@/lib/utils";
@@ -1206,7 +1207,7 @@ export const InputBar = memo(function InputBar({
   );
 
   return (
-    <div className={`mx-auto w-full px-4 pb-4 ${isIslandLayout ? "max-w-3xl" : "max-w-[61.5rem]"}`}>
+    <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <input
         ref={fileInputRef}
         type="file"

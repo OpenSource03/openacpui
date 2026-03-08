@@ -98,6 +98,8 @@ export interface Settings {
   setAcpPermissionBehavior: (b: AcpPermissionBehavior) => void;
   thinking: boolean;
   setThinking: (on: boolean) => void;
+  autoGroupTools: boolean;
+  setAutoGroupTools: (on: boolean) => void;
 
   // Per-project
   model: string;
@@ -287,6 +289,14 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
   const setThinking = useCallback((on: boolean) => {
     setThinkingRaw(on);
     localStorage.setItem("harnss-thinking", String(on));
+  }, []);
+
+  const [autoGroupTools, setAutoGroupToolsRaw] = useState(() =>
+    readBool("harnss-auto-group-tools", true),
+  );
+  const setAutoGroupTools = useCallback((on: boolean) => {
+    setAutoGroupToolsRaw(on);
+    localStorage.setItem("harnss-auto-group-tools", String(on));
   }, []);
 
   // ── Per-project settings ──
@@ -501,6 +511,8 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     setAcpPermissionBehavior,
     thinking,
     setThinking,
+    autoGroupTools,
+    setAutoGroupTools,
     model,
     setModel,
     getModelForEngine,

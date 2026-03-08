@@ -3,6 +3,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, session, shell, syst
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
+import { getBootstrapMinWindowWidth } from "../../src/lib/layout-constants";
 
 // Packaged .app bundles launched from Finder get a minimal PATH (/usr/bin:/bin).
 // Inherit the user's shell PATH so child processes (SDK's `node`, git, etc.) resolve.
@@ -22,6 +23,7 @@ import { log } from "./lib/logger";
 import { migrateFromOpenAcpUi } from "./lib/migration";
 import { glassEnabled, liquidGlass } from "./lib/glass";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
+import { initPostHog, shutdownPostHog, reinitPostHog } from "./lib/posthog";
 import { sessions } from "./ipc/claude-sessions";
 import { acpSessions } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
@@ -42,6 +44,7 @@ import * as codexSessionsIpc from "./ipc/codex-sessions";
 import * as mcpIpc from "./ipc/mcp";
 import * as settingsIpc from "./ipc/settings";
 import * as jiraIpc from "./ipc/jira";
+import { onSettingsChanged } from "./ipc/settings";
 
 // --- Performance: Chromium/V8 flags (must be set before app.whenReady()) ---
 app.commandLine.appendSwitch("enable-gpu-rasterization"); // force GPU raster for all content
@@ -61,12 +64,17 @@ function getMainWindow(): BrowserWindow | null {
   return mainWindow;
 }
 
+function isMainRendererPermissionRequest(webContents: Electron.WebContents | null): boolean {
+  return !!webContents && webContents.id === mainWindow?.webContents.id;
+}
+
 function createWindow(): void {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1200,
     height: 800,
-    // Matches the renderer's stricter flat-layout minimum before first IPC sync.
-    minWidth: 1600,
+    // Matches the renderer's stricter island-layout minimum before first IPC sync,
+    // including the extra Windows frame buffer.
+    minWidth: getBootstrapMinWindowWidth(process.platform),
     minHeight: 600,
     // Packaged builds get the icon from the .app bundle / electron-builder config
     ...(!app.isPackaged && { icon: path.join(__dirname, "../../build/icon.png") }),
@@ -175,6 +183,19 @@ mcpIpc.register();
 settingsIpc.register();
 jiraIpc.register();
 
+// Listen for analytics settings changes and reinitialize PostHog
+let lastAnalyticsEnabled: boolean | undefined;
+onSettingsChanged((settings) => {
+  if (lastAnalyticsEnabled !== undefined && settings.analyticsEnabled !== lastAnalyticsEnabled) {
+    lastAnalyticsEnabled = settings.analyticsEnabled;
+    reinitPostHog().catch((err) => {
+      log("POSTHOG", `Failed to reinitialize PostHog: ${(err as Error).message}`);
+    });
+  } else {
+    lastAnalyticsEnabled = settings.analyticsEnabled;
+  }
+});
+
 // --- DevTools in separate window via remote debugging ---
 let devToolsWindow: BrowserWindow | null = null;
 
@@ -259,18 +280,21 @@ ipcMain.handle("speech:request-mic-permission", async () => {
   return { granted: true };
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Migrate data from old "OpenACP UI" app directory before anything reads it
   migrateFromOpenAcpUi();
 
   createWindow();
   initAutoUpdater(getMainWindow);
 
+  // Initialize PostHog analytics (if enabled in settings)
+  await initPostHog();
+
   // Allow microphone access for Whisper voice dictation (getUserMedia in renderer)
   session.defaultSession.setPermissionRequestHandler(
     (webContents, permission, callback) => {
-      // Only grant media permission to the main window's renderer, not webviews
-      if (permission === "media" && webContents.id === mainWindow?.webContents.id) {
+      // Only grant privileged permissions to the app's main renderer, not webviews.
+      if (isMainRendererPermissionRequest(webContents) && (permission === "media" || permission === "notifications")) {
         callback(true);
         return;
       }
@@ -279,7 +303,9 @@ app.whenReady().then(() => {
   );
   session.defaultSession.setPermissionCheckHandler(
     (webContents, permission) => {
-      if (permission === "media" && webContents?.id === mainWindow?.webContents.id) return true;
+      if (isMainRendererPermissionRequest(webContents) && (permission === "media" || permission === "notifications")) {
+        return true;
+      }
       return false;
     },
   );
@@ -299,8 +325,32 @@ app.whenReady().then(() => {
   }
 });
 
-app.on("will-quit", () => {
+app.on("will-quit", (event) => {
   globalShortcut.unregisterAll();
+
+  // When an update is being installed, let the updater control the quit lifecycle.
+  // In that case, fire-and-forget PostHog shutdown and do not delay quit.
+  if (getIsInstallingUpdate()) {
+    void shutdownPostHog();
+    return;
+  }
+
+  // For normal quits, delay process exit until PostHog has flushed pending events.
+  event.preventDefault();
+
+  shutdownPostHog()
+    .catch((err) => {
+      // Log and continue exit even if analytics shutdown fails
+      log(
+        "POSTHOG",
+        `Error shutting down PostHog: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    })
+    .finally(() => {
+      app.exit(0);
+    });
 });
 
 app.on("window-all-closed", () => {

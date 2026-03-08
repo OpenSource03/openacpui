@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import type {
   ClaudeEvent,
   SystemInitEvent,
+  SystemStatusEvent,
   SystemCompactBoundaryEvent,
   TaskProgressEvent,
   TaskNotificationEvent,
@@ -29,6 +30,8 @@ import {
 } from "../lib/protocol";
 import { formatResultError } from "../lib/message-factory";
 import { bgAgentStore } from "../lib/background-agent-store";
+import { suppressNextSessionCompletion } from "../lib/notification-utils";
+import { normalizeTodoToolInput } from "../lib/todo-utils";
 import { useEngineBase } from "./useEngineBase";
 
 function uiLog(label: string, data: unknown) {
@@ -147,7 +150,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
         if (block.type === "tool_use") {
           const step: SubagentToolStep = {
             toolName: block.name,
-            toolInput: block.input,
+            toolInput: normalizeTodoToolInput(block.name, block.input),
             toolUseId: block.id,
           };
           setMessages((prev) =>
@@ -234,6 +237,11 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
             break;
           }
           if ("subtype" in event && event.subtype === "status") {
+            const statusEvent = event as SystemStatusEvent;
+            if (statusEvent.status === "compacting") {
+              setIsCompacting(true);
+              setIsProcessing(true);
+            }
             break;
           }
           const init = event as SystemInitEvent;
@@ -481,7 +489,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
                     role: "tool_call",
                     content: "",
                     toolName: block.name,
-                    toolInput: block.input,
+                    toolInput: normalizeTodoToolInput(block.name, block.input),
                     timestamp: Date.now(),
                     ...(isTask ? { subagentSteps: [], subagentStatus: "running" as const } : {}),
                   },
@@ -747,6 +755,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
   const stop = useCallback(async () => {
     if (!sessionIdRef.current) return;
+    suppressNextSessionCompletion(sessionIdRef.current);
     await window.claude.stop(sessionIdRef.current, "user");
     setIsConnected(false);
     setIsProcessing(false);
@@ -756,6 +765,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
   const interrupt = useCallback(async () => {
     if (!sessionIdRef.current) return;
+    suppressNextSessionCompletion(sessionIdRef.current);
 
     // Flush any rAF-buffered streaming content to React state
     flushNow();

@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld("claude", {
     ipcRenderer.invoke("claude:set-model", { sessionId, model }),
   setThinking: (sessionId: string, thinkingEnabled: boolean) =>
     ipcRenderer.invoke("claude:set-thinking", { sessionId, thinkingEnabled }),
+  version: () => ipcRenderer.invoke("claude:version"),
+  binaryStatus: () => ipcRenderer.invoke("claude:binary-status"),
   supportedModels: (sessionId: string) => ipcRenderer.invoke("claude:supported-models", sessionId),
   slashCommands: (sessionId: string) => ipcRenderer.invoke("claude:slash-commands", sessionId),
   modelsCacheGet: () => ipcRenderer.invoke("claude:models-cache:get"),
@@ -61,8 +63,8 @@ contextBridge.exposeInMainWorld("claude", {
     ipcRenderer.invoke("claude:mcp-reconnect", { sessionId, serverName }),
   revertFiles: (sessionId: string, checkpointId: string) =>
     ipcRenderer.invoke("claude:revert-files", { sessionId, checkpointId }),
-  restartSession: (sessionId: string, mcpServers?: unknown[]) =>
-    ipcRenderer.invoke("claude:restart-session", { sessionId, mcpServers }),
+  restartSession: (sessionId: string, mcpServers?: unknown[], cwd?: string) =>
+    ipcRenderer.invoke("claude:restart-session", { sessionId, mcpServers, cwd }),
   readFile: (filePath: string) => ipcRenderer.invoke("file:read", filePath),
   openInEditor: (filePath: string, line?: number, editor?: string) => ipcRenderer.invoke("file:open-in-editor", { filePath, line, editor }),
   openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
@@ -122,6 +124,8 @@ contextBridge.exposeInMainWorld("claude", {
   },
   terminal: {
     create: (options: { cwd?: string; cols?: number; rows?: number; spaceId?: string }) => ipcRenderer.invoke("terminal:create", options),
+    list: () => ipcRenderer.invoke("terminal:list"),
+    snapshot: (terminalId: string) => ipcRenderer.invoke("terminal:snapshot", terminalId),
     write: (terminalId: string, data: string) => ipcRenderer.invoke("terminal:write", { terminalId, data }),
     resize: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke("terminal:resize", { terminalId, cols, rows }),
     destroy: (terminalId: string) => ipcRenderer.invoke("terminal:destroy", terminalId),
@@ -143,8 +147,8 @@ contextBridge.exposeInMainWorld("claude", {
     prompt: (sessionId: string, text: string, images?: unknown[]) =>
       ipcRenderer.invoke("acp:prompt", { sessionId, text, images }),
     stop: (sessionId: string) => ipcRenderer.invoke("acp:stop", sessionId),
-    reloadSession: (sessionId: string, mcpServers?: unknown[]) =>
-      ipcRenderer.invoke("acp:reload-session", { sessionId, mcpServers }),
+    reloadSession: (sessionId: string, mcpServers?: unknown[], cwd?: string) =>
+      ipcRenderer.invoke("acp:reload-session", { sessionId, mcpServers, cwd }),
     reviveSession: (options: { agentId: string; cwd: string; agentSessionId?: string; mcpServers?: unknown[] }) =>
       ipcRenderer.invoke("acp:revive-session", options),
     cancel: (sessionId: string) => ipcRenderer.invoke("acp:cancel", sessionId),

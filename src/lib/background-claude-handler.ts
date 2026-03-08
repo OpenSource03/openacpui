@@ -5,6 +5,8 @@ import type {
   ToolResultEvent,
   ResultEvent,
   SystemInitEvent,
+  SystemStatusEvent,
+  SystemCompactBoundaryEvent,
   TaskProgressEvent,
   TaskNotificationEvent,
   SubagentToolStep,
@@ -17,6 +19,7 @@ import {
 } from "./protocol";
 import { formatResultError } from "./message-factory";
 import { bgAgentStore } from "./background-agent-store";
+import { normalizeTodoToolInput } from "./todo-utils";
 import type { InternalState } from "./background-session-store";
 
 // ── Helpers ──
@@ -105,7 +108,7 @@ function handleSubagentEvent(
       if (block.type === "tool_use") {
         const step: SubagentToolStep = {
           toolName: block.name,
-          toolInput: block.input,
+          toolInput: normalizeTodoToolInput(block.name, block.input),
           toolUseId: block.id,
         };
         state.messages = state.messages.map((m) => {
@@ -175,8 +178,24 @@ export function handleClaudeEvent(
 
   switch (event.type) {
     case "system": {
-      // Skip status and compact_boundary subtypes — only process init
-      if ("subtype" in event && (event.subtype === "status" || event.subtype === "compact_boundary")) {
+      if ("subtype" in event && event.subtype === "compact_boundary") {
+        state.isCompacting = false;
+        const compactMeta = (event as SystemCompactBoundaryEvent).compact_metadata;
+        state.messages.push({
+          id: nextId("compact"),
+          role: "summary",
+          content: "",
+          timestamp: Date.now(),
+          compactTrigger: compactMeta?.trigger === "manual" ? "manual" : "auto",
+          compactPreTokens: compactMeta?.pre_tokens,
+        });
+        break;
+      }
+      if ("subtype" in event && event.subtype === "status") {
+        const statusEvent = event as SystemStatusEvent;
+        if (statusEvent.status === "compacting") {
+          state.isCompacting = true;
+        }
         break;
       }
       const init = event as SystemInitEvent;
@@ -240,7 +259,7 @@ export function handleClaudeEvent(
               role: "tool_call",
               content: "",
               toolName: block.name,
-              toolInput: block.input,
+              toolInput: normalizeTodoToolInput(block.name, block.input),
               timestamp: Date.now(),
               ...(isTask
                 ? {

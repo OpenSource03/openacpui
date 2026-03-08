@@ -6,6 +6,7 @@ export type PreferredEditor = "auto" | "cursor" | "code" | "zed";
 export type VoiceDictationMode = "native" | "whisper";
 export type ThemeOption = "light" | "dark" | "system";
 export type CodexBinarySource = "auto" | "managed" | "custom";
+export type ClaudeBinarySource = "auto" | "managed" | "custom";
 
 // ── Notification settings ──
 
@@ -41,8 +42,18 @@ export interface AppSettings {
   codexBinarySource: CodexBinarySource;
   /** Absolute path used when codexBinarySource is custom */
   codexCustomBinaryPath: string;
+  /** Which Claude binary source to use */
+  claudeBinarySource: ClaudeBinarySource;
+  /** Absolute path used when claudeBinarySource is custom */
+  claudeCustomBinaryPath: string;
   /** Show developer-only "Dev Fill" button in chat title bar (local dev builds only) */
   showDevFillInChatTitleBar: boolean;
+  /** Enable anonymous analytics to help improve the app (default: true) */
+  analyticsEnabled: boolean;
+  /** Anonymous user ID for analytics (auto-generated) */
+  analyticsUserId?: string;
+  /** Last date (YYYY-MM-DD) when daily_active_user was sent */
+  analyticsLastDailyActiveDate?: string;
 }
 
 export interface SpaceColor {

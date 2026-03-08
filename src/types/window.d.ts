@@ -77,7 +77,7 @@ declare global {
       mcpStatus: (sessionId: string) => Promise<{ servers: McpServerStatus[]; error?: string }>;
       mcpReconnect: (sessionId: string, serverName: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
       revertFiles: (sessionId: string, checkpointId: string) => Promise<{ ok?: boolean; error?: string }>;
-      restartSession: (sessionId: string, mcpServers?: McpServerConfig[]) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
+      restartSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
       openInEditor: (filePath: string, line?: number, editor?: string) => Promise<{ ok?: boolean; editor?: string; error?: string }>;
       openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
@@ -122,6 +122,8 @@ declare global {
         sessionId: string,
         thinkingEnabled: boolean,
       ) => Promise<{ ok?: boolean; error?: string }>;
+      version: () => Promise<{ version?: string | null; error?: string }>;
+      binaryStatus: () => Promise<{ installed: boolean; installing: boolean }>;
       projects: {
         list: () => Promise<Project[]>;
         create: (spaceId?: string) => Promise<Project | null>;
@@ -195,11 +197,28 @@ declare global {
       };
       terminal: {
         create: (options: { cwd?: string; cols?: number; rows?: number; spaceId?: string }) => Promise<{ terminalId?: string; error?: string }>;
+        list: () => Promise<{
+          terminals?: Array<{
+            terminalId: string;
+            spaceId: string;
+            createdAt: number;
+            exited: boolean;
+            exitCode: number | null;
+          }>;
+          error?: string;
+        }>;
+        snapshot: (terminalId: string) => Promise<{
+          output?: string;
+          seq?: number;
+          exited?: boolean;
+          exitCode?: number | null;
+          error?: string;
+        }>;
         write: (terminalId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
         resize: (terminalId: string, cols: number, rows: number) => Promise<{ ok?: boolean; error?: string }>;
         destroy: (terminalId: string) => Promise<{ ok?: boolean }>;
         destroySpace: (spaceId: string) => Promise<{ ok?: boolean }>;
-        onData: (callback: (data: { terminalId: string; data: string }) => void) => () => void;
+        onData: (callback: (data: { terminalId: string; data: string; seq: number }) => void) => () => void;
         onExit: (callback: (data: { terminalId: string; exitCode: number }) => void) => () => void;
       };
       acp: {
@@ -215,7 +234,7 @@ declare global {
         }>;
         prompt: (sessionId: string, text: string, images?: unknown[]) => Promise<{ ok?: boolean; error?: string }>;
         stop: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
-        reloadSession: (sessionId: string, mcpServers?: McpServerConfig[]) => Promise<{ ok?: boolean; supportsLoad?: boolean; error?: string }>;
+        reloadSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string) => Promise<{ ok?: boolean; supportsLoad?: boolean; error?: string }>;
         reviveSession: (options: { agentId: string; cwd: string; agentSessionId?: string; mcpServers?: McpServerConfig[] }) => Promise<{ sessionId?: string; agentSessionId?: string; usedLoad?: boolean; configOptions?: ACPConfigOption[]; mcpStatuses?: Array<{ name: string; status: string }>; error?: string }>;
         cancel: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
         abortPendingStart: () => Promise<{ ok?: boolean }>;

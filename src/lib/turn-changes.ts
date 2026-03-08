@@ -1,5 +1,5 @@
-import type { UIMessage } from "@/types";
-import { parseUnifiedDiffFromUnknown } from "@/lib/unified-diff";
+import type { UIMessage } from "../types";
+import { parseUnifiedDiffFromUnknown } from "./unified-diff";
 
 // ── Types ──
 

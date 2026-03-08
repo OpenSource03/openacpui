@@ -3,6 +3,7 @@ import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, Ses
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption, ACPAvailableCommandsUpdate } from "@/types/acp";
 import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, pickAutoResponseOption } from "@/lib/acp-adapter";
 import { extractTaskSubagentSteps, getTaskStatus, isTaskToolName } from "@/lib/acp-task-adapter";
+import { suppressNextSessionCompletion } from "@/lib/notification-utils";
 import { useEngineBase } from "./useEngineBase";
 
 interface UseACPOptions {
@@ -518,12 +519,14 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   const stop = useCallback(async () => {
     if (!sessionId) return;
     acpLog("STOP", { session: sessionId.slice(0, 8) });
+    suppressNextSessionCompletion(sessionId);
     await window.claude.acp.stop(sessionId);
   }, [sessionId]);
 
   const interrupt = useCallback(async () => {
     if (!sessionId) return;
     acpLog("INTERRUPT", { session: sessionId.slice(0, 8) });
+    suppressNextSessionCompletion(sessionId);
     finalizeStreamingMessage();
     closePendingTools();
     setPendingPermission(null);

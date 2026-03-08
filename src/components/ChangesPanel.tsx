@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useEffect, useCallback } from "react";
+import { memo, startTransition, useState, useMemo, useEffect, useCallback } from "react";
 import { Pencil, Plus, FileDiff, FileText, ChevronRight } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -8,11 +8,7 @@ import { DiffViewer } from "./DiffViewer";
 import { OpenInEditorButton } from "./OpenInEditorButton";
 import { getLanguageFromPath } from "@/lib/languages";
 import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
-import {
-  extractTurnSummaries,
-  extractAllFileChanges,
-  groupChangesByFile,
-} from "@/lib/turn-changes";
+import { buildSessionCacheKey, computeChangesPanelData, getCachedChangesPanelData } from "@/lib/session-derived-data";
 import type { FileChange, TurnSummary } from "@/lib/turn-changes";
 import type { UIMessage } from "@/types";
 
@@ -20,6 +16,9 @@ import type { UIMessage } from "@/types";
 
 const CHANGE_ICON = { modified: Pencil, created: Plus } as const;
 const CHANGE_COLOR = { modified: "text-amber-600 dark:text-amber-400", created: "text-emerald-600 dark:text-emerald-400" } as const;
+const EMPTY_TURN_SUMMARIES: TurnSummary[] = [];
+const EMPTY_FILE_CHANGES: FileChange[] = [];
+const EMPTY_GROUPED_CHANGES = new Map<string, FileChange[]>();
 
 const WRITE_SYNTAX_STYLE: React.CSSProperties = {
   margin: 0,
@@ -126,38 +125,75 @@ function changeKey(change: FileChange): string {
 }
 
 interface ChangesPanelProps {
+  sessionId?: string | null;
   messages: UIMessage[];
   isProcessing: boolean;
   /** When set, auto-select this turn index (from inline summary click). */
   focusTurnIndex?: number;
   onFocusTurnHandled?: () => void;
+  enabled?: boolean;
 }
 
 export const ChangesPanel = memo(function ChangesPanel({
+  sessionId,
   messages,
   isProcessing,
   focusTurnIndex,
   onFocusTurnHandled,
+  enabled = true,
 }: ChangesPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("per-turn");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [expandedTurns, setExpandedTurns] = useState<Set<number>>(() => new Set());
+  const [derivedData, setDerivedData] = useState<{
+    turnSummaries: TurnSummary[];
+    allChanges: FileChange[];
+    groupedByFile: Map<string, FileChange[]>;
+  } | null>(null);
 
-  // Derive turn summaries and cumulative changes
-  const turnSummaries = useMemo(
-    () => extractTurnSummaries(messages, isProcessing),
-    [messages, isProcessing],
+  const cacheSessionId = sessionId ?? "no-session";
+  const cacheKey = useMemo(
+    () => buildSessionCacheKey(cacheSessionId, messages, isProcessing ? "processing" : "idle"),
+    [cacheSessionId, isProcessing, messages],
   );
-  const allChanges = useMemo(() => extractAllFileChanges(messages), [messages]);
-  const groupedByFile = useMemo(() => groupChangesByFile(allChanges), [allChanges]);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const cached = getCachedChangesPanelData(cacheSessionId, cacheKey);
+    if (cached) {
+      setDerivedData((prev) => prev === cached ? prev : cached);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const next = computeChangesPanelData(cacheSessionId, cacheKey, messages, isProcessing);
+      if (cancelled) return;
+      startTransition(() => {
+        setDerivedData((prev) => prev === next ? prev : next);
+      });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [cacheKey, cacheSessionId, enabled, isProcessing, messages]);
+
+  const turnSummaries = derivedData?.turnSummaries ?? EMPTY_TURN_SUMMARIES;
+  const allChanges = derivedData?.allChanges ?? EMPTY_FILE_CHANGES;
+  const groupedByFile = derivedData?.groupedByFile ?? EMPTY_GROUPED_CHANGES;
 
   // Auto-expand all turns on first render / when turns change
   useEffect(() => {
+    if (!derivedData) return;
     setExpandedTurns(new Set(turnSummaries.map((t) => t.turnIndex)));
-  }, [turnSummaries]);
+  }, [derivedData, turnSummaries]);
 
   // Handle external focus request (from inline summary "View changes" click)
   useEffect(() => {
+    if (!derivedData) return;
     if (focusTurnIndex == null) return;
     setViewMode("per-turn");
     // Expand the target turn and select its first file
@@ -167,10 +203,11 @@ export const ChangesPanel = memo(function ChangesPanel({
       setSelectedKey(changeKey(targetTurn.changes[0]));
     }
     onFocusTurnHandled?.();
-  }, [focusTurnIndex, turnSummaries, onFocusTurnHandled]);
+  }, [derivedData, focusTurnIndex, turnSummaries, onFocusTurnHandled]);
 
   // Auto-select first file if nothing selected and changes exist
   useEffect(() => {
+    if (!derivedData) return;
     if (selectedKey) return;
     if (viewMode === "per-turn" && turnSummaries.length > 0) {
       const lastTurn = turnSummaries[turnSummaries.length - 1];
@@ -180,7 +217,7 @@ export const ChangesPanel = memo(function ChangesPanel({
     } else if (viewMode === "cumulative" && allChanges.length > 0) {
       setSelectedKey(changeKey(allChanges[0]));
     }
-  }, [viewMode, turnSummaries, allChanges, selectedKey]);
+  }, [allChanges, derivedData, selectedKey, turnSummaries, viewMode]);
 
   const toggleTurn = useCallback((turnIndex: number) => {
     setExpandedTurns((prev) => {
@@ -200,6 +237,22 @@ export const ChangesPanel = memo(function ChangesPanel({
   const hasChanges = allChanges.length > 0;
 
   // ── Empty state ──
+  if (enabled && !derivedData) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/40 shrink-0">
+          <FileDiff className="h-4 w-4 text-muted-foreground/70" />
+          <span className="text-sm font-medium text-foreground/90">Changes</span>
+        </div>
+        <div className="flex flex-1 items-center justify-center">
+          <p className="px-4 text-center text-xs text-muted-foreground/70">
+            Analyzing file changes from this session...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!hasChanges) {
     return (
       <div className="flex h-full flex-col">

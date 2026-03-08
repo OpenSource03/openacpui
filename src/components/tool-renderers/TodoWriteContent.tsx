@@ -3,10 +3,11 @@ import {
   CheckCircle2,
   Loader2,
 } from "lucide-react";
-import type { UIMessage, TodoItem } from "@/types";
+import type { UIMessage } from "@/types";
+import { getTodoItems } from "@/lib/todo-utils";
 
 export function TodoWriteContent({ message }: { message: UIMessage }) {
-  const todos = (message.toolInput?.todos ?? []) as TodoItem[];
+  const todos = getTodoItems(message.toolInput?.todos);
 
   return (
     <div className="space-y-0.5 text-xs">

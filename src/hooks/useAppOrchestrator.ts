@@ -10,16 +10,20 @@ import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
 import { useNotifications } from "@/hooks/useNotifications";
 import {
+  APP_SIDEBAR_WIDTH,
   getMinChatWidth,
   getResizeHandleWidth,
   getToolPickerWidth,
+  ISLAND_LAYOUT_MARGIN,
+  WINDOWS_FRAME_BUFFER_WIDTH,
   MIN_RIGHT_PANEL_WIDTH,
   MIN_TOOLS_PANEL_WIDTH,
 } from "@/lib/layout-constants";
 import { resolveModelValue } from "@/lib/model-utils";
+import { getTodoItems } from "@/lib/todo-utils";
 import { isWindows } from "@/lib/utils";
 import { COLUMN_TOOL_IDS, type ToolId } from "@/components/ToolPicker";
-import type { TodoItem, ImageAttachment, Space, SpaceColor, InstalledAgent, AcpPermissionBehavior, EngineId } from "@/types";
+import type { ImageAttachment, Space, SpaceColor, InstalledAgent, AcpPermissionBehavior, EngineId } from "@/types";
 import type { NotificationSettings } from "@/types/ui";
 
 export function useAppOrchestrator() {
@@ -44,6 +48,19 @@ export function useAppOrchestrator() {
   const showThinking = settingsEngine === "claude" ? settings.thinking : true;
   const activeProjectPath = settings.gitCwd ?? activeProject?.path;
   const { agents, refresh: refreshAgents, saveAgent, deleteAgent } = useAgentRegistry();
+
+  const handleAgentWorktreeChange = useCallback(async (nextPath: string | null) => {
+    const previousPath = settings.gitCwd;
+    settings.setGitCwd(nextPath);
+    if (!manager.activeSessionId || manager.isDraft) return { ok: true };
+
+    const result = await manager.restartActiveSessionInCurrentWorktree();
+    if (result?.error) {
+      settings.setGitCwd(previousPath);
+      return result;
+    }
+    return { ok: true };
+  }, [manager.activeSessionId, manager.isDraft, manager.restartActiveSessionInCurrentWorktree, settings]);
 
   const handleAgentChange = useCallback((agent: InstalledAgent | null) => {
     setSelectedAgent(agent);
@@ -136,6 +153,7 @@ export function useAppOrchestrator() {
   useNotifications({
     pendingPermission: manager.pendingPermission,
     notificationSettings,
+    activeSessionId: manager.activeSessionId,
     isProcessing: manager.isProcessing,
   });
 
@@ -517,9 +535,10 @@ export function useAppOrchestrator() {
       if (
         msg.role === "tool_call" &&
         msg.toolName === "TodoWrite" &&
-        msg.toolInput?.todos
+        msg.toolInput &&
+        "todos" in msg.toolInput
       ) {
-        return msg.toolInput.todos as TodoItem[];
+        return getTodoItems(msg.toolInput.todos);
       }
     }
     return [];
@@ -633,14 +652,14 @@ export function useAppOrchestrator() {
   // ── Dynamic Electron minimum window width ──
   const isIsland = settings.islandLayout;
   const minChatWidth = getMinChatWidth(isIsland);
-  const margins = isIsland ? 16 : 0;
+  const margins = isIsland ? ISLAND_LAYOUT_MARGIN : 0;
   const handleW = getResizeHandleWidth(isIsland);
   const pickerW = getToolPickerWidth(isIsland);
   // Windows native frame borders consume extra pixels from the content area
-  const winFrameBuffer = isWindows ? 16 : 0;
+  const winFrameBuffer = isWindows ? WINDOWS_FRAME_BUFFER_WIDTH : 0;
 
   useEffect(() => {
-    const sidebarW = sidebar.isOpen ? 260 : 0;
+    const sidebarW = sidebar.isOpen ? APP_SIDEBAR_WIDTH : 0;
     let minW = sidebarW + margins + minChatWidth + winFrameBuffer;
 
     if (manager.activeSessionId) {
@@ -728,6 +747,7 @@ export function useAppOrchestrator() {
     handlePermissionModeChange,
     handlePlanModeChange,
     handleThinkingChange,
+    handleAgentWorktreeChange,
     handleStop,
     handleSendQueuedNow,
     handleSelectSession,

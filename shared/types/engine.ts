@@ -25,6 +25,7 @@ export interface SessionMeta {
   isConnected: boolean;
   sessionInfo: SessionInfo | null;
   totalCost: number;
+  isCompacting?: boolean;
 }
 
 /** All supported engine identifiers. */

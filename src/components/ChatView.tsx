@@ -1,7 +1,9 @@
-import { Fragment, useEffect, useRef, useMemo, useCallback, memo } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback, memo } from "react";
+import { motion } from "motion/react";
 import { Minus } from "lucide-react";
+import type { InstalledAgent, UIMessage } from "@/types";
+import { AgentIcon } from "./AgentIcon";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { UIMessage } from "@/types";
 import { MessageBubble } from "./MessageBubble";
 import { SummaryBlock } from "./SummaryBlock";
 import { ToolCall } from "./ToolCall";
@@ -9,13 +11,39 @@ import { ToolGroupBlock } from "./ToolGroupBlock";
 import { TurnChangesSummary } from "./TurnChangesSummary";
 import { extractTurnSummaries } from "@/lib/turn-changes";
 import type { TurnSummary } from "@/lib/turn-changes";
-import { computeToolGroups } from "@/lib/tool-groups";
+import { computeToolGroups, type ToolGroupInfo } from "@/lib/tool-groups";
 import { TextShimmer } from "@/components/ui/text-shimmer";
+import {
+  BOTTOM_LOCK_THRESHOLD_PX,
+  USER_SCROLL_INTENT_WINDOW_MS,
+  isWithinBottomLockThreshold,
+  shouldUnlockBottomLock,
+} from "@/lib/chat-scroll";
+
+const LARGE_CHAT_THRESHOLD = 300;
+const INITIAL_RENDER_TAIL_COUNT = 180;
+const PREPEND_CHUNK_SIZE = 200;
+const PREPEND_TRIGGER_PX = 160;
+const EMPTY_TOOL_GROUP_INFO: ToolGroupInfo = {
+  groups: new Map(),
+  groupedIndices: new Set(),
+};
+
+/** CDN icons for built-in engines; matches InputBar's ENGINE_ICONS */
+const ENGINE_ICONS: Record<string, string> = {
+  claude: "https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg",
+  codex: "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
+};
+
+function getAgentIcon(agent: InstalledAgent): string | undefined {
+  return ENGINE_ICONS[agent.engine] ?? agent.icon;
+}
 
 interface ChatViewProps {
   messages: UIMessage[];
   isProcessing: boolean;
   showThinking: boolean;
+  autoGroupTools: boolean;
   extraBottomPadding?: boolean;
   scrollToMessageId?: string;
   onScrolledToMessage?: () => void;
@@ -35,16 +63,23 @@ interface ChatViewProps {
   onSendQueuedNow?: (messageId: string) => void;
   /** Message ID explicitly marked as "send next" by the user */
   sendNextId?: string | null;
+  /** Available agents for the engine picker in the empty state */
+  agents?: InstalledAgent[];
+  /** Currently selected agent */
+  selectedAgent?: InstalledAgent | null;
+  /** Switch to a different agent/engine */
+  onAgentChange?: (agent: InstalledAgent | null) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId }: ChatViewProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const scrollTimerRef = useRef(0);
-  const forceAutoScrollUntilRef = useRef(0);
-  const autoFollowRef = useRef(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const bottomLockedRef = useRef(true);
+  const userScrollIntentUntilRef = useRef(0);
   const suppressScrollTrackingRef = useRef(0);
+  const observedContentHeightRef = useRef(0);
   const settleTimersRef = useRef<number[]>([]);
+  const settleRafRef = useRef<number | null>(null);
   // Ref avoids stale closure in the scroll handler
   const onScrolledFromTopRef = useRef(onScrolledFromTop);
   onScrolledFromTopRef.current = onScrolledFromTop;
@@ -53,56 +88,128 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   const topProgressRafRef = useRef<number | null>(null);
   const pendingTopProgressRef = useRef(0);
   const lastTopProgressRef = useRef(-1);
+  const prependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const lastSessionIdRef = useRef<string | undefined | null>(sessionId);
+  const [visibleStartIndex, setVisibleStartIndex] = useState(() =>
+    messages.length > LARGE_CHAT_THRESHOLD
+      ? Math.max(0, messages.length - INITIAL_RENDER_TAIL_COUNT)
+      : 0,
+  );
 
-  // Throttled auto-scroll: instant during streaming.
-  // Keeps following while user is pinned to bottom; unlocks only after manual upward scroll.
-  // During session switch, temporarily force auto-follow so long-chat reflow
-  // (content-visibility / async block expansion) still settles at the true bottom.
-  const scrollToBottom = useCallback((opts?: { force?: boolean }) => {
-    const shouldForce = opts?.force || Date.now() < forceAutoScrollUntilRef.current;
-    const now = Date.now();
-    if (!shouldForce && now - scrollTimerRef.current < 250) return; // throttle ~4/sec
-    scrollTimerRef.current = now;
+  const getViewport = useCallback(() => (
+    scrollAreaRef.current?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]")
+  ), []);
 
-    const viewport = scrollAreaRef.current?.querySelector<HTMLElement>(
-      "[data-radix-scroll-area-viewport]",
-    );
+  const expandRenderedHistory = useCallback((nextStart?: number) => {
+    if (visibleStartIndex === 0) return;
+    const viewport = getViewport();
+    if (viewport) {
+      prependAnchorRef.current = {
+        scrollHeight: viewport.scrollHeight,
+        scrollTop: viewport.scrollTop,
+      };
+    }
+    setVisibleStartIndex((prev) => {
+      if (prev === 0) return 0;
+      return nextStart !== undefined
+        ? Math.max(0, Math.min(prev, nextStart))
+        : Math.max(0, prev - PREPEND_CHUNK_SIZE);
+    });
+  }, [getViewport, visibleStartIndex]);
+
+  useEffect(() => {
+    const didSessionChange = lastSessionIdRef.current !== sessionId;
+    lastSessionIdRef.current = sessionId;
+
+    if (didSessionChange) {
+      setVisibleStartIndex(
+        messages.length > LARGE_CHAT_THRESHOLD
+          ? Math.max(0, messages.length - INITIAL_RENDER_TAIL_COUNT)
+          : 0,
+      );
+      prependAnchorRef.current = null;
+      return;
+    }
+
+    setVisibleStartIndex((prev) => {
+      if (messages.length <= LARGE_CHAT_THRESHOLD) return 0;
+      return Math.min(prev, Math.max(0, messages.length - INITIAL_RENDER_TAIL_COUNT));
+    });
+  }, [messages.length, sessionId]);
+
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    if (!anchor) return;
+
+    const viewport = getViewport();
     if (!viewport) return;
 
-    if (!shouldForce && !autoFollowRef.current) return;
+    const delta = viewport.scrollHeight - anchor.scrollHeight;
+    viewport.scrollTop = anchor.scrollTop + delta;
+    prependAnchorRef.current = null;
+  }, [getViewport, visibleStartIndex]);
+
+  const visibleMessages = useMemo(
+    () => messages.slice(visibleStartIndex),
+    [messages, visibleStartIndex],
+  );
+
+  const jumpToBottom = useCallback((opts?: { force?: boolean }) => {
+    const shouldForce = opts?.force === true;
+    if (!shouldForce && !bottomLockedRef.current) return;
+
+    const viewport = getViewport();
+    if (!viewport) return;
+
+    const applyBottom = (targetViewport: HTMLElement) => {
+      const targetScrollTop = Math.max(0, targetViewport.scrollHeight - targetViewport.clientHeight);
+      if (shouldForce || Math.abs(targetViewport.scrollTop - targetScrollTop) > 1) {
+        targetViewport.scrollTop = targetScrollTop;
+      }
+    };
 
     suppressScrollTrackingRef.current += 1;
-    bottomRef.current?.scrollIntoView({ behavior: "instant" });
-    if (shouldForce) {
-      viewport.scrollTop = viewport.scrollHeight;
-    }
+    applyBottom(viewport);
     window.requestAnimationFrame(() => {
+      const nextViewport = getViewport();
+      if (nextViewport) applyBottom(nextViewport);
       suppressScrollTrackingRef.current = Math.max(0, suppressScrollTrackingRef.current - 1);
     });
-  }, []);
+  }, [getViewport]);
 
   const clearSettleTimers = useCallback(() => {
+    if (settleRafRef.current !== null) {
+      window.cancelAnimationFrame(settleRafRef.current);
+      settleRafRef.current = null;
+    }
     for (const timer of settleTimersRef.current) {
       clearTimeout(timer);
     }
     settleTimersRef.current = [];
   }, []);
 
-  const scheduleSettleToBottom = useCallback(() => {
+  const scheduleSettleToBottom = useCallback((opts?: { force?: boolean }) => {
+    const shouldForce = opts?.force === true;
+    if (!shouldForce && !bottomLockedRef.current) return;
     clearSettleTimers();
-    // Re-attempt over ~1.2s to catch delayed layout growth in long/running sessions.
-    const delays = [0, 32, 96, 180, 320, 520, 800, 1200];
+    settleRafRef.current = window.requestAnimationFrame(() => {
+      settleRafRef.current = null;
+      jumpToBottom({ force: shouldForce });
+    });
+    // Re-attempt over ~0.5s to catch delayed layout growth without fighting
+    // the normal resize-driven follow path on every streaming render.
+    const delays = [32, 96, 180, 320, 520];
     for (const delay of delays) {
       const timer = window.setTimeout(() => {
-        scrollToBottom({ force: true });
+        jumpToBottom({ force: shouldForce });
       }, delay);
       settleTimersRef.current.push(timer);
     }
-  }, [clearSettleTimers, scrollToBottom]);
+  }, [clearSettleTimers, jumpToBottom]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    scheduleSettleToBottom();
+  }, [messages.length, isProcessing, scheduleSettleToBottom]);
 
   // Track whether user is near the bottom; this drives sticky auto-follow behavior.
   useEffect(() => {
@@ -134,54 +241,109 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       }
       // Auto-follow tracking is suppressed during programmatic scrolls to
       // prevent them from unlocking sticky follow mode
-      if (suppressScrollTrackingRef.current > 0) return;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      autoFollowRef.current = distanceFromBottom < 40;
+      if (suppressScrollTrackingRef.current > 0) {
+        if (isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
+          bottomLockedRef.current = true;
+        }
+        return;
+      }
+
+      if (scrollTop <= PREPEND_TRIGGER_PX && visibleStartIndex > 0) {
+        expandRenderedHistory();
+      }
+
+      const hasRecentUserIntent = Date.now() <= userScrollIntentUntilRef.current;
+      if (shouldUnlockBottomLock({
+        scrollTop,
+        scrollHeight,
+        clientHeight,
+        hasRecentUserIntent,
+        threshold: BOTTOM_LOCK_THRESHOLD_PX,
+      })) {
+        bottomLockedRef.current = false;
+        clearSettleTimers();
+        return;
+      }
+
+      if (isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
+        bottomLockedRef.current = true;
+      }
+    };
+
+    const markUserScrollIntent = () => {
+      userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_WINDOW_MS;
+    };
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (
+        event.key === "ArrowUp"
+        || event.key === "PageUp"
+        || event.key === "Home"
+        || (event.key === " " && event.shiftKey)
+      ) {
+        markUserScrollIntent();
+      }
     };
 
     updateAutoFollow();
+    viewport.addEventListener("wheel", markUserScrollIntent, { passive: true });
+    viewport.addEventListener("touchmove", markUserScrollIntent, { passive: true });
+    viewport.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
+    viewport.addEventListener("keydown", handleKeydown);
     viewport.addEventListener("scroll", updateAutoFollow, { passive: true });
     return () => {
+      viewport.removeEventListener("wheel", markUserScrollIntent);
+      viewport.removeEventListener("touchmove", markUserScrollIntent);
+      viewport.removeEventListener("pointerdown", markUserScrollIntent);
+      viewport.removeEventListener("keydown", handleKeydown);
       viewport.removeEventListener("scroll", updateAutoFollow);
       if (topProgressRafRef.current !== null) {
         window.cancelAnimationFrame(topProgressRafRef.current);
         topProgressRafRef.current = null;
       }
     };
-  }, [messages.length]);
+  }, [messages.length, clearSettleTimers, expandRenderedHistory, visibleStartIndex]);
 
   // Force-scroll to bottom on session switch, bypassing the proximity guard
   useEffect(() => {
     if (!sessionId) return;
-    scrollTimerRef.current = 0;
-    autoFollowRef.current = true;
-    forceAutoScrollUntilRef.current = Date.now() + 1800;
-    scheduleSettleToBottom();
+    bottomLockedRef.current = true;
+    userScrollIntentUntilRef.current = 0;
+    scheduleSettleToBottom({ force: true });
   }, [sessionId, scheduleSettleToBottom]);
 
   // ResizeObserver on scroll content: catches height changes from collapsible
   // expansion (ThinkingBlock, tool details, etc.) that don't trigger a messages update
   useEffect(() => {
-    const viewport = scrollAreaRef.current?.querySelector<HTMLElement>(
-      "[data-radix-scroll-area-viewport]",
-    );
-    const content = viewport?.firstElementChild;
-    if (!content) return;
+    const viewport = getViewport();
+    const content = contentRef.current;
+    if (!viewport || !content) return;
 
-    const observer = new ResizeObserver(() => {
-      scrollToBottom();
+    observedContentHeightRef.current = content.getBoundingClientRect().height;
+
+    const observer = new ResizeObserver((entries) => {
+      const contentEntry = entries.find((entry) => entry.target === content);
+      const nextHeight = contentEntry?.contentRect.height ?? content.getBoundingClientRect().height;
+      const previousHeight = observedContentHeightRef.current;
+      observedContentHeightRef.current = nextHeight;
+
+      if (Math.abs(nextHeight - previousHeight) < 1) return;
+      jumpToBottom();
     });
     observer.observe(content);
     return () => observer.disconnect();
-  }, [scrollToBottom]);
+  }, [getViewport, jumpToBottom]);
 
   useEffect(() => clearSettleTimers, [clearSettleTimers]);
 
   // Scroll to specific message (from search navigation)
   useEffect(() => {
     if (!scrollToMessageId) return;
-    forceAutoScrollUntilRef.current = 0;
-    autoFollowRef.current = false;
+    const targetIndex = messages.findIndex((msg) => msg.id === scrollToMessageId);
+    if (targetIndex >= 0 && targetIndex < visibleStartIndex) {
+      expandRenderedHistory(Math.max(0, targetIndex - 24));
+      return;
+    }
+    bottomLockedRef.current = false;
     clearSettleTimers();
     const el = scrollAreaRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
     if (el) {
@@ -209,16 +371,16 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       }
     }, 500);
     return () => clearTimeout(retry);
-  }, [scrollToMessageId, onScrolledToMessage, clearSettleTimers]);
+  }, [clearSettleTimers, expandRenderedHistory, messages, onScrolledToMessage, scrollToMessageId, visibleStartIndex]);
 
   const nonQueuedMessages = useMemo(
-    () => messages.filter((message) => !message.isQueued),
-    [messages],
+    () => visibleMessages.filter((message) => !message.isQueued),
+    [visibleMessages],
   );
 
   const queuedMessages = useMemo(
-    () => messages.filter((message) => message.isQueued),
-    [messages],
+    () => visibleMessages.filter((message) => message.isQueued),
+    [visibleMessages],
   );
 
   const renderMessages = useMemo(
@@ -259,11 +421,13 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return map;
   }, [nonQueuedMessages, isProcessing]);
 
-  // Pre-compute tool groups: contiguous tool_call sequences between assistant text messages.
-  // Finalized groups (with 2+ tools) render as a single ToolGroupBlock instead of individual ToolCalls.
+  // Pre-compute tool groups when enabled: contiguous tool_call sequences between
+  // assistant text messages, also absorbing any in-between thinking-only rows.
   const { groups: toolGroups, groupedIndices } = useMemo(
-    () => computeToolGroups(nonQueuedMessages, isProcessing),
-    [nonQueuedMessages, isProcessing],
+    () => autoGroupTools
+      ? computeToolGroups(nonQueuedMessages, isProcessing)
+      : EMPTY_TOOL_GROUP_INFO,
+    [autoGroupTools, nonQueuedMessages, isProcessing],
   );
 
   // Finalized group keys (first tool message ID), used to detect newly formed groups.
@@ -277,64 +441,139 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return keys;
   }, [toolGroups]);
 
-  // Track which groups have been seen before (keyed by first tool message ID).
-  // Groups in this set render without animation (already known from session load or prior render).
-  // New groups forming during live streaming are NOT in this set → they animate.
+  // Track group animation per viewed session.
+  // A group only morphs if this view previously rendered its first tool_call
+  // as a standalone message before the assistant finalized the group.
   const knownGroupKeysRef = useRef<Set<string>>(new Set());
-  const seededSessionIdRef = useRef<string | undefined | null>(null);
-  const pendingInitialSessionSeedRef = useRef(true);
+  const seenUngroupedToolKeysRef = useRef<Set<string>>(new Set());
+  const trackedSessionIdRef = useRef<string | undefined | null>(null);
 
-  // Session switch baseline seeding:
-  // some sessions hydrate messages asynchronously (first render can be empty).
-  // Keep reseeding until the first non-empty render so restored groups never animate.
-  if (seededSessionIdRef.current !== sessionId) {
-    seededSessionIdRef.current = sessionId;
+  if (trackedSessionIdRef.current !== sessionId) {
+    trackedSessionIdRef.current = sessionId;
     knownGroupKeysRef.current = new Set();
-    pendingInitialSessionSeedRef.current = true;
-  }
-  if (pendingInitialSessionSeedRef.current) {
-    knownGroupKeysRef.current = new Set(finalizedGroupKeys);
-    if (renderMessages.length > 0) {
-      pendingInitialSessionSeedRef.current = false;
-    }
+    seenUngroupedToolKeysRef.current = new Set();
   }
 
-  // Groups finalized in this render but not yet marked as known.
+  const visibleUngroupedToolKeys = useMemo(() => {
+    const keys = new Set<string>();
+    nonQueuedMessages.forEach((msg, index) => {
+      if (msg.role !== "tool_call") return;
+      const group = toolGroups.get(index);
+      if (group?.isFinalized || groupedIndices.has(index)) return;
+      keys.add(msg.id);
+    });
+    return keys;
+  }, [groupedIndices, nonQueuedMessages, toolGroups]);
+
+  // Groups finalized in this render animate only if this view previously showed
+  // their first tool as an individual tool_call before grouping.
   const animatingGroupKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const key of finalizedGroupKeys) {
-      if (!knownGroupKeysRef.current.has(key)) {
+      if (
+        !knownGroupKeysRef.current.has(key) &&
+        seenUngroupedToolKeysRef.current.has(key)
+      ) {
         keys.add(key);
       }
     }
     return keys;
   }, [finalizedGroupKeys]);
 
-  // Mark new groups as known after commit to avoid render-phase mutations.
+  // Record standalone tool_calls after commit so a later finalization can morph once.
   useEffect(() => {
-    if (animatingGroupKeys.size === 0) return;
+    if (visibleUngroupedToolKeys.size === 0) return;
+    const seen = seenUngroupedToolKeysRef.current;
+    for (const key of visibleUngroupedToolKeys) {
+      seen.add(key);
+    }
+  }, [visibleUngroupedToolKeys]);
+
+  // Mark finalized groups as known after commit so they never re-animate.
+  useEffect(() => {
     const known = knownGroupKeysRef.current;
-    for (const key of animatingGroupKeys) {
+    for (const key of finalizedGroupKeys) {
       known.add(key);
     }
-  }, [animatingGroupKeys]);
+  }, [finalizedGroupKeys]);
 
   if (messages.length === 0) {
+    const showAgentPicker = agents && agents.length > 1 && onAgentChange;
+
     return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <div className="text-center">
-          <p className="text-lg">Send a message to start</p>
-          <p className="mt-1 text-sm text-muted-foreground/60">
-            Your conversation will appear here
-          </p>
-        </div>
+      <div className="flex flex-1 items-center justify-center">
+        <motion.div
+          className="flex flex-col items-center gap-5"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.22, 0.68, 0, 1] }}
+        >
+          <div className="flex flex-col items-center gap-3">
+            <h2
+              className="text-3xl italic text-foreground/20"
+              style={{ fontFamily: "'Instrument Serif', Georgia, serif" }}
+            >
+              Send a message to start
+            </h2>
+            <p
+              className="text-sm italic text-muted-foreground/30"
+              style={{ fontFamily: "'Instrument Serif', Georgia, serif" }}
+            >
+              Your conversation will appear here
+            </p>
+          </div>
+
+          {showAgentPicker && (
+            <motion.div
+              className="flex items-center gap-3"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.4, ease: [0.22, 0.68, 0, 1] }}
+            >
+              {agents.map((agent) => {
+                const isSelected = agent.engine === "claude"
+                  ? selectedAgent == null || selectedAgent.engine === "claude"
+                  : selectedAgent?.id === agent.id;
+
+                return (
+                  <button
+                    key={agent.id}
+                    title={agent.name}
+                    onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
+                    className={`rounded-full p-2 transition-all ${
+                      isSelected
+                        ? "bg-foreground/[0.06] ring-1 ring-foreground/[0.08] scale-110"
+                        : "opacity-30 hover:opacity-60 hover:scale-105"
+                    }`}
+                  >
+                    <AgentIcon
+                      icon={getAgentIcon(agent)}
+                      size={20}
+                    />
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </motion.div>
       </div>
     );
   }
 
   return (
     <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
-      <div className={`pt-14 ${extraBottomPadding ? "pb-56" : "pb-36"}`}>
+      <div ref={contentRef} className={`pt-14 ${extraBottomPadding ? "pb-56" : "pb-36"}`}>
+        {visibleStartIndex > 0 && (
+          <div className="sticky top-14 z-[6] flex justify-center px-4 pb-2">
+            <button
+              type="button"
+              className="rounded-full border border-border/50 bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-foreground"
+              onClick={() => expandRenderedHistory()}
+            >
+              Load {Math.min(PREPEND_CHUNK_SIZE, visibleStartIndex)} earlier messages
+            </button>
+          </div>
+        )}
         {nonQueuedMessages.map((msg, index) => {
           // Determine the turn summary to render after this message (if any)
           const turnSummary = turnSummaryByEndIndex.get(index);
@@ -356,7 +595,12 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
 
               return (
                 <Fragment key={`group-${groupKey}`}>
-                  <ToolGroupBlock tools={group.tools} animate={isNewGroup} />
+                  <ToolGroupBlock
+                    tools={group.tools}
+                    messages={group.messages}
+                    showThinking={showThinking}
+                    animate={isNewGroup}
+                  />
                   {groupTurnSummary && (
                     <TurnChangesSummary summary={groupTurnSummary} onViewInPanel={onViewTurnChanges} />
                   )}
@@ -377,6 +621,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
               </Fragment>
             );
           }
+          if (groupedIndices.has(index)) return null;
           if (msg.role === "tool_result") return null;
           if (msg.role === "summary") {
             return (
@@ -434,7 +679,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
             />
           </div>
         ))}
-        <div ref={bottomRef} />
       </div>
     </ScrollArea>
   );

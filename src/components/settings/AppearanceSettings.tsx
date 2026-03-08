@@ -12,6 +12,8 @@ interface AppearanceSettingsProps {
   onThemeChange: (t: ThemeOption) => void;
   islandLayout: boolean;
   onIslandLayoutChange: (enabled: boolean) => void;
+  autoGroupTools: boolean;
+  onAutoGroupToolsChange: (enabled: boolean) => void;
   transparency: boolean;
   onTransparencyChange: (enabled: boolean) => void;
   /** Whether the platform supports transparency (glass/mica) */
@@ -25,6 +27,8 @@ export const AppearanceSettings = memo(function AppearanceSettings({
   onThemeChange,
   islandLayout,
   onIslandLayoutChange,
+  autoGroupTools,
+  onAutoGroupToolsChange,
   transparency,
   onTransparencyChange,
   glassSupported,
@@ -82,6 +86,16 @@ export const AppearanceSettings = memo(function AppearanceSettings({
               <Switch
                 checked={islandLayout}
                 onCheckedChange={onIslandLayoutChange}
+              />
+            </SettingRow>
+
+            <SettingRow
+              label="Auto-group tools"
+              description="Collapse consecutive tool calls into a single group. Disable to keep every tool call and in-between thinking row visible on its own."
+            >
+              <Switch
+                checked={autoGroupTools}
+                onCheckedChange={onAutoGroupToolsChange}
               />
             </SettingRow>
           </div>

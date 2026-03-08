@@ -29,12 +29,33 @@ jobs:
             echo "No existing release for $TAG, nothing to clean"
           fi
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run tests
+        run: pnpm test
+
   # macOS: build both arm64 + x64 in one job so electron-builder writes a single
   # latest-mac.yml containing both architectures. Separate jobs race and the last
   # one to finish overwrites the other's YAML → wrong arch served to half the users.
   build-mac:
-    needs: [prepare-release]
-    if: ${{ always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
+    needs: [prepare-release, test]
+    if: ${{ always() && needs.test.result == 'success' && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
     runs-on: macos-26
     steps:
       - name: Checkout
@@ -81,8 +102,8 @@ jobs:
   # Windows: same approach as macOS — one job builds both arches so electron-builder
   # writes a single latest.yml with both installers listed.
   build-win:
-    needs: [prepare-release]
-    if: ${{ always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
+    needs: [prepare-release, test]
+    if: ${{ always() && needs.test.result == 'success' && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -128,8 +149,8 @@ jobs:
   # access cross-arch vendor binaries that don't exist in the other arch's staging
   # dir). Build sequentially, then merge latest-linux.yml before publishing.
   build-linux:
-    needs: [prepare-release]
-    if: ${{ always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
+    needs: [prepare-release, test]
+    if: ${{ always() && needs.test.result == 'success' && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout

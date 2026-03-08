@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { getAskUserQuestionAnswer, getAskUserQuestionKey } from "@/lib/ask-user-question";
 import type { UIMessage } from "@/types";
 
 interface AskQuestionOption {
@@ -7,6 +8,7 @@ interface AskQuestionOption {
 }
 
 interface AskQuestionItem {
+  id?: string;
   question: string;
   header: string;
   options: AskQuestionOption[];
@@ -16,18 +18,12 @@ interface AskQuestionItem {
 export function AskUserQuestionContent({ message }: { message: UIMessage }) {
   const questions = (message.toolInput?.questions ?? []) as AskQuestionItem[];
   const hasResult = !!message.toolResult;
-  const answers = (() => {
-    const raw = message.toolResult?.answers;
-    if (!raw || typeof raw !== "object") return null;
-    return raw as Record<string, unknown>;
-  })();
-  const orderedAnswers = answers ? Object.values(answers) : [];
 
   return (
     <div className="space-y-2 text-xs">
       {questions.map((q, qi) => (
         <div
-          key={q.question}
+          key={getAskUserQuestionKey(q, qi)}
           className={qi > 0 ? "border-t border-border/40 pt-2" : ""}
         >
           <span className="text-[13px] text-foreground/80 leading-snug">
@@ -47,14 +43,7 @@ export function AskUserQuestionContent({ message }: { message: UIMessage }) {
             <div className="mt-1.5">
               <span className="text-[11px] text-foreground/40">Answer: </span>
               <span className="text-[12px] text-foreground/80">
-                {(() => {
-                  const direct = answers?.[q.question];
-                  if (typeof direct === "string" && direct.trim()) return direct;
-                  // Fallback for edge cases where question text keys differ
-                  const indexed = orderedAnswers[qi];
-                  if (typeof indexed === "string" && indexed.trim()) return indexed;
-                  return "No answer captured";
-                })()}
+                {getAskUserQuestionAnswer(q, qi, message.toolResult)}
               </span>
             </div>
           )}

@@ -45,7 +45,7 @@ function getLastUserMessageTimestamp(messages?: Array<{ role?: string; timestamp
 }
 
 export function register(): void {
-  ipcMain.handle("sessions:save", (_event, data: { projectId: string; id: string; createdAt?: number; messages?: Array<{ role?: string; timestamp?: number }> }) => {
+  ipcMain.handle("sessions:save", async (_event, data: { projectId: string; id: string; createdAt?: number; messages?: Array<{ role?: string; timestamp?: number }> }) => {
     try {
       const filePath = getSessionFilePath(data.projectId, data.id);
       const providedLastMessageAt = (data as Record<string, unknown>).lastMessageAt;
@@ -58,7 +58,7 @@ export function register(): void {
         data.createdAt ??
         0;
       const enriched = { ...data, lastMessageAt };
-      fs.writeFileSync(filePath, JSON.stringify(enriched, null, 2), "utf-8");
+      await fs.promises.writeFile(filePath, JSON.stringify(enriched, null, 2), "utf-8");
       return { ok: true };
     } catch (err) {
       log("SESSIONS:SAVE_ERR", (err as Error).message);
@@ -66,34 +66,32 @@ export function register(): void {
     }
   });
 
-  ipcMain.handle("sessions:load", (_event, projectId: string, sessionId: string) => {
+  ipcMain.handle("sessions:load", async (_event, projectId: string, sessionId: string) => {
     try {
       const filePath = getSessionFilePath(projectId, sessionId);
       if (!fs.existsSync(filePath)) return null;
-      return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      return JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
     } catch (err) {
       log("SESSIONS:LOAD_ERR", (err as Error).message);
       return null;
     }
   });
 
-  ipcMain.handle("sessions:list", (_event, projectId: string) => {
+  ipcMain.handle("sessions:list", async (_event, projectId: string) => {
     try {
       const dir = getProjectSessionsDir(projectId);
-      const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
-      const list: SessionMeta[] = [];
-      for (const file of files) {
+      const files = (await fs.promises.readdir(dir)).filter((f) => f.endsWith(".json"));
+      const items = await Promise.all(files.map(async (file) => {
         try {
-          const raw = fs.readFileSync(path.join(dir, file), "utf-8");
+          const raw = await fs.promises.readFile(path.join(dir, file), "utf-8");
           const data = JSON.parse(raw);
-          // Derive lastMessageAt: latest user message timestamp → stored field → createdAt
           const lastMessageAt: number =
             getLastUserMessageTimestamp(data.messages) ??
             (typeof data.lastMessageAt === "number" ? data.lastMessageAt : undefined) ??
             data.createdAt ??
             0;
 
-          list.push({
+          const item: SessionMeta = {
             id: data.id,
             projectId: data.projectId,
             title: data.title || "Untitled",
@@ -104,11 +102,13 @@ export function register(): void {
             totalCost: data.totalCost || 0,
             engine: data.engine,
             codexThreadId: data.codexThreadId,
-          });
+          };
+          return item;
         } catch {
-          // Skip corrupted files
+          return null;
         }
-      }
+      }));
+      const list: SessionMeta[] = items.filter((item): item is SessionMeta => item !== null);
       // Sort by most recent user activity, not creation time.
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       return list;

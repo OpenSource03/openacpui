@@ -99,14 +99,20 @@ export function unwrapJiraIssues(data: unknown): JiraIssue[] {
 
 // ── Jira: Issue list (searchJiraIssuesUsingJql) ──
 
-export function JiraIssueList({ data }: { data: unknown }) {
+interface JiraIssueSearchData {
+  key?: string;
+  fields?: JiraIssue["fields"];
+  issues?: JiraIssue[] | { nodes?: JiraIssue[]; totalCount?: number };
+  total?: number;
+}
+
+function JiraIssueListView({ data }: { data: JiraIssueSearchData }) {
   const issues = unwrapJiraIssues(data);
   // Extract totalCount from nested wrapper if available
-  const obj = data as Record<string, unknown>;
-  const inner = obj.issues && typeof obj.issues === "object" && !Array.isArray(obj.issues)
-    ? (obj.issues as { totalCount?: number })
+  const inner = data.issues && typeof data.issues === "object" && !Array.isArray(data.issues)
+    ? data.issues
     : null;
-  const totalCount = inner?.totalCount ?? (obj.total as number | undefined);
+  const totalCount = inner?.totalCount ?? data.total;
 
   if (issues.length === 0) {
     return <p className="text-foreground/40 py-2">No issues found</p>;
@@ -124,6 +130,10 @@ export function JiraIssueList({ data }: { data: unknown }) {
       ))}
     </div>
   );
+}
+
+export function JiraIssueList({ data }: { data: unknown }) {
+  return <JiraIssueListView data={data as JiraIssueSearchData} />;
 }
 
 function JiraIssueRow({ issue }: { issue: JiraIssue }) {
@@ -176,7 +186,7 @@ function JiraIssueRow({ issue }: { issue: JiraIssue }) {
 
 // ── Jira: Issue detail (getJiraIssue) ──
 
-export function JiraIssueDetail({ data }: { data: unknown }) {
+function JiraIssueDetailView({ data }: { data: JiraIssueSearchData }) {
   const issues = unwrapJiraIssues(data);
   if (issues.length === 0) return null;
   const issue = issues[0];
@@ -273,6 +283,10 @@ export function JiraIssueDetail({ data }: { data: unknown }) {
   );
 }
 
+export function JiraIssueDetail({ data }: { data: unknown }) {
+  return <JiraIssueDetailView data={data as JiraIssueSearchData} />;
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -303,9 +317,12 @@ interface JiraProject {
   issueTypes?: Array<{ name?: string }>;
 }
 
-export function JiraProjectList({ data }: { data: unknown }) {
-  const obj = data as { values?: JiraProject[]; total?: number };
-  const projects = obj.values ?? (Array.isArray(data) ? (data as JiraProject[]) : []);
+type JiraProjectListData = { values?: JiraProject[]; total?: number } | JiraProject[];
+
+function JiraProjectListView({ data }: { data: JiraProjectListData }) {
+  const isArray = Array.isArray(data);
+  const projects = isArray ? data : (data.values ?? []);
+  const total = isArray ? undefined : data.total;
   if (projects.length === 0) {
     return <p className="text-foreground/40 py-2">No projects found</p>;
   }
@@ -313,7 +330,7 @@ export function JiraProjectList({ data }: { data: unknown }) {
   return (
     <div className="space-y-0.5">
       <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {obj.total ?? projects.length} project{(obj.total ?? projects.length) !== 1 ? "s" : ""}
+        {total ?? projects.length} project{(total ?? projects.length) !== 1 ? "s" : ""}
       </span>
       {projects.map((project) => (
         <div
@@ -341,11 +358,25 @@ export function JiraProjectList({ data }: { data: unknown }) {
   );
 }
 
+export function JiraProjectList({ data }: { data: unknown }) {
+  const typed = Array.isArray(data) ? (data as JiraProject[]) : (data as { values?: JiraProject[]; total?: number });
+  return <JiraProjectListView data={typed} />;
+}
+
 // ── Jira: Transitions ──
 
-export function JiraTransitions({ data }: { data: unknown }) {
-  const obj = data as { transitions?: Array<{ id?: string; name?: string; to?: { name?: string } }> };
-  const transitions = obj.transitions;
+interface JiraTransition {
+  id?: string;
+  name?: string;
+  to?: { name?: string };
+}
+
+interface JiraTransitionsData {
+  transitions?: JiraTransition[];
+}
+
+function JiraTransitionsView({ data }: { data: JiraTransitionsData }) {
+  const transitions = data.transitions;
   if (!transitions || transitions.length === 0) {
     return <p className="text-foreground/40 py-2">No transitions available</p>;
   }
@@ -377,4 +408,8 @@ export function JiraTransitions({ data }: { data: unknown }) {
       ))}
     </div>
   );
+}
+
+export function JiraTransitions({ data }: { data: unknown }) {
+  return <JiraTransitionsView data={data as JiraTransitionsData} />;
 }

@@ -27,6 +27,7 @@ import { TodoWriteContent } from "./tool-renderers/TodoWriteContent";
 import { EnterPlanModeContent, ExitPlanModeContent } from "./tool-renderers/PlanContent";
 import { AskUserQuestionContent } from "./tool-renderers/AskUserQuestion";
 import { GenericContent } from "./tool-renderers/GenericContent";
+import { ToolSearchContent } from "./tool-renderers/ToolSearchContent";
 
 // ── Main entry ──
 
@@ -156,6 +157,8 @@ function ExpandedToolContent({ message }: { message: UIMessage }) {
       return <WebFetchContent message={message} />;
     case "AskUserQuestion":
       return <AskUserQuestionContent message={message} />;
+    case "ToolSearch":
+      return <ToolSearchContent message={message} />;
     default:
       // Check for specialized MCP tool renderers
       if (message.toolName && hasMcpRenderer(message.toolName)) {

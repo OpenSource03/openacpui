@@ -4,7 +4,7 @@ import type { ToolUseResult } from "@/types/protocol";
 
 // ── MCP renderers (extracted) ──
 import { JiraIssueList, JiraIssueDetail, JiraProjectList, JiraTransitions } from "./mcp-renderers/jira";
-import { ConfluenceSearchResults, ConfluenceSpaces } from "./mcp-renderers/confluence";
+import { ConfluenceSearchResults, ConfluenceSpaces, ConfluencePageDescendants, ConfluenceCreatedPage, ConfluenceUpdatedPage, ConfluencePageList } from "./mcp-renderers/confluence";
 import { RovoSearchResults, RovoFetchResult, AtlassianResourcesList } from "./mcp-renderers/atlassian";
 import { Context7LibraryList, Context7DocsResult } from "./mcp-renderers/context7";
 
@@ -50,6 +50,15 @@ function extractMcpData(result: ToolUseResult): unknown {
     }
   }
 
+  // Fallback: normalizeToolResult puts MCP text into stdout when tool_use_result is empty
+  if (typeof result.stdout === "string" && result.stdout) {
+    try {
+      return JSON.parse(result.stdout);
+    } catch {
+      return null;
+    }
+  }
+
   return null;
 }
 
@@ -67,6 +76,8 @@ function extractMcpText(result: ToolUseResult): string | null {
     const items = result as Array<{ type?: string; text?: string }>;
     return items.filter((c) => c.type === "text" && c.text).map((c) => c.text).join("") || null;
   }
+  // Fallback: normalizeToolResult puts MCP text into stdout when tool_use_result is empty
+  if (typeof result.stdout === "string" && result.stdout) return result.stdout;
   return null;
 }
 
@@ -83,6 +94,10 @@ const MCP_RENDERERS: Record<string, McpRenderer> = {
   // Confluence
   "mcp__Atlassian__searchConfluenceUsingCql": ConfluenceSearchResults,
   "mcp__Atlassian__getConfluenceSpaces": ConfluenceSpaces,
+  "mcp__Atlassian__getConfluencePageDescendants": ConfluencePageDescendants,
+  "mcp__Atlassian__createConfluencePage": ConfluenceCreatedPage,
+  "mcp__Atlassian__updateConfluencePage": ConfluenceUpdatedPage,
+  "mcp__Atlassian__getPagesInConfluenceSpace": ConfluencePageList,
   // Rovo Search
   "mcp__Atlassian__search": RovoSearchResults,
   "mcp__Atlassian__fetch": RovoFetchResult,
@@ -103,6 +118,10 @@ const MCP_PATTERN_RENDERERS: Array<{ pattern: RegExp; renderer: McpRenderer }> =
   { pattern: /Atlassian[/_]+getTransitionsForJiraIssue$/, renderer: JiraTransitions },
   { pattern: /Atlassian[/_]+searchConfluenceUsingCql$/, renderer: ConfluenceSearchResults },
   { pattern: /Atlassian[/_]+getConfluenceSpaces$/, renderer: ConfluenceSpaces },
+  { pattern: /Atlassian[/_]+getConfluencePageDescendants$/, renderer: ConfluencePageDescendants },
+  { pattern: /Atlassian[/_]+createConfluencePage$/, renderer: ConfluenceCreatedPage },
+  { pattern: /Atlassian[/_]+updateConfluencePage$/, renderer: ConfluenceUpdatedPage },
+  { pattern: /Atlassian[/_]+getPagesInConfluenceSpace$/, renderer: ConfluencePageList },
   { pattern: /Atlassian[/_]+search$/, renderer: RovoSearchResults },
   { pattern: /Atlassian[/_]+fetch$/, renderer: RovoFetchResult },
   { pattern: /Atlassian[/_]+getAccessibleAtlassianResources$/, renderer: AtlassianResourcesList },
@@ -140,6 +159,20 @@ export function getMcpCompactSummary(toolName: string, toolInput: Record<string,
   if (/searchConfluenceUsingCql/.test(toolName)) {
     return String(toolInput.cql ?? "").slice(0, 80);
   }
+  if (/getConfluencePageDescendants/.test(toolName)) {
+    return `page ${toolInput.pageId ?? ""}`;
+  }
+  if (/createConfluencePage/.test(toolName)) {
+    return String(toolInput.title ?? "").slice(0, 80);
+  }
+  if (/updateConfluencePage/.test(toolName)) {
+    return toolInput.versionMessage
+      ? String(toolInput.versionMessage).slice(0, 80)
+      : `page ${toolInput.pageId ?? ""}`;
+  }
+  if (/getPagesInConfluenceSpace/.test(toolName)) {
+    return toolInput.title ? `"${toolInput.title}"` : `space ${toolInput.spaceId ?? ""}`;
+  }
   if (/Atlassian[/_]+search$/.test(toolName)) {
     return String(toolInput.query ?? "").slice(0, 80);
   }
@@ -174,7 +207,7 @@ export const McpToolContent = memo(function McpToolContent({ message }: { messag
 
   return (
     <div className="text-xs">
-      {renderer({ data, toolInput: message.toolInput ?? {}, rawText })}
+      {renderer({ data: data ?? {}, toolInput: message.toolInput ?? {}, rawText })}
     </div>
   );
 });

@@ -638,9 +638,10 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   // Reload an existing ACP session with a new MCP server list using session/load.
   // This preserves full conversation context on the agent side — no process restart needed.
   // Returns { ok: true, supportsLoad: true } if successful, { supportsLoad: false } if not supported.
-  ipcMain.handle("acp:reload-session", async (_event, { sessionId, mcpServers }: {
+  ipcMain.handle("acp:reload-session", async (_event, { sessionId, mcpServers, cwd }: {
     sessionId: string;
     mcpServers?: McpServerInput[];
+    cwd?: string;
   }) => {
     const session = acpSessions.get(sessionId);
     if (!session) {
@@ -652,7 +653,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { supportsLoad: false };
     }
 
-    log("ACP_RELOAD", `session=${sessionId.slice(0, 8)} calling loadSession with ${mcpServers?.length ?? 0} MCP server(s)`);
+    const nextCwd = cwd ?? session.cwd;
+    log("ACP_RELOAD", `session=${sessionId.slice(0, 8)} calling loadSession with ${mcpServers?.length ?? 0} MCP server(s) cwd=${nextCwd}`);
 
     const acpMcpServers = await buildAcpMcpServers(mcpServers ?? []);
 
@@ -662,7 +664,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       try {
         await session.connection.loadSession({
           sessionId: session.acpSessionId,
-          cwd: session.cwd,
+          cwd: nextCwd,
           mcpServers: acpMcpServers,
         });
       } finally {
@@ -671,6 +673,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           acpSessions.get(sessionId)!.isReloading = false;
         }
       }
+      session.cwd = nextCwd;
       log("ACP_RELOAD", `session=${sessionId.slice(0, 8)} loadSession OK`);
       return { ok: true, supportsLoad: true };
     } catch (err) {

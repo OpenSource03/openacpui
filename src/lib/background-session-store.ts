@@ -15,6 +15,7 @@ export interface BackgroundSessionState {
   messages: UIMessage[];
   isProcessing: boolean;
   isConnected: boolean;
+  isCompacting: boolean;
   sessionInfo: SessionInfo | null;
   totalCost: number;
   pendingPermission: PermissionRequest | null;
@@ -54,6 +55,7 @@ export class BackgroundSessionStore {
         messages: [],
         isProcessing: false,
         isConnected: false,
+        isCompacting: false,
         sessionInfo: null,
         totalCost: 0,
         pendingPermission: null,
@@ -132,6 +134,7 @@ export class BackgroundSessionStore {
       messages: state.messages.map(m => ({ ...m })),
       isProcessing: state.isProcessing,
       isConnected: state.isConnected,
+      isCompacting: state.isCompacting,
       sessionInfo: state.sessionInfo ? { ...state.sessionInfo } : null,
       totalCost: state.totalCost,
       pendingPermission: state.pendingPermission ? { ...state.pendingPermission } : null,
@@ -149,6 +152,7 @@ export class BackgroundSessionStore {
       messages: state.messages,
       isProcessing: state.isProcessing,
       isConnected: state.isConnected,
+      isCompacting: state.isCompacting,
       sessionInfo: state.sessionInfo,
       totalCost: state.totalCost,
       pendingPermission: state.pendingPermission,
@@ -214,6 +218,7 @@ export class BackgroundSessionStore {
       messages,
       isProcessing: state.isProcessing,
       isConnected: state.isConnected,
+      isCompacting: state.isCompacting ?? false,
       sessionInfo: state.sessionInfo ? { ...state.sessionInfo } : null,
       totalCost: state.totalCost,
       pendingPermission: state.pendingPermission ? { ...state.pendingPermission } : null,
@@ -232,6 +237,7 @@ export class BackgroundSessionStore {
     const state = this.sessions.get(sessionId);
     if (!state) return;
     state.isConnected = false;
+    state.isCompacting = false;
     // Dead process = dead permission — clear both
     state.pendingPermission = null;
     state.rawAcpPermission = null;
