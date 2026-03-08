@@ -55,6 +55,12 @@ export interface AppSettings {
   claudeCustomBinaryPath: string;
   /** Show developer-only "Dev Fill" button in chat title bar (local dev builds only) */
   showDevFillInChatTitleBar: boolean;
+  /** Enable anonymous analytics to help improve the app (default: true) */
+  analyticsEnabled: boolean;
+  /** Anonymous user ID for analytics (auto-generated) */
+  analyticsUserId?: string;
+  /** Last date (YYYY-MM-DD) when daily_active_user was sent, to deduplicate across restarts */
+  analyticsLastDailyActiveDate?: string;
 }
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
@@ -76,6 +82,7 @@ const DEFAULTS: AppSettings = {
   claudeBinarySource: "auto",
   claudeCustomBinaryPath: "",
   showDevFillInChatTitleBar: false,
+  analyticsEnabled: true,
 };
 
 // ── Internal state ──

@@ -17,6 +17,7 @@ export default defineConfig({
     "electron-liquid-glass",
     "@anthropic-ai/claude-agent-sdk",
     "electron-updater",
+    "posthog-node",
   ],
   noExternal: [],
   treeshake: true,

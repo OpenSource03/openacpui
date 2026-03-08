@@ -23,6 +23,7 @@ import { log } from "./lib/logger";
 import { migrateFromOpenAcpUi } from "./lib/migration";
 import { glassEnabled, liquidGlass } from "./lib/glass";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
+import { initPostHog, shutdownPostHog, reinitPostHog } from "./lib/posthog";
 import { sessions } from "./ipc/claude-sessions";
 import { acpSessions } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
@@ -42,6 +43,7 @@ import * as acpSessionsIpc from "./ipc/acp-sessions";
 import * as codexSessionsIpc from "./ipc/codex-sessions";
 import * as mcpIpc from "./ipc/mcp";
 import * as settingsIpc from "./ipc/settings";
+import { onSettingsChanged } from "./ipc/settings";
 
 // --- Performance: Chromium/V8 flags (must be set before app.whenReady()) ---
 app.commandLine.appendSwitch("enable-gpu-rasterization"); // force GPU raster for all content
@@ -179,6 +181,19 @@ codexSessionsIpc.register(getMainWindow);
 mcpIpc.register();
 settingsIpc.register();
 
+// Listen for analytics settings changes and reinitialize PostHog
+let lastAnalyticsEnabled: boolean | undefined;
+onSettingsChanged((settings) => {
+  if (lastAnalyticsEnabled !== undefined && settings.analyticsEnabled !== lastAnalyticsEnabled) {
+    lastAnalyticsEnabled = settings.analyticsEnabled;
+    reinitPostHog().catch((err) => {
+      log("POSTHOG", `Failed to reinitialize PostHog: ${(err as Error).message}`);
+    });
+  } else {
+    lastAnalyticsEnabled = settings.analyticsEnabled;
+  }
+});
+
 // --- DevTools in separate window via remote debugging ---
 let devToolsWindow: BrowserWindow | null = null;
 
@@ -263,12 +278,15 @@ ipcMain.handle("speech:request-mic-permission", async () => {
   return { granted: true };
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Migrate data from old "OpenACP UI" app directory before anything reads it
   migrateFromOpenAcpUi();
 
   createWindow();
   initAutoUpdater(getMainWindow);
+
+  // Initialize PostHog analytics (if enabled in settings)
+  await initPostHog();
 
   // Allow microphone access for Whisper voice dictation (getUserMedia in renderer)
   session.defaultSession.setPermissionRequestHandler(
@@ -305,8 +323,32 @@ app.whenReady().then(() => {
   }
 });
 
-app.on("will-quit", () => {
+app.on("will-quit", (event) => {
   globalShortcut.unregisterAll();
+
+  // When an update is being installed, let the updater control the quit lifecycle.
+  // In that case, fire-and-forget PostHog shutdown and do not delay quit.
+  if (getIsInstallingUpdate()) {
+    void shutdownPostHog();
+    return;
+  }
+
+  // For normal quits, delay process exit until PostHog has flushed pending events.
+  event.preventDefault();
+
+  shutdownPostHog()
+    .catch((err) => {
+      // Log and continue exit even if analytics shutdown fails
+      log(
+        "POSTHOG",
+        `Error shutting down PostHog: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    })
+    .finally(() => {
+      app.exit(0);
+    });
 });
 
 app.on("window-all-closed", () => {
