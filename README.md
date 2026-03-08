@@ -33,11 +33,18 @@ Harnss is a native desktop app that gives you one interface to run, manage, and 
 ## Screenshots
 
 <p align="center">
-  <img width="1944" height="1197" alt="CleanShot 2026-03-02 at 02 37 01" src="https://github.com/user-attachments/assets/332a05fa-329a-4066-8eee-c85ba1315bb0" />
-
+  <img width="2069" height="1333" alt="CleanShot 2026-03-08 at 05 39 16" src="https://github.com/user-attachments/assets/87f06ec9-e09d-4889-9aa0-6904eb68f30a" />
 
   <br />
   <em>Terminal, browser, git, and MCP integrations — all in one window.</em>
+</p>
+
+<p align="center">
+<img width="2069" height="1333" alt="CleanShot 2026-03-08 at 05 40 20" src="https://github.com/user-attachments/assets/7dc6b42f-398b-405e-9413-7192b2aaecb6" />
+
+
+  <br />
+  <em>One UI - all agents. Browse entire ACP registry.</em>
 </p>
 
 https://github.com/user-attachments/assets/41f5bcbc-c141-4a16-b430-79f8e01d107e
@@ -45,13 +52,6 @@ https://github.com/user-attachments/assets/41f5bcbc-c141-4a16-b430-79f8e01d107e
 <p align="center">
   <br />
   <em>Organize your projects in spaces.</em>
-</p>
-
-<p align="center">
-  <img width="1224" height="843" alt="CleanShot 2026-03-02 at 03 44 31" src="https://github.com/user-attachments/assets/9c0767d1-7f06-412f-ae78-f22b0d5d4337" />
-
-  <br />
-  <em>One UI - all agents. Browse entire ACP registry.</em>
 </p>
 
 <p align="center">
