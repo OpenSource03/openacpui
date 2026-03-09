@@ -97,7 +97,7 @@ export const SidebarSearch = memo(function SidebarSearch({
 
   return (
     <div ref={containerRef} className="relative no-drag px-3 pb-3 pt-1">
-      <div className="glass-outline relative overflow-hidden rounded-xl transition-all focus-within:ring-2 focus-within:ring-primary/20" style={{ "--island-fill": "var(--sidebar-accent)" } as React.CSSProperties}>
+      <div className="glass-outline sidebar-search-glass relative overflow-hidden rounded-xl transition-all focus-within:ring-2 focus-within:ring-primary/20" style={{ "--island-fill": "var(--sidebar-accent)" } as React.CSSProperties}>
         <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sidebar-foreground/40" />
         <input
           ref={inputRef}

@@ -11,8 +11,10 @@ import {
   Sparkles,
   Users,
   BarChart3,
+  PanelLeft,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { AgentSettings } from "@/components/settings/AgentSettings";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { GeneralSettings } from "@/components/settings/GeneralSettings";
@@ -65,10 +67,13 @@ interface SettingsViewProps {
   onIslandLayoutChange: (enabled: boolean) => void;
   autoGroupTools: boolean;
   onAutoGroupToolsChange: (enabled: boolean) => void;
+  autoExpandTools: boolean;
+  onAutoExpandToolsChange: (enabled: boolean) => void;
   transparency: boolean;
   onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;
   sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
   /** Resets the welcome wizard so it shows again. Dev-only. */
   onReplayWelcome: () => void;
 }
@@ -86,10 +91,13 @@ export const SettingsView = memo(function SettingsView({
   onIslandLayoutChange,
   autoGroupTools,
   onAutoGroupToolsChange,
+  autoExpandTools,
+  onAutoExpandToolsChange,
   transparency,
   onTransparencyChange,
   glassSupported,
   sidebarOpen = false,
+  onToggleSidebar,
   onReplayWelcome,
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
@@ -136,6 +144,8 @@ export const SettingsView = memo(function SettingsView({
             onIslandLayoutChange={onIslandLayoutChange}
             autoGroupTools={autoGroupTools}
             onAutoGroupToolsChange={onAutoGroupToolsChange}
+            autoExpandTools={autoExpandTools}
+            onAutoExpandToolsChange={onAutoExpandToolsChange}
             transparency={transparency}
             onTransparencyChange={onTransparencyChange}
             glassSupported={glassSupported}
@@ -206,16 +216,28 @@ export const SettingsView = memo(function SettingsView({
       default:
         return null;
     }
-  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, autoGroupTools, onAutoGroupToolsChange, transparency, onTransparencyChange, glassSupported, onReplayWelcome]);
+  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, autoGroupTools, onAutoGroupToolsChange, autoExpandTools, onAutoExpandToolsChange, transparency, onTransparencyChange, glassSupported, onReplayWelcome]);
 
   return (
-    <div className="island flex flex-1 flex-col overflow-hidden rounded-lg bg-background">
+    <div className={`island flex flex-1 flex-col overflow-hidden bg-background ${islandLayout ? "rounded-lg" : "rounded-none"}`}>
       <div
-        className={`drag-region flex h-10 shrink-0 items-center border-b border-foreground/[0.06] px-4 ${
-          !sidebarOpen && isMac ? "ps-[78px]" : ""
+        className={`drag-region flex shrink-0 items-center border-b border-foreground/[0.06] ${
+          islandLayout ? "h-9 px-4" : "h-[3.25rem] px-4"
+        } ${
+          !sidebarOpen && isMac ? (islandLayout ? "ps-[78px]" : "ps-[84px]") : ""
         }`}
       >
-        <span className="text-sm font-semibold text-foreground">Settings</span>
+        {onToggleSidebar && !sidebarOpen && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="no-drag me-2 h-7 w-7 text-muted-foreground/60 hover:text-foreground"
+            onClick={onToggleSidebar}
+          >
+            <PanelLeft className="h-4 w-4" />
+          </Button>
+        )}
+        <span className="leading-none text-sm font-semibold text-foreground">Settings</span>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

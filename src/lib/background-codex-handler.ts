@@ -230,6 +230,30 @@ export function handleCodexEvent(
       }
       break;
     }
+
+    case "thread/tokenUsage/updated": {
+      const tokenUsage = (params as Record<string, unknown>).tokenUsage as {
+        last?: {
+          inputTokens?: number;
+          outputTokens?: number;
+          cachedInputTokens?: number;
+        };
+        modelContextWindow?: number | null;
+      } | undefined;
+      if (!tokenUsage?.last) break;
+      state.contextUsage = {
+        inputTokens: tokenUsage.last.inputTokens ?? 0,
+        outputTokens: tokenUsage.last.outputTokens ?? 0,
+        cacheReadTokens: tokenUsage.last.cachedInputTokens ?? 0,
+        cacheCreationTokens: 0,
+        contextWindow: tokenUsage.modelContextWindow ?? state.contextUsage?.contextWindow ?? 200_000,
+      };
+      break;
+    }
+
+    case "thread/compacted":
+      state.isCompacting = false;
+      break;
   }
 
   return undefined;

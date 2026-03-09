@@ -15,6 +15,7 @@ import {
   getParentId,
   extractTextContent,
   extractThinkingContent,
+  extractAssistantContextUsage,
   normalizeToolResult,
 } from "./protocol";
 import { formatResultError } from "./message-factory";
@@ -219,6 +220,11 @@ export function handleClaudeEvent(
 
     case "assistant": {
       const evt = event as AssistantMessageEvent;
+      state.contextUsage =
+        extractAssistantContextUsage(
+          evt.message,
+          state.contextUsage?.contextWindow ?? 200_000,
+        ) ?? state.contextUsage;
       const textContent = extractTextContent(evt.message.content);
       const thinkingContent = extractThinkingContent(evt.message.content);
 
@@ -341,6 +347,22 @@ export function handleClaudeEvent(
       const resultEvt = event as ResultEvent;
       state.isProcessing = false;
       state.totalCost += resultEvt.total_cost_usd ?? 0;
+
+      if (resultEvt.modelUsage) {
+        const entries = Object.values(resultEvt.modelUsage);
+        const primaryEntry = entries.find((entry) => entry.contextWindow > 0);
+        if (primaryEntry) {
+          state.contextUsage = state.contextUsage
+            ? { ...state.contextUsage, contextWindow: primaryEntry.contextWindow }
+            : {
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheCreationTokens: 0,
+                contextWindow: primaryEntry.contextWindow,
+              };
+        }
+      }
 
       // Surface SDK error results as system messages visible in chat
       if (resultEvt.is_error || resultEvt.subtype?.startsWith("error")) {

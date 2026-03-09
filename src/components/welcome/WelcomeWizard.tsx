@@ -19,6 +19,10 @@ interface WelcomeWizardProps {
   onThemeChange: (t: ThemeOption) => void;
   islandLayout: boolean;
   onIslandLayoutChange: (enabled: boolean) => void;
+  autoGroupTools: boolean;
+  onAutoGroupToolsChange: (enabled: boolean) => void;
+  autoExpandTools: boolean;
+  onAutoExpandToolsChange: (enabled: boolean) => void;
   transparency: boolean;
   onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;
@@ -54,6 +58,10 @@ export function WelcomeWizard({
   onThemeChange,
   islandLayout,
   onIslandLayoutChange,
+  autoGroupTools,
+  onAutoGroupToolsChange,
+  autoExpandTools,
+  onAutoExpandToolsChange,
   transparency,
   onTransparencyChange,
   glassSupported,
@@ -175,6 +183,10 @@ export function WelcomeWizard({
                   onThemeChange={onThemeChange}
                   islandLayout={islandLayout}
                   onIslandLayoutChange={onIslandLayoutChange}
+                  autoGroupTools={autoGroupTools}
+                  onAutoGroupToolsChange={onAutoGroupToolsChange}
+                  autoExpandTools={autoExpandTools}
+                  onAutoExpandToolsChange={onAutoExpandToolsChange}
                   transparency={transparency}
                   onTransparencyChange={onTransparencyChange}
                   glassSupported={glassSupported}

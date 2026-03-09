@@ -90,9 +90,9 @@ export function useSpaceTheme(
         root.style.setProperty("--sidebar", `oklch(0.96 ${bgChroma} ${hue})`);
         root.style.setProperty("--sidebar-accent", `oklch(0.94 ${accentChroma} ${hue})`);
       } else {
-        // Glass + light: semi-transparent white tinted with space hue
-        root.style.setProperty("--sidebar", `oklch(1 ${bgChroma} ${hue} / 0.45)`);
-        root.style.setProperty("--sidebar-accent", `oklch(0.965 ${accentChroma} ${hue} / 0.45)`);
+        // Glass + light: show more native glass while keeping a subtle space tint.
+        root.style.setProperty("--sidebar", `oklch(1 ${bgChroma} ${hue} / 0.29)`);
+        root.style.setProperty("--sidebar-accent", `oklch(0.965 ${accentChroma} ${hue} / 0.3)`);
       }
     }
 

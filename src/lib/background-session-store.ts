@@ -4,6 +4,7 @@ import type {
   SessionInfo,
   PermissionRequest,
   SlashCommand,
+  ContextUsage,
 } from "../types";
 import type { ACPSessionEvent, ACPPermissionEvent } from "../types/acp";
 import type { CodexSessionEvent } from "../types/codex";
@@ -18,6 +19,7 @@ export interface BackgroundSessionState {
   isCompacting: boolean;
   sessionInfo: SessionInfo | null;
   totalCost: number;
+  contextUsage: ContextUsage | null;
   pendingPermission: PermissionRequest | null;
   /** Raw ACP permission event — needed for optionId lookup when responding */
   rawAcpPermission: ACPPermissionEvent | null;
@@ -58,6 +60,7 @@ export class BackgroundSessionStore {
         isCompacting: false,
         sessionInfo: null,
         totalCost: 0,
+        contextUsage: null,
         pendingPermission: null,
         rawAcpPermission: null,
         slashCommands: [],
@@ -137,6 +140,7 @@ export class BackgroundSessionStore {
       isCompacting: state.isCompacting,
       sessionInfo: state.sessionInfo ? { ...state.sessionInfo } : null,
       totalCost: state.totalCost,
+      contextUsage: state.contextUsage ? { ...state.contextUsage } : null,
       pendingPermission: state.pendingPermission ? { ...state.pendingPermission } : null,
       rawAcpPermission: state.rawAcpPermission,
       slashCommands: state.slashCommands ?? [],
@@ -155,6 +159,7 @@ export class BackgroundSessionStore {
       isCompacting: state.isCompacting,
       sessionInfo: state.sessionInfo,
       totalCost: state.totalCost,
+      contextUsage: state.contextUsage,
       pendingPermission: state.pendingPermission,
       rawAcpPermission: state.rawAcpPermission,
       slashCommands: state.slashCommands ?? [],
@@ -221,6 +226,7 @@ export class BackgroundSessionStore {
       isCompacting: state.isCompacting ?? false,
       sessionInfo: state.sessionInfo ? { ...state.sessionInfo } : null,
       totalCost: state.totalCost,
+      contextUsage: state.contextUsage ? { ...state.contextUsage } : null,
       pendingPermission: state.pendingPermission ? { ...state.pendingPermission } : null,
       rawAcpPermission: state.rawAcpPermission ?? null,
       slashCommands: state.slashCommands ?? [],

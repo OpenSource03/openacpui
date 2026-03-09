@@ -6,6 +6,10 @@ export interface CachedModelInfo {
   value: string;
   displayName: string;
   description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: Array<"low" | "medium" | "high" | "max">;
+  supportsAdaptiveThinking?: boolean;
+  supportsFastMode?: boolean;
 }
 
 interface ClaudeModelsCacheData {
@@ -25,10 +29,22 @@ function normalizeModelInfo(value: unknown): CachedModelInfo | null {
   if (typeof model.value !== "string" || model.value.trim().length === 0) return null;
   const displayName = typeof model.displayName === "string" ? model.displayName : model.value;
   const description = typeof model.description === "string" ? model.description : "";
+  const supportedEffortLevels = Array.isArray(model.supportedEffortLevels)
+    ? model.supportedEffortLevels.filter(
+      (level): level is "low" | "medium" | "high" | "max" =>
+        level === "low" || level === "medium" || level === "high" || level === "max",
+    )
+    : undefined;
   return {
     value: model.value,
     displayName,
     description,
+    ...(typeof model.supportsEffort === "boolean" ? { supportsEffort: model.supportsEffort } : {}),
+    ...(supportedEffortLevels && supportedEffortLevels.length > 0 ? { supportedEffortLevels } : {}),
+    ...(typeof model.supportsAdaptiveThinking === "boolean"
+      ? { supportsAdaptiveThinking: model.supportsAdaptiveThinking }
+      : {}),
+    ...(typeof model.supportsFastMode === "boolean" ? { supportsFastMode: model.supportsFastMode } : {}),
   };
 }
 

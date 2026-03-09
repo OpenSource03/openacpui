@@ -1,4 +1,11 @@
-import type { ContentBlock, ToolUseResult, ClaudeEvent, ImageAttachment } from "../types";
+import type {
+  ContentBlock,
+  ToolUseResult,
+  ClaudeEvent,
+  ImageAttachment,
+  AssistantMessageEvent,
+  ContextUsage,
+} from "../types";
 
 /**
  * Normalize tool_use_result which may be an object, a string, or missing.
@@ -34,6 +41,22 @@ export function extractThinkingContent(blocks: ContentBlock[]): string {
     .filter((b): b is ContentBlock & { type: "thinking" } => b.type === "thinking")
     .map((b) => b.thinking)
     .join("");
+}
+
+/** Normalize Claude assistant message usage into the shared context meter shape. */
+export function extractAssistantContextUsage(
+  message: AssistantMessageEvent["message"],
+  previousContextWindow: number,
+): ContextUsage | null {
+  const usage = message.usage;
+  if (!usage) return null;
+  return {
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+    contextWindow: previousContextWindow,
+  };
 }
 
 /**

@@ -66,6 +66,7 @@ function summarizeSpawnOptions(options: Record<string, unknown>): Record<string,
     model: options.model,
     includePartialMessages: options.includePartialMessages,
     thinking: options.thinking,
+    effort: options.effort,
     settingSources: options.settingSources,
     enableFileCheckpointing: options.enableFileCheckpointing,
     extraArgs: options.extraArgs,
@@ -236,6 +237,7 @@ interface StartOptions {
   model?: string;
   permissionMode?: string;
   thinkingEnabled?: boolean;
+  effort?: "low" | "medium" | "high" | "max";
   resume?: string;
   /** Fork to a new session ID when resuming (model forgets messages after resumeSessionAt) */
   forkSession?: boolean;
@@ -244,10 +246,8 @@ interface StartOptions {
   mcpServers?: McpServerInput[];
 }
 
-function buildThinkingConfig(thinkingEnabled?: boolean): { type: "adaptive" } | { type: "disabled" } {
-  return thinkingEnabled === false
-    ? { type: "disabled" }
-    : { type: "adaptive" };
+function buildThinkingConfig(): { type: "adaptive" } {
+  return { type: "adaptive" };
 }
 
 function logSdkCliPath(context: string, cliPath?: string): void {
@@ -275,7 +275,7 @@ async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Arra
       const queryOptions: Record<string, unknown> = {
         cwd: cwd?.trim() || os.homedir(),
         includePartialMessages: true,
-        thinking: buildThinkingConfig(true),
+        thinking: buildThinkingConfig(),
         settingSources: ["user", "project"],
         pathToClaudeCodeExecutable: cliPath,
         ...fileCheckpointOptions(),
@@ -342,6 +342,8 @@ async function restartSession(
   getMainWindow: () => BrowserWindow | null,
   mcpServersOverride?: McpServerInput[],
   cwdOverride?: string,
+  effortOverride?: StartOptions["effort"],
+  modelOverride?: string,
 ): Promise<{ ok?: boolean; error?: string; restarted?: boolean }> {
   const session = sessions.get(sessionId);
   if (!session?.queryHandle || !session.startOptions) {
@@ -375,7 +377,13 @@ async function restartSession(
     queryHandle: null,
     eventCounter: session.eventCounter,
     pendingPermissions: new Map(),
-    startOptions: { ...opts, cwd, mcpServers },
+    startOptions: {
+      ...opts,
+      cwd,
+      mcpServers,
+      ...(effortOverride ? { effort: effortOverride } : {}),
+      ...(modelOverride ? { model: modelOverride } : {}),
+    },
   };
 
   const canUseTool = (toolName: string, input: unknown, context: { toolUseID: string; suggestions: unknown; decisionReason: string }) => {
@@ -397,7 +405,7 @@ async function restartSession(
   const queryOptions: Record<string, unknown> = {
     cwd,
     includePartialMessages: true,
-    thinking: buildThinkingConfig(opts.thinkingEnabled),
+    thinking: buildThinkingConfig(),
     canUseTool,
     settingSources: ["user", "project"],
     pathToClaudeCodeExecutable: cliPath,
@@ -416,7 +424,10 @@ async function restartSession(
       queryOptions.allowDangerouslySkipPermissions = true;
     }
   }
-  if (opts.model) queryOptions.model = opts.model;
+  if (modelOverride ?? opts.model) queryOptions.model = modelOverride ?? opts.model;
+  if (effortOverride ?? opts.effort) {
+    queryOptions.effort = effortOverride ?? opts.effort;
+  }
 
   if (mcpServers?.length) {
     queryOptions.mcpServers = await buildSdkMcpConfig(mcpServers);
@@ -494,7 +505,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const queryOptions: Record<string, unknown> = {
         cwd: options.cwd || process.cwd(),
         includePartialMessages: true,
-        thinking: buildThinkingConfig(options.thinkingEnabled),
+        thinking: buildThinkingConfig(),
         canUseTool,
         settingSources: ["user", "project"],
         pathToClaudeCodeExecutable: cliPath,
@@ -526,6 +537,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
       if (options.model) {
         queryOptions.model = options.model;
+      }
+      if (options.effort) {
+        queryOptions.effort = options.effort;
       }
 
       if (options.mcpServers?.length) {
@@ -666,14 +680,14 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { error: "Reasoning toggle is not supported by this Claude SDK version" };
     }
     try {
-      await session.queryHandle.setMaxThinkingTokens(thinkingEnabled ? null : 0);
+      await session.queryHandle.setMaxThinkingTokens(null);
       if (session.startOptions) {
-        session.startOptions.thinkingEnabled = thinkingEnabled;
+        session.startOptions.thinkingEnabled = true;
       }
-      log("SET_THINKING", `session=${sessionId.slice(0, 8)} thinkingEnabled=${thinkingEnabled}`);
+      log("SET_THINKING", `session=${sessionId.slice(0, 8)} requested=${thinkingEnabled} applied=true`);
       return { ok: true };
     } catch (err) {
-      log("SET_THINKING_ERR", `session=${sessionId.slice(0, 8)} thinkingEnabled=${thinkingEnabled} ${extractErrorMessage(err)}`);
+      log("SET_THINKING_ERR", `session=${sessionId.slice(0, 8)} requested=${thinkingEnabled} ${extractErrorMessage(err)}`);
       return { error: extractErrorMessage(err) };
     }
   });
@@ -831,7 +845,19 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   });
 
   // Restart the session with a new MCP server list (e.g., after add/remove)
-  ipcMain.handle("claude:restart-session", async (_event, { sessionId, mcpServers, cwd }: { sessionId: string; mcpServers?: McpServerInput[]; cwd?: string }) => {
-    return restartSession(sessionId, getMainWindow, mcpServers, cwd);
+  ipcMain.handle("claude:restart-session", async (_event, {
+    sessionId,
+    mcpServers,
+    cwd,
+    effort,
+    model,
+  }: {
+    sessionId: string;
+    mcpServers?: McpServerInput[];
+    cwd?: string;
+    effort?: StartOptions["effort"];
+    model?: string;
+  }) => {
+    return restartSession(sessionId, getMainWindow, mcpServers, cwd, effort, model);
   });
 }

@@ -148,10 +148,10 @@ html.glass-enabled #root {
 }
 
 .glass-enabled:not(.dark) {
-  /* Semi-transparent white overlay brightens the native glass to a frosted white */
-  --sidebar: oklch(1 0 0 / 0.45);
+  /* Slightly reduce the white veil so the native glass comes through more. */
+  --sidebar: oklch(1 0 0 / 0.29);
   --sidebar-border: oklch(0 0 0 / 0.08);
-  --sidebar-accent: oklch(0.965 0.001 286.029 / 0.45);
+  --sidebar-accent: oklch(0.965 0.001 286.029 / 0.3);
   /* White text on glass sidebar — native glass shows through dark, so sidebar
      text should be light (like dark mode) regardless of the app theme.
      Exception: search input keeps dark text (see below). */
@@ -167,6 +167,11 @@ html.glass-enabled #root {
 .glass-enabled:not(.dark) .glass-outline,
 .glass-enabled:not(.dark) .bg-sidebar-accent {
   --sidebar-foreground: oklch(0.145 0 0);
+}
+
+/* Sidebar search stays on the white-text treatment in light glass mode. */
+.glass-enabled:not(.dark) .sidebar-search-glass {
+  --sidebar-foreground: oklch(0.985 0 0);
 }
 
 /* In light mode with glass enabled, selected chats should stay white. */
@@ -338,15 +343,15 @@ html.glass-enabled #root {
   display: none;
 }
 
-/* Flat mode: slightly taller chat header for more breathing room (h-8 → h-10, ~20% increase) */
+/* Flat mode: active chat header matches the taller settings/title bar height. */
 .no-islands .chat-header {
-  height: 2.5rem; /* 40px, up from 32px */
+  height: 3.25rem; /* 52px */
 }
 
 /* Flat mode: offset chat scrollbar so it starts below the header instead of disappearing behind it.
    Radix scrollbar is position:absolute — override top + force bottom:0 so it stretches correctly. */
 .no-islands .chat-island [data-slot="scroll-area-scrollbar"][data-orientation="vertical"] {
-  top: 2.5rem !important; /* match .chat-header height */
+  top: 3.25rem !important; /* match .chat-header height */
   bottom: 0 !important;
   height: auto !important; /* override Tailwind h-full so top/bottom positioning works */
 }
@@ -513,15 +518,6 @@ html.platform-win32 .drag-region {
 
 .stream-chunk-enter {
   animation: stream-chunk-enter 0.32s ease-out both;
-}
-
-/* ── Welcome screen: skeleton shimmer pulse ── */
-@keyframes skeleton-shimmer {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
-}
-.skeleton-line {
-  animation: skeleton-shimmer 2.5s ease-in-out infinite;
 }
 
 /* ── Global scrollbar styling — thin, themed, always subtly visible ──

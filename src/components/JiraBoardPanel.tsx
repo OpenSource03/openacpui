@@ -616,7 +616,7 @@ export function JiraBoardPanel({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="no-drag h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-foreground"
+                  className="no-drag mt-0.5 h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-foreground"
                   onClick={onToggleSidebar}
                 >
                   <PanelLeft className="h-4 w-4" />
@@ -787,7 +787,7 @@ export function JiraBoardPanel({
               <Button
                 variant="ghost"
                 size="icon"
-                className="no-drag h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-foreground"
+                className="no-drag mt-0.5 h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-foreground"
                 onClick={onToggleSidebar}
               >
                 <PanelLeft className="h-4 w-4" />

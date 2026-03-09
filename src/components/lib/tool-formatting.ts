@@ -48,6 +48,12 @@ export function formatCompactSummary(message: UIMessage): string {
     const completed = todos.filter((t) => t.status === "completed").length;
     return `${completed}/${todos.length} completed`;
   }
+  // Skill — show skill name
+  if (toolName === "Skill") {
+    const skill = String(input.skill ?? "");
+    const args = input.args ? ` ${String(input.args)}` : "";
+    return `${skill}${args}`;
+  }
   // ToolSearch — show query and match count
   if (toolName === "ToolSearch") {
     const query = String(input.query ?? "");

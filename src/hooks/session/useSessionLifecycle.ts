@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import type { UIMessage, ChatSession, ImageAttachment, McpServerConfig, Project } from "../../types";
+import type { UIMessage, ChatSession, ImageAttachment, McpServerConfig, Project, ClaudeEffort } from "../../types";
 import type { ACPConfigOption } from "../../types/acp";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
@@ -92,6 +92,7 @@ export function useSessionLifecycle({
     sessionsRef,
     messagesRef,
     totalCostRef,
+    contextUsageRef,
     isProcessingRef,
     liveSessionIdsRef,
     backgroundStoreRef,
@@ -261,6 +262,7 @@ export function useSessionLifecycle({
           isConnected: bgState.isConnected,
           sessionInfo: bgState.sessionInfo,
           totalCost: bgState.totalCost,
+          contextUsage: bgState.contextUsage,
           isCompacting: bgState.isCompacting,
         });
         // Restore pending permission so the hook picks it up on reset
@@ -291,7 +293,13 @@ export function useSessionLifecycle({
           planMode: !!data.planMode,
         }));
         setInitialMessages(data.messages);
-        setInitialMeta(null);
+        setInitialMeta({
+          isProcessing: false,
+          isConnected: false,
+          sessionInfo: null,
+          totalCost: data.totalCost,
+          contextUsage: data.contextUsage ?? null,
+        });
         // No live process = no pending permission
         setInitialPermission(null);
         setInitialRawAcpPermission(null);
@@ -651,6 +659,111 @@ export function useSessionLifecycle({
     });
   }, [claude.setThinkingEnabled]);
 
+  const setActiveClaudeEffort = useCallback(async (effort: ClaudeEffort) => {
+    const id = activeSessionIdRef.current;
+    if (!id) return;
+
+    setStartOptions((prev) => ({ ...prev, effort }));
+
+    if (id === DRAFT_ID) {
+      const preStartedId = preStartedSessionIdRef.current;
+      if (!preStartedId) return;
+
+      const restartResult = await window.claude.restartSession(preStartedId, undefined, undefined, effort);
+      if (restartResult?.error) {
+        toast.error("Failed to update effort", { description: restartResult.error });
+        return;
+      }
+
+      const [statusResult, modelsResult] = await Promise.all([
+        window.claude.mcpStatus(preStartedId),
+        window.claude.supportedModels(preStartedId),
+      ]);
+
+      if (statusResult.servers?.length) {
+        setDraftMcpStatuses(statusResult.servers.map((server) => ({
+          name: server.name,
+          status: toMcpStatusState(server.status),
+        })));
+      }
+      if (modelsResult.models?.length) {
+        setCachedModels(modelsResult.models);
+      }
+      return;
+    }
+
+    const sessionEngine = sessionsRef.current.find((s) => s.id === id)?.engine ?? "claude";
+    if (sessionEngine !== "claude" || !liveSessionIdsRef.current.has(id)) return;
+
+    const restartResult = await window.claude.restartSession(id, undefined, undefined, effort);
+    if (restartResult?.error) {
+      toast.error("Failed to update effort", { description: restartResult.error });
+    }
+  }, [setCachedModels, setDraftMcpStatuses, setStartOptions]);
+
+  const setActiveClaudeModelAndEffort = useCallback(async (model: string, effort: ClaudeEffort) => {
+    const id = activeSessionIdRef.current;
+    if (!id) return;
+
+    setStartOptions((prev) => ({ ...prev, model, effort }));
+
+    if (id === DRAFT_ID) {
+      const preStartedId = preStartedSessionIdRef.current;
+      const draftEngine = startOptionsRef.current.engine ?? "claude";
+      if (!preStartedId || draftEngine !== "claude") return;
+
+      const restartResult = await window.claude.restartSession(preStartedId, undefined, undefined, effort, model);
+      if (restartResult?.error) {
+        toast.error("Failed to update model effort", { description: restartResult.error });
+        return;
+      }
+
+      const [statusResult, modelsResult] = await Promise.all([
+        window.claude.mcpStatus(preStartedId),
+        window.claude.supportedModels(preStartedId),
+      ]);
+
+      if (statusResult.servers?.length) {
+        setDraftMcpStatuses(statusResult.servers.map((server) => ({
+          name: server.name,
+          status: toMcpStatusState(server.status),
+        })));
+      }
+      if (modelsResult.models?.length) {
+        setCachedModels(modelsResult.models);
+      }
+      return;
+    }
+
+    const session = sessionsRef.current.find((s) => s.id === id);
+    if (!session) return;
+
+    const sessionEngine = session.engine ?? "claude";
+    if (sessionEngine !== "claude") return;
+
+    const persistModel = () => {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, model } : s)),
+      );
+
+      window.claude.sessions.load(session.projectId, id).then((data) => {
+        if (data) {
+          window.claude.sessions.save({ ...data, model });
+        }
+      }).catch(() => { /* session may have been deleted */ });
+    };
+
+    if (liveSessionIdsRef.current.has(id)) {
+      const restartResult = await window.claude.restartSession(id, undefined, undefined, effort, model);
+      if (restartResult?.error) {
+        toast.error("Failed to update model effort", { description: restartResult.error });
+        return;
+      }
+    }
+
+    persistModel();
+  }, [setCachedModels, setDraftMcpStatuses, setSessions, setStartOptions]);
+
   // Update MCP servers for the active ACP session, preserving conversation context.
   const restartAcpSession = useCallback(async (servers: McpServerConfig[], cwdOverride?: string): Promise<{ ok?: boolean; error?: string }> => {
     const currentId = activeSessionIdRef.current;
@@ -715,7 +828,13 @@ export function useSessionLifecycle({
     ));
     // Restore UI message history and config options through initialMessages → useACP reset effect
     setInitialMessages(currentMessages);
-    setInitialMeta({ isProcessing: false, isConnected: true, sessionInfo: null, totalCost: currentCost });
+    setInitialMeta({
+      isProcessing: false,
+      isConnected: true,
+      sessionInfo: null,
+      totalCost: currentCost,
+      contextUsage: contextUsageRef.current,
+    });
     if (result.configOptions?.length) setInitialConfigOptions(result.configOptions);
     setActiveSessionId(newId);
     return { ok: true };
@@ -774,7 +893,13 @@ export function useSessionLifecycle({
           : s,
       ));
       setInitialMessages(messagesRef.current);
-      setInitialMeta({ isProcessing: false, isConnected: true, sessionInfo: null, totalCost: totalCostRef.current });
+      setInitialMeta({
+        isProcessing: false,
+        isConnected: true,
+        sessionInfo: null,
+        totalCost: totalCostRef.current,
+        contextUsage: contextUsageRef.current,
+      });
       setActiveSessionId(newId);
 
       suppressNextSessionCompletion(currentId);
@@ -844,6 +969,7 @@ export function useSessionLifecycle({
       model: session.model,
       permissionMode: getEffectiveClaudePermissionMode(startOptionsRef.current),
       thinkingEnabled: startOptionsRef.current.thinkingEnabled,
+      effort: startOptionsRef.current.effort,
       resume: currentId,
       forkSession: true,
       resumeSessionAt: checkpointId,
@@ -882,6 +1008,7 @@ export function useSessionLifecycle({
       isConnected: true,
       sessionInfo: null, // repopulated by system/init event from forked session
       totalCost: totalCostRef.current,
+      contextUsage: contextUsageRef.current,
     });
 
     // 8. Switch to new session ID → triggers useClaude's reset effect
@@ -1134,6 +1261,8 @@ export function useSessionLifecycle({
     setActivePermissionMode,
     setActivePlanMode,
     setActiveThinking,
+    setActiveClaudeEffort,
+    setActiveClaudeModelAndEffort,
     restartAcpSession,
     restartActiveSessionInCurrentWorktree,
     fullRevertSession,

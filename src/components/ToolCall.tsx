@@ -28,13 +28,22 @@ import { EnterPlanModeContent, ExitPlanModeContent } from "./tool-renderers/Plan
 import { AskUserQuestionContent } from "./tool-renderers/AskUserQuestion";
 import { GenericContent } from "./tool-renderers/GenericContent";
 import { ToolSearchContent } from "./tool-renderers/ToolSearchContent";
+import { SkillContent } from "./tool-renderers/SkillContent";
 
 // ── Main entry ──
 
-export const ToolCall = memo(function ToolCall({ message, compact }: { message: UIMessage; compact?: boolean }) {
+interface ToolCallProps {
+  message: UIMessage;
+  compact?: boolean;
+  autoExpandTools?: boolean;
+}
+
+export const ToolCall = memo(function ToolCall({ message, compact, autoExpandTools = true }: ToolCallProps) {
   const normalizedToolName = (message.toolName ?? "").toLowerCase();
   const isTask = normalizedToolName === "task" || normalizedToolName === "agent";
-  const content = isTask ? <TaskTool message={message} /> : <RegularTool message={message} />;
+  const content = isTask
+    ? <TaskTool message={message} />
+    : <RegularTool message={message} autoExpandTools={autoExpandTools} />;
 
   // compact: skip outer padding wrapper (used inside ToolGroupBlock to avoid double padding)
   if (compact) return content;
@@ -47,6 +56,8 @@ export const ToolCall = memo(function ToolCall({ message, compact }: { message: 
     </div>
   );
 }, (prev, next) =>
+  prev.compact === next.compact &&
+  prev.autoExpandTools === next.autoExpandTools &&
   prev.message.toolInput === next.message.toolInput &&
   prev.message.toolResult === next.message.toolResult &&
   prev.message.toolError === next.message.toolError &&
@@ -56,7 +67,7 @@ export const ToolCall = memo(function ToolCall({ message, compact }: { message: 
 
 // ── Regular tool (Read, Write, Edit, Bash, Grep, Glob, etc.) ──
 
-function RegularTool({ message }: { message: UIMessage }) {
+function RegularTool({ message, autoExpandTools }: { message: UIMessage; autoExpandTools: boolean }) {
   const isInteractive = message.toolName === "ExitPlanMode" || message.toolName === "AskUserQuestion";
   const isEditLike = message.toolName === "Edit" || message.toolName === "Write" || isInteractive;
   const [expanded, setExpanded] = useState(isEditLike);
@@ -74,13 +85,14 @@ function RegularTool({ message }: { message: UIMessage }) {
 
   // Auto-expand on result arrival, then auto-collapse after 2s
   useEffect(() => {
+    if (!autoExpandTools) return () => clearTimeout(autoCollapseTimer.current);
     if (!hasResult || initialHadResult.current || isEditLike || userToggled.current) return;
     setExpanded(true);
     autoCollapseTimer.current = setTimeout(() => {
       if (!userToggled.current) setExpanded(false);
     }, 2000);
     return () => clearTimeout(autoCollapseTimer.current);
-  }, [hasResult, isEditLike]);
+  }, [autoExpandTools, hasResult, isEditLike]);
 
   const handleOpenChange = (open: boolean) => {
     userToggled.current = true;
@@ -159,6 +171,8 @@ function ExpandedToolContent({ message }: { message: UIMessage }) {
       return <AskUserQuestionContent message={message} />;
     case "ToolSearch":
       return <ToolSearchContent message={message} />;
+    case "Skill":
+      return <SkillContent message={message} />;
     default:
       // Check for specialized MCP tool renderers
       if (message.toolName && hasMcpRenderer(message.toolName)) {

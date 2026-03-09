@@ -102,21 +102,38 @@ function AgentItem({
           isRunning ? "bg-foreground/[0.03]" : ""
         }`}
       >
-        <CollapsibleTrigger className="group flex w-full items-center gap-2 px-2 py-1.5 text-[13px] hover:text-foreground transition-colors cursor-pointer">
-          <ChevronRight
-            className={`h-3 w-3 shrink-0 text-foreground/40 transition-transform duration-200 ${
-              expanded ? "rotate-90" : ""
-            }`}
-          />
-          {isRunning ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 text-blue-400/70 animate-spin" />
-          ) : isCompleted ? (
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500/60" />
-          ) : (
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400/60" />
+        <div className="flex items-center gap-1 pe-1">
+          <CollapsibleTrigger asChild>
+            <div className="group flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-[13px] transition-colors hover:text-foreground cursor-pointer">
+              <ChevronRight
+                className={`h-3 w-3 shrink-0 text-foreground/40 transition-transform duration-200 ${
+                  expanded ? "rotate-90" : ""
+                }`}
+              />
+              {isRunning ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 text-blue-400/70 animate-spin" />
+              ) : isCompleted ? (
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500/60" />
+              ) : (
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400/60" />
+              )}
+              <span className="truncate text-foreground/80">{agent.description}</span>
+            </div>
+          </CollapsibleTrigger>
+          {(isCompleted || isError) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 shrink-0 text-foreground/40 hover:text-foreground/70"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDismiss(agent.agentId);
+              }}
+            >
+              <X className="h-3 w-3" />
+            </Button>
           )}
-          <span className="truncate text-foreground/80">{agent.description}</span>
-        </CollapsibleTrigger>
+        </div>
 
         {/* Live step indicator when collapsed & running */}
         {isRunning && !expanded && lastActivity && (
@@ -149,22 +166,6 @@ function AgentItem({
               <AgentResult result={agent.result} />
             )}
 
-            {/* Dismiss button */}
-            {(isCompleted || isError) && (
-              <div className="flex items-center pt-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="ms-auto h-5 w-5 text-foreground/40 hover:text-foreground/70"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDismiss(agent.agentId);
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            )}
           </div>
         </CollapsibleContent>
       </div>

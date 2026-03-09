@@ -65,7 +65,7 @@ export function AppLayout() {
     spaceTerminals, activeSpaceTerminals,
     handleToggleTool, handleToolReorder, handleNewChat, handleSend,
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
-    handleThinkingChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
+    handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
     handleSendQueuedNow,
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
     handleViewTurnChanges, handleCreateSpace, handleEditSpace,
@@ -300,7 +300,9 @@ Link: ${issue.url}`;
   const titlebarOpacity = Math.round(30 + 50 * spaceOpacity); // 30–80%
   const titlebarSurfaceColor =
     `linear-gradient(to bottom, color-mix(in oklab, var(--background) ${titlebarOpacity}%, transparent) 0%, transparent 100%)`;
-  const topFadeBackground = `linear-gradient(to bottom, ${chatSurfaceColor}, transparent)`;
+  const topFadeBackground = isIsland
+    ? `linear-gradient(to bottom, ${chatSurfaceColor}, transparent)`
+    : `linear-gradient(to bottom, ${chatSurfaceColor} 0%, ${chatSurfaceColor} 22%, transparent 100%)`;
   const bottomFadeBackground = `linear-gradient(to top, ${chatSurfaceColor}, transparent)`;
 
   const { activeTools } = settings;
@@ -367,10 +369,13 @@ Link: ${issue.url}`;
             onIslandLayoutChange={settings.setIslandLayout}
             autoGroupTools={settings.autoGroupTools}
             onAutoGroupToolsChange={settings.setAutoGroupTools}
+            autoExpandTools={settings.autoExpandTools}
+            onAutoExpandToolsChange={settings.setAutoExpandTools}
             transparency={settings.transparency}
             onTransparencyChange={settings.setTransparency}
             glassSupported={glassSupported}
             sidebarOpen={sidebar.isOpen}
+            onToggleSidebar={sidebar.toggle}
             onReplayWelcome={handleReplayWelcome}
           />
         )}
@@ -397,7 +402,9 @@ Link: ${issue.url}`;
               {/* Top fade: only visible when chat is scrolled down. Island mode uses dark shadow; flat mode fades content into bg */}
               {/* Island: gradient starts at top-0 (behind header, subtle bleed). Flat: starts at top-10 (right below header) so full gradient is visible and strong. */}
               <div
-                className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-16"
+                className={`pointer-events-none absolute inset-x-0 top-0 z-[5] ${
+                  isIsland ? "h-16" : "h-20"
+                }`}
                 style={{
                   opacity: "calc(var(--chat-fade-strength, 1) * var(--chat-top-progress, 0))",
                   background: topFadeBackground,
@@ -408,6 +415,7 @@ Link: ${issue.url}`;
                 style={{ background: titlebarSurfaceColor }}
               >
                 <ChatHeader
+                  islandLayout={isIsland}
                   sidebarOpen={sidebar.isOpen}
                   isProcessing={manager.isProcessing}
                   model={manager.sessionInfo?.model}
@@ -436,6 +444,7 @@ Link: ${issue.url}`;
                 isProcessing={manager.isProcessing}
                 showThinking={showThinking}
                 autoGroupTools={settings.autoGroupTools}
+                autoExpandTools={settings.autoExpandTools}
                 extraBottomPadding={!!manager.pendingPermission}
                 scrollToMessageId={scrollToMessageId}
                 onScrolledToMessage={() => setScrollToMessageId(undefined)}
@@ -470,11 +479,11 @@ Link: ${issue.url}`;
                     isProcessing={manager.isProcessing}
                     queuedCount={manager.queuedCount}
                     model={settings.model}
-                    thinking={settings.thinking}
+                    claudeEffort={settings.claudeEffort}
                     planMode={settings.planMode}
                     permissionMode={settings.permissionMode}
                     onModelChange={handleModelChange}
-                    onThinkingChange={handleThinkingChange}
+                    onClaudeModelEffortChange={handleClaudeModelEffortChange}
                     onPlanModeChange={handlePlanModeChange}
                     onPermissionModeChange={handlePermissionModeChange}
                     projectPath={activeProjectPath}
@@ -506,8 +515,10 @@ Link: ${issue.url}`;
           ) : (
             <>
               <div
-                className={`chat-titlebar-bg drag-region flex h-12 items-center px-3 ${
-                  !sidebar.isOpen && isMac ? "ps-[78px]" : ""
+                className={`chat-titlebar-bg drag-region flex items-center ${
+                  isIsland ? "h-12 px-3" : "h-[3.25rem] px-4"
+                } ${
+                  !sidebar.isOpen && isMac ? (isIsland ? "ps-[78px]" : "ps-[84px]") : ""
                 }`}
                 style={{ background: titlebarSurfaceColor }}
               >
@@ -515,7 +526,9 @@ Link: ${issue.url}`;
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="no-drag h-7 w-7 text-muted-foreground/60 hover:text-foreground"
+                    className={`no-drag h-7 w-7 text-muted-foreground/60 hover:text-foreground ${
+                      isIsland ? "mt-0.5" : ""
+                    }`}
                     onClick={sidebar.toggle}
                   >
                     <PanelLeft className="h-4 w-4" />
@@ -768,6 +781,10 @@ Link: ${issue.url}`;
           onThemeChange={settings.setTheme}
           islandLayout={settings.islandLayout}
           onIslandLayoutChange={settings.setIslandLayout}
+          autoGroupTools={settings.autoGroupTools}
+          onAutoGroupToolsChange={settings.setAutoGroupTools}
+          autoExpandTools={settings.autoExpandTools}
+          onAutoExpandToolsChange={settings.setAutoExpandTools}
           transparency={settings.transparency}
           onTransparencyChange={settings.setTransparency}
           glassSupported={glassSupported}

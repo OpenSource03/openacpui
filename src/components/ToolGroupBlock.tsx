@@ -15,6 +15,7 @@ interface ToolGroupBlockProps {
   tools: UIMessage[];
   messages: UIMessage[];
   showThinking?: boolean;
+  autoExpandTools?: boolean;
   /** When true (live streaming), runs a one-time tools -> group morph animation.
    *  When false (restored session), renders collapsed immediately. */
   animate: boolean;
@@ -57,6 +58,7 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
   tools,
   messages,
   showThinking = true,
+  autoExpandTools = true,
   animate,
 }: ToolGroupBlockProps) {
   // Lock animation decision at mount. Parent re-renders may flip `animate` to false
@@ -231,7 +233,7 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
             <div className="mt-0.5">
               {groupedRows.map((message) => (
                 message.role === "tool_call" ? (
-                  <ToolCall key={message.id} message={message} compact />
+                  <ToolCall key={message.id} message={message} compact autoExpandTools={autoExpandTools} />
                 ) : (
                   <div key={message.id} className="py-1">
                     <ThinkingBlock
@@ -252,5 +254,6 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
   prev.tools === next.tools &&
   prev.messages === next.messages &&
   prev.showThinking === next.showThinking &&
+  prev.autoExpandTools === next.autoExpandTools &&
   prev.animate === next.animate,
 );
