@@ -39,6 +39,9 @@ Harnss is a native desktop app that gives you one interface to run, manage, and 
   <em>Terminal, browser, git, and MCP integrations — all in one window.</em>
 </p>
 
+<details>
+<summary>Click to reveal other screenshots</summary>
+
 <p align="center">
 <img width="2069" height="1333" alt="CleanShot 2026-03-08 at 05 40 20" src="https://github.com/user-attachments/assets/7dc6b42f-398b-405e-9413-7192b2aaecb6" />
 
@@ -67,6 +70,10 @@ https://github.com/user-attachments/assets/41f5bcbc-c141-4a16-b430-79f8e01d107e
   <br />
   <em>Run multiple agent sessions side by side — switch instantly without losing progress.</em>
 </p>
+
+</details>
+
+
 
 ---
 
