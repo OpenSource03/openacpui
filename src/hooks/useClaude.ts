@@ -33,7 +33,9 @@ import {
 import { formatResultError } from "../lib/message-factory";
 import { bgAgentStore } from "../lib/background-agent-store";
 import { suppressNextSessionCompletion } from "../lib/notification-utils";
+import { advancePermissionQueue, enqueuePermissionRequest } from "../lib/permission-queue";
 import { normalizeTodoToolInput } from "../lib/todo-utils";
+import { capture } from "../lib/analytics";
 import { useEngineBase } from "./useEngineBase";
 
 function uiLog(label: string, data: unknown) {
@@ -79,6 +81,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   const parentToolMap = useRef<ParentToolMap>(new Map());
   const permissionQueue = useRef<PermissionRequest[]>([]);
   const permissionResponseInFlight = useRef(false);
+  const respondingPermissionIds = useRef<Set<string>>(new Set());
+  const completedPermissionIds = useRef<Set<string>>(new Set());
 
   // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
@@ -86,6 +90,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     parentToolMap.current.clear();
     permissionQueue.current = [];
     permissionResponseInFlight.current = false;
+    respondingPermissionIds.current.clear();
+    completedPermissionIds.current.clear();
 
     // If restoring a mid-stream session, seed the buffer with existing content
     // so that new deltas are appended rather than replacing old content.
@@ -774,6 +780,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     setIsCompacting(false);
     permissionQueue.current = [];
     permissionResponseInFlight.current = false;
+    respondingPermissionIds.current.clear();
+    completedPermissionIds.current.clear();
     setPendingPermission(null);
 
     // Finalize streaming message: keep partial content, remove if empty
@@ -800,8 +808,11 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
       const currentPermission = pendingPermission;
       const sid = sessionIdRef.current;
       if (!currentPermission || !sid || permissionResponseInFlight.current) return;
+      if (respondingPermissionIds.current.has(currentPermission.requestId)) return;
+      if (completedPermissionIds.current.has(currentPermission.requestId)) return;
 
       permissionResponseInFlight.current = true;
+      respondingPermissionIds.current.add(currentPermission.requestId);
       let result: { ok?: boolean; error?: string } | undefined;
       try {
         result = await window.claude.respondPermission(
@@ -814,12 +825,34 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
         );
       } finally {
         permissionResponseInFlight.current = false;
+        respondingPermissionIds.current.delete(currentPermission.requestId);
       }
-      if (result?.error) return;
+      if (result?.error) {
+        if (result.error === "No pending permission request") {
+          completedPermissionIds.current.add(currentPermission.requestId);
+          const nextState = advancePermissionQueue({
+            current: currentPermission,
+            queue: permissionQueue.current,
+          });
+          permissionQueue.current = nextState.queue;
+          setPendingPermission(nextState.current);
+        }
+        return;
+      }
+      completedPermissionIds.current.add(currentPermission.requestId);
+      capture("permission_responded", {
+        tool_name: currentPermission.toolName,
+        decision: behavior,
+      });
       if (newPermissionMode) {
         setSessionInfo((prev) => prev ? { ...prev, permissionMode: newPermissionMode } : prev);
       }
-      setPendingPermission(permissionQueue.current.shift() ?? null);
+      const nextState = advancePermissionQueue({
+        current: currentPermission,
+        queue: permissionQueue.current,
+      });
+      permissionQueue.current = nextState.queue;
+      setPendingPermission(nextState.current);
     },
     [pendingPermission],
   );
@@ -838,11 +871,20 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
         decisionReason: data.decisionReason,
       };
       setPendingPermission((current) => {
-        if (current || permissionResponseInFlight.current) {
-          permissionQueue.current.push(request);
-          return current;
-        }
-        return request;
+        const nextState = enqueuePermissionRequest(
+          {
+            current,
+            queue: permissionQueue.current,
+          },
+          request,
+          {
+            inFlight: permissionResponseInFlight.current,
+            respondingIds: respondingPermissionIds.current,
+            completedIds: completedPermissionIds.current,
+          },
+        );
+        permissionQueue.current = nextState.queue;
+        return nextState.current;
       });
     });
     const unsubExit = window.claude.onExit((data) => {
@@ -852,6 +894,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
       setIsCompacting(false);
       permissionQueue.current = [];
       permissionResponseInFlight.current = false;
+      respondingPermissionIds.current.clear();
+      completedPermissionIds.current.clear();
       setPendingPermission(null);
       if (data.code !== 0 && data.code !== null) {
         const errorDetail = data.error || `Process exited with code ${data.code}`;
@@ -899,6 +943,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
   const compact = useCallback(async () => {
     if (!sessionIdRef.current) return;
+    capture("context_compaction_triggered", { trigger: "manual" });
     setIsCompacting(true);
     setIsProcessing(true);
     await window.claude.send(sessionIdRef.current, {

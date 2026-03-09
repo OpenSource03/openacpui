@@ -15,6 +15,7 @@ import { CodexRpcClient } from "../lib/codex-rpc";
 import { getCodexBinaryPath, getCodexBinaryStatus, getCodexVersion } from "../lib/codex-binary";
 import { getAppSetting } from "../lib/app-settings";
 import { extractErrorMessage } from "../lib/error-utils";
+import { captureEvent } from "../lib/posthog";
 
 import type {
   CodexServerNotification,
@@ -346,6 +347,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         session.threadId = threadResult.thread.id;
         log("codex",` Thread started: ${session.threadId}`);
 
+        void captureEvent("session_created", { engine: "codex", model: selectedModel });
+
         return {
           sessionId: internalId,
           threadId: session.threadId,
@@ -355,6 +358,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           needsAuth: false,
         };
       } catch (err) {
+        void captureEvent("session_error", { engine: "codex", phase: "start" });
         log("codex",` Start failed: ${extractErrorMessage(err)}`);
         // Clean up on failure
         const session = codexSessions.get(internalId);
@@ -716,8 +720,10 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         session.threadId = threadResult.thread.id;
         log("codex",` Thread resumed: ${session.threadId}`);
 
+        void captureEvent("session_revived", { engine: "codex", success: true });
         return { sessionId: internalId, threadId: session.threadId };
       } catch (err) {
+        void captureEvent("session_revived", { engine: "codex", success: false });
         log("codex",` Resume failed: ${extractErrorMessage(err)}`);
         const session = codexSessions.get(internalId);
         if (session) {

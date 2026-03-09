@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import { gitExec, ALWAYS_SKIP } from "../lib/git-exec";
+import { captureEvent } from "../lib/posthog";
 
 interface DiscoveredRepo {
   path: string;
@@ -281,6 +282,7 @@ export function register(): void {
   ipcMain.handle("git:commit", async (_event, { cwd, message }: { cwd: string; message: string }) => {
     try {
       const output = await gitExec(["commit", "-m", message], cwd);
+      void captureEvent("git_commit_created", { message_length: message.length });
       return { ok: true, output };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
@@ -333,6 +335,7 @@ export function register(): void {
     try {
       validateRef(branch);
       await gitExec(["checkout", branch], cwd);
+      void captureEvent("git_branch_switched");
       return { ok: true };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };

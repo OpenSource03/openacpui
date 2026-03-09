@@ -8,6 +8,7 @@ import { safeSend } from "../lib/safe-send";
 import { getAgent } from "../lib/agent-registry";
 import { getMcpAuthHeaders } from "../lib/mcp-oauth-flow";
 import { extractErrorMessage } from "../lib/error-utils";
+import { captureEvent } from "../lib/posthog";
 
 // ACP SDK is ESM-only, must be async-imported
 import type { ClientSideConnection } from "@agentclientprotocol/sdk";
@@ -462,6 +463,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       // Startup succeeded — clear the pending tracker before returning
       pendingStartProcess = null;
 
+      void captureEvent("session_created", { engine: "acp" });
+
       return {
         sessionId: internalId,
         agentSessionId: sessionResult.sessionId,
@@ -540,6 +543,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
 
       const mcpStatuses = (options.mcpServers ?? []).map(s => ({ name: s.name, status: "connected" as const }));
+      void captureEvent("session_revived", { engine: "acp", success: true });
       return { sessionId: internalId, agentSessionId: acpSessionId, usedLoad, configOptions, mcpStatuses };
     } catch (err) {
       // Kill process and clean up any partial session entry

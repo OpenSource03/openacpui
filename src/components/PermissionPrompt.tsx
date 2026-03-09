@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ShieldAlert, Check, X, Send, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
@@ -6,17 +6,52 @@ import { buildAskUserQuestionResult, getAskUserQuestionKey } from "@/lib/ask-use
 import type { PermissionRequest, RespondPermissionFn } from "@/types";
 
 const TOOL_LABELS: Record<string, string> = {
+  Read: "Read a file",
   Write: "Create a file",
   Edit: "Edit a file",
   Bash: "Run a command",
   NotebookEdit: "Edit a notebook",
 };
 
-function formatToolDetail(req: PermissionRequest): string | null {
+interface ToolDetail {
+  label: string;
+  value: string;
+  meta?: string;
+}
+
+function formatToolDetail(req: PermissionRequest): ToolDetail | null {
   const input = req.toolInput;
-  if (req.toolName === "Write" && input.file_path) return String(input.file_path);
-  if (req.toolName === "Edit" && input.file_path) return String(input.file_path);
-  if (req.toolName === "Bash" && input.command) return String(input.command).slice(0, 120);
+  if (req.toolName === "Bash" && typeof input.command === "string") {
+    const description = typeof input.description === "string" ? input.description.trim() : "";
+    return {
+      label: "Command",
+      value: input.command,
+      ...(description ? { meta: description } : {}),
+    };
+  }
+  if (req.toolName === "Read" && typeof input.file_path === "string") {
+    const pages = typeof input.pages === "string" ? input.pages.trim() : "";
+    return {
+      label: "File",
+      value: input.file_path,
+      ...(pages ? { meta: `Pages: ${pages}` } : {}),
+    };
+  }
+  if (req.toolName === "Write" && typeof input.file_path === "string") {
+    return { label: "File", value: input.file_path };
+  }
+  if (req.toolName === "Edit" && typeof input.file_path === "string") {
+    return { label: "File", value: input.file_path };
+  }
+  if (req.toolName === "NotebookEdit" && typeof input.file_path === "string") {
+    return { label: "Notebook", value: input.file_path };
+  }
+  if (typeof input.file_path === "string") {
+    return { label: "Target", value: input.file_path };
+  }
+  if (typeof input.command === "string") {
+    return { label: "Command", value: input.command };
+  }
   return null;
 }
 
@@ -252,6 +287,14 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
 // --- Default tool permission prompt ---
 
 export function PermissionPrompt({ request, onRespond, showAcceptForSession }: PermissionPromptProps) {
+  const [submittingAction, setSubmittingAction] = useState<"allow" | "deny" | "allowForSession" | null>(null);
+  const submittingRequestIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    submittingRequestIdRef.current = null;
+    setSubmittingAction(null);
+  }, [request.requestId]);
+
   if (request.toolName === "ExitPlanMode") {
     return <ExitPlanModePrompt request={request} onRespond={onRespond} />;
   }
@@ -262,19 +305,48 @@ export function PermissionPrompt({ request, onRespond, showAcceptForSession }: P
 
   const label = TOOL_LABELS[request.toolName] ?? `Use tool: ${request.toolName}`;
   const detail = formatToolDetail(request);
+  const isSubmitting = submittingAction !== null;
+
+  const submit = async (
+    behavior: "allow" | "deny" | "allowForSession",
+  ) => {
+    if (isSubmitting) return;
+    if (submittingRequestIdRef.current === request.requestId) return;
+    submittingRequestIdRef.current = request.requestId;
+    const submittedRequestId = request.requestId;
+    setSubmittingAction(behavior);
+    try {
+      await onRespond(behavior);
+    } catch {
+      if (submittingRequestIdRef.current === submittedRequestId) {
+        submittingRequestIdRef.current = null;
+        setSubmittingAction(null);
+      }
+    }
+  };
 
   return (
     <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-border/60 bg-background/55 px-4 py-3 shadow-lg backdrop-blur-lg">
         <ShieldAlert className="h-5 w-5 shrink-0 text-foreground/60" />
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 space-y-2">
           <p className="text-sm font-medium text-foreground">{label}</p>
           {detail && (
-            <p className="truncate text-xs text-muted-foreground font-mono">{detail}</p>
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                {detail.label}
+              </p>
+              <div className="max-h-28 overflow-auto rounded-md bg-foreground/[0.04] px-3 py-2 font-mono text-[11px] text-foreground/75 whitespace-pre-wrap wrap-break-word">
+                {detail.value}
+              </div>
+              {detail.meta && (
+                <p className="text-[11px] text-muted-foreground/80">{detail.meta}</p>
+              )}
+            </div>
           )}
           {request.decisionReason && (
-            <p className="truncate text-xs text-muted-foreground">{request.decisionReason}</p>
+            <p className="text-xs text-muted-foreground wrap-break-word">{request.decisionReason}</p>
           )}
         </div>
 
@@ -282,30 +354,33 @@ export function PermissionPrompt({ request, onRespond, showAcceptForSession }: P
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => onRespond("deny")}
+            disabled={isSubmitting}
+            onClick={() => void submit("deny")}
             className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
-            Deny
+            {submittingAction === "deny" ? "Denying..." : "Deny"}
           </Button>
           {showAcceptForSession && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onRespond("allowForSession")}
+              disabled={isSubmitting}
+              onClick={() => void submit("allowForSession")}
               className="h-8 gap-1.5 text-xs"
             >
               <Check className="h-3.5 w-3.5" />
-              Allow for Session
+              {submittingAction === "allowForSession" ? "Allowing..." : "Allow for Session"}
             </Button>
           )}
           <Button
             size="sm"
-            onClick={() => onRespond("allow")}
+            disabled={isSubmitting}
+            onClick={() => void submit("allow")}
             className="h-8 gap-1.5 text-xs"
           >
             <Check className="h-3.5 w-3.5" />
-            Allow
+            {submittingAction === "allow" ? "Allowing..." : "Allow"}
           </Button>
         </div>
       </div>

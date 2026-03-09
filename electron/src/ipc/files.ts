@@ -5,6 +5,7 @@ import fs from "fs";
 import { log } from "../lib/logger";
 import { ALWAYS_SKIP } from "../lib/git-exec";
 import { getAppSetting } from "../lib/app-settings";
+import { captureEvent } from "../lib/posthog";
 
 function listFilesGit(cwd: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
@@ -301,7 +302,9 @@ export function register(): void {
 
     for (const editor of ordered) {
       try {
-        return await tryEditor(editor);
+        const result = await tryEditor(editor);
+        void captureEvent("file_opened_in_editor", { editor });
+        return result;
       } catch {
         // Editor not found, try next
       }
@@ -310,6 +313,7 @@ export function register(): void {
     // Fallback: OS default
     try {
       await shell.openPath(filePath);
+      void captureEvent("file_opened_in_editor", { editor: "default" });
       return { ok: true, editor: "default" };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);

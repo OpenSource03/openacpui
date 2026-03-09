@@ -8,6 +8,7 @@ import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import { buildSdkContent } from "../../lib/protocol";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { bgAgentStore } from "../../lib/background-agent-store";
+import { capture } from "../../lib/analytics";
 import {
   DRAFT_ID,
   DEFAULT_PERMISSION_MODE,
@@ -439,11 +440,17 @@ export function useSessionLifecycle({
       setInitialMeta(null);
       setActiveSessionId(ccSessionId);
       setDraftProjectId(null);
+      capture("session_imported", { message_count: result.messages.length });
     },
     [findProject, saveCurrentSession, seedBackgroundStore, switchSession],
   );
 
   const setDraftAgent = useCallback((draftEngine: string, agentId: string, cachedConfigOptions?: ACPConfigOption[], model?: string) => {
+    const prevEngine = startOptionsRef.current.engine ?? "claude";
+    if (prevEngine !== draftEngine) {
+      capture("engine_switched", { from_engine: prevEngine, to_engine: draftEngine });
+    }
+
     if (draftEngine !== "claude" && preStartedSessionIdRef.current) {
       // Switching away from Claude draft should immediately close the eager Claude session.
       abandonEagerSession("engine_switch");
@@ -606,6 +613,7 @@ export function useSessionLifecycle({
     };
     const effectiveClaudeMode = getEffectiveClaudePermissionMode(nextOptions);
     setStartOptions((prev) => ({ ...prev, planMode }));
+    if (planMode) capture("plan_mode_entered");
     setSessions((prev) => prev.map((s) => (
       s.id === id ? { ...s, planMode } : s
     )));
@@ -638,6 +646,7 @@ export function useSessionLifecycle({
     if (!id) return;
 
     setStartOptions((prev) => ({ ...prev, thinkingEnabled }));
+    capture("thinking_toggled", { enabled: thinkingEnabled });
 
     if (id === DRAFT_ID) {
       if (preStartedSessionIdRef.current) {
@@ -1029,6 +1038,15 @@ export function useSessionLifecycle({
   // The main send function
   const send = useCallback(
     async (text: string, images?: ImageAttachment[], displayText?: string) => {
+      const sendEngine = activeSessionIdRef.current === DRAFT_ID
+        ? (startOptionsRef.current.engine ?? "claude")
+        : (sessionsRef.current.find(s => s.id === activeSessionIdRef.current)?.engine ?? "claude");
+      capture("message_sent", {
+        engine: sendEngine,
+        has_images: !!images?.length,
+        message_length: text.length,
+      });
+
       const activeId = activeSessionIdRef.current;
       if (activeId === DRAFT_ID) {
         const draftEngine = startOptionsRef.current.engine ?? "claude";

@@ -4,6 +4,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { getDataDir } from "../lib/data-dir";
 import { log } from "../lib/logger";
+import { captureEvent } from "../lib/posthog";
 
 interface Project {
   id: string;
@@ -66,6 +67,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       };
       projects.push(project);
       writeProjects(projects);
+      void captureEvent("project_created");
       return project;
     } catch (err) {
       log("PROJECTS:CREATE_ERR", (err as Error).message);

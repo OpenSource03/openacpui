@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from "electron";
 import crypto from "crypto";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
+import { captureEvent } from "../lib/posthog";
 import {
   appendTerminalHistory,
   EMPTY_TERMINAL_HISTORY,
@@ -71,6 +72,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         destroyed: false,
       };
       terminals.set(terminalId, entry);
+      void captureEvent("terminal_created");
 
       ptyProcess.onData((data: string) => {
         if (entry.destroyed) return;

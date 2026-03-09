@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type FormEvent } from "react";
 import type { GrabbedElement } from "@/types/ui";
 import { getInspectorScript, getCleanupScript, GRAB_MARKER } from "@/lib/element-inspector";
+import { capture } from "@/lib/analytics";
 
 // Electron webview element with navigation methods
 interface ElectronWebviewElement extends HTMLElement {
@@ -152,6 +153,7 @@ export function BrowserPanel({ onElementGrab }: BrowserPanelProps) {
       isStartPage,
     };
     setTabs((prev) => [...prev, tab]);
+    capture("browser_tab_created");
     setActiveTabId(tab.id);
   }, []);
 

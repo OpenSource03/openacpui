@@ -4,6 +4,7 @@ import type { CollaborationMode } from "../../types/codex-protocol/Collaboration
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
 import { buildSdkContent } from "../../lib/protocol";
+import { capture } from "../../lib/analytics";
 import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
@@ -295,6 +296,7 @@ export function useSessionRevival({
         return;
       }
       const newSessionId = result.sessionId;
+      capture("session_revived", { engine: "claude", success: true });
 
       if (newSessionId !== oldId) {
         // SDK returned a different ID (shouldn't happen with resume, but handle it)

@@ -23,7 +23,7 @@ import { log } from "./lib/logger";
 import { migrateFromOpenAcpUi } from "./lib/migration";
 import { glassEnabled, liquidGlass } from "./lib/glass";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
-import { initPostHog, shutdownPostHog, reinitPostHog } from "./lib/posthog";
+import { initPostHog, shutdownPostHog, reinitPostHog, captureEvent } from "./lib/posthog";
 import { sessions } from "./ipc/claude-sessions";
 import { acpSessions } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
@@ -194,6 +194,11 @@ onSettingsChanged((settings) => {
   } else {
     lastAnalyticsEnabled = settings.analyticsEnabled;
   }
+});
+
+// --- Renderer→main analytics bridge ---
+ipcMain.on("analytics:capture", (_event, eventName: string, properties?: Record<string, unknown>) => {
+  captureEvent(eventName, properties).catch(() => { /* non-fatal */ });
 });
 
 // --- DevTools in separate window via remote debugging ---

@@ -469,6 +469,7 @@ Link: ${issue.url}`;
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
                 {manager.pendingPermission ? (
                   <PermissionPrompt
+                    key={manager.pendingPermission.requestId}
                     request={manager.pendingPermission}
                     onRespond={manager.respondPermission}
                   />

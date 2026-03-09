@@ -1,5 +1,6 @@
 import type { BackgroundAgent } from "@/types";
 import type { TaskProgressEvent, TaskNotificationEvent } from "@/types";
+import { capture } from "./analytics";
 
 type Listener = (sessionId: string) => void;
 
@@ -77,6 +78,7 @@ class BackgroundAgentStore {
       toolUseId: info.toolUseId,
       taskId: info.agentId,
     });
+    capture("background_agent_created");
     this.notify(sessionId);
   }
 
@@ -119,6 +121,10 @@ class BackgroundAgentStore {
         durationMs: event.usage.duration_ms,
       };
     }
+    capture("background_agent_completed", {
+      status: agent.status,
+      duration_ms: event.usage?.duration_ms,
+    });
 
     this.notify(sessionId);
   }

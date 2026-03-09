@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import type { Space, SpaceColor } from "@/types";
+import { capture } from "@/lib/analytics";
 
 const ACTIVE_SPACE_KEY = "harnss-active-space";
 
@@ -35,6 +36,7 @@ export function useSpaceManager() {
         order: spaces.length,
       };
       await persistSpaces([...spaces, space]);
+      capture("space_created", { has_color: !!color, icon_type: iconType });
       return space;
     },
     [spaces, persistSpaces],
