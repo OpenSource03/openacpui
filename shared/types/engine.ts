@@ -25,6 +25,7 @@ export interface SessionMeta {
   isConnected: boolean;
   sessionInfo: SessionInfo | null;
   totalCost: number;
+  contextUsage: ContextUsage | null;
   isCompacting?: boolean;
 }
 

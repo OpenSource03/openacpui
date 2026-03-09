@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Sun, Moon, Monitor, Blend } from "lucide-react";
+import { Sun, Moon, Monitor, Blend, Layers, ChevronsUpDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { AppearanceStepProps } from "./shared";
 import type { ThemeOption } from "@/types";
@@ -140,6 +140,10 @@ export function AppearanceStep({
   onThemeChange,
   islandLayout,
   onIslandLayoutChange,
+  autoGroupTools,
+  onAutoGroupToolsChange,
+  autoExpandTools,
+  onAutoExpandToolsChange,
   transparency,
   onTransparencyChange,
   glassSupported,
@@ -245,11 +249,57 @@ export function AppearanceStep({
           </div>
         </motion.div>
 
+        {/* ── Tool behavior toggles ── */}
+        <motion.div
+          className="mb-6 space-y-3"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.24 }}
+        >
+          <div className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+            Tool behavior
+          </div>
+          <div className="flex items-center justify-between rounded-xl bg-foreground/[0.03] px-5 py-4">
+            <div className="flex items-center gap-3">
+              <Layers className="h-4.5 w-4.5 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  Auto-group tools
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Collapse consecutive tool calls into a single group.
+                </div>
+              </div>
+            </div>
+            <Switch
+              checked={autoGroupTools}
+              onCheckedChange={onAutoGroupToolsChange}
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-xl bg-foreground/[0.03] px-5 py-4">
+            <div className="flex items-center gap-3">
+              <ChevronsUpDown className="h-4.5 w-4.5 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  Auto-expand tool results
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Briefly open completed tool calls, then collapse them again.
+                </div>
+              </div>
+            </div>
+            <Switch
+              checked={autoExpandTools}
+              onCheckedChange={onAutoExpandToolsChange}
+            />
+          </div>
+        </motion.div>
+
         {/* ── Transparency toggle ── */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.24 }}
+          transition={{ duration: 0.4, delay: 0.32 }}
         >
           <div className="flex items-center justify-between rounded-xl bg-foreground/[0.03] px-5 py-4">
             <div className="flex items-center gap-3">

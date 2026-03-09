@@ -64,7 +64,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
 
   // Pick the active engine's state
   const engine = isCodex ? codex : isACP ? acp : claude;
-  const { messages, totalCost } = engine;
+  const { messages, totalCost, contextUsage } = engine;
 
   // ── All refs (21+) — kept for stale-closure avoidance ──
   const liveSessionIdsRef = useRef<Set<string>>(new Set());
@@ -72,6 +72,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   messagesRef.current = messages;
   const totalCostRef = useRef(totalCost);
   totalCostRef.current = totalCost;
+  const contextUsageRef = useRef(contextUsage);
+  contextUsageRef.current = contextUsage;
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
   const sessionsRef = useRef(sessions);
@@ -152,6 +154,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     startOptionsRef,
     messagesRef,
     totalCostRef,
+    contextUsageRef,
     isProcessingRef,
     isCompactingRef,
     isConnectedRef,
@@ -243,6 +246,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setActivePermissionMode,
     setActivePlanMode,
     setActiveThinking,
+    setActiveClaudeEffort,
+    setActiveClaudeModelAndEffort,
     restartAcpSession,
     restartActiveSessionInCurrentWorktree,
     fullRevertSession,
@@ -329,6 +334,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setActivePermissionMode,
     setActivePlanMode,
     setActiveThinking,
+    setActiveClaudeEffort,
+    setActiveClaudeModelAndEffort,
     restartActiveSessionInCurrentWorktree,
     setDraftAgent,
     messages: engine.messages,

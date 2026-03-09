@@ -29,6 +29,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -36,7 +39,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ImageAttachment, GrabbedElement, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, EngineId, SlashCommand } from "@/types";
+import type { ImageAttachment, GrabbedElement, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, ClaudeEffort, EngineId, SlashCommand } from "@/types";
 import { flattenConfigOptions } from "@/lib/acp-utils";
 import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
@@ -113,6 +116,9 @@ function ModelDropdown({
   selectedModelId,
   isProcessing,
   onModelChange,
+  onModelEffortChange,
+  effortOptionsByModel,
+  activeEffort,
   modelsLoading,
   modelsLoadingText,
 }: {
@@ -121,6 +127,9 @@ function ModelDropdown({
   selectedModelId: string;
   isProcessing: boolean;
   onModelChange: (id: string) => void;
+  onModelEffortChange?: (id: string, effort: ClaudeEffort) => void;
+  effortOptionsByModel?: Partial<Record<string, ClaudeEffort[]>>;
+  activeEffort?: ClaudeEffort;
   modelsLoading: boolean;
   modelsLoadingText: string;
 }) {
@@ -132,6 +141,9 @@ function ModelDropdown({
       </div>
     );
   }
+  const selectedEffort = activeEffort && (effortOptionsByModel?.[selectedModelId]?.includes(activeEffort) ?? false)
+    ? activeEffort
+    : undefined;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -140,24 +152,68 @@ function ModelDropdown({
           disabled={isProcessing}
         >
           {selectedModel?.label}
+          {selectedEffort && (
+            <span className="text-muted-foreground/70">
+              · {selectedEffort}
+            </span>
+          )}
           <ChevronDown className="h-3 w-3" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        {modelList.map((m) => (
-          <DropdownMenuItem
-            key={m.id}
-            onClick={() => onModelChange(m.id)}
-            className={m.id === selectedModelId ? "bg-accent" : ""}
-          >
-            <div>
-              <div>{m.label}</div>
-              {m.description && (
-                <div className="text-[10px] text-muted-foreground">{m.description}</div>
-              )}
-            </div>
-          </DropdownMenuItem>
-        ))}
+        {modelList.map((m) => {
+          const effortOptions = effortOptionsByModel?.[m.id] ?? [];
+          if (effortOptions.length > 0 && onModelEffortChange) {
+            const isSelected = m.id === selectedModelId;
+            return (
+              <DropdownMenuSub key={m.id}>
+                <DropdownMenuSubTrigger className={isSelected ? "bg-accent" : ""}>
+                  <div>
+                    <div>{m.label}</div>
+                    {m.description && (
+                      <div className="text-[10px] text-muted-foreground">{m.description}</div>
+                    )}
+                  </div>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56">
+                  {effortOptions.map((effort) => {
+                    const isActive = isSelected && effort === activeEffort;
+                    return (
+                      <DropdownMenuItem
+                        key={`${m.id}-${effort}`}
+                        onClick={() => onModelEffortChange(m.id, effort)}
+                        className={isActive ? "bg-accent" : ""}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="capitalize">{effort}</span>
+                            {isActive && <span className="text-[10px] text-muted-foreground">Current</span>}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">{CLAUDE_EFFORT_DESCRIPTIONS[effort]}</div>
+                        </div>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            );
+          }
+
+          return (
+            <DropdownMenuItem
+              key={m.id}
+              onClick={() => onModelChange(m.id)}
+              className={m.id === selectedModelId ? "bg-accent" : ""}
+            >
+              <div>
+                <div>{m.label}</div>
+                {m.description && (
+                  <div className="text-[10px] text-muted-foreground">{m.description}</div>
+                )}
+              </div>
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -258,6 +314,9 @@ function EngineControls({
   selectedModel,
   selectedModelId,
   onModelChange,
+  onClaudeModelEffortChange,
+  claudeEffortOptionsByModel,
+  claudeActiveEffort,
   modelsLoading,
   modelsLoadingText,
   // Permission
@@ -266,9 +325,6 @@ function EngineControls({
   // Plan
   planMode,
   onPlanModeChange,
-  // Claude thinking
-  thinking,
-  onThinkingChange,
   // Codex effort
   codexEffortOptions,
   codexActiveEffort,
@@ -286,14 +342,15 @@ function EngineControls({
   selectedModel: { id: string; label: string; description?: string } | undefined;
   selectedModelId: string;
   onModelChange: (id: string) => void;
+  onClaudeModelEffortChange?: (model: string, effort: ClaudeEffort) => void;
+  claudeEffortOptionsByModel: Partial<Record<string, ClaudeEffort[]>>;
+  claudeActiveEffort: ClaudeEffort;
   modelsLoading: boolean;
   modelsLoadingText: string;
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
   planMode: boolean;
   onPlanModeChange: (enabled: boolean) => void;
-  thinking: boolean;
-  onThinkingChange: (thinking: boolean) => void;
   codexEffortOptions: Array<{ reasoningEffort: string; description: string }>;
   codexActiveEffort?: string;
   onCodexEffortChange?: (effort: string) => void;
@@ -432,26 +489,24 @@ function EngineControls({
         selectedModelId={selectedModelId}
         isProcessing={isProcessing}
         onModelChange={onModelChange}
+        onModelEffortChange={onClaudeModelEffortChange}
+        effortOptionsByModel={claudeEffortOptionsByModel}
+        activeEffort={claudeActiveEffort}
         modelsLoading={modelsLoading}
         modelsLoadingText={modelsLoadingText}
       />
       <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
       <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
-      <button
-        onClick={() => onThinkingChange(!thinking)}
-        disabled={isProcessing}
-        className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50 ${
-          thinking
-            ? "text-foreground bg-muted/40"
-            : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-        }`}
-      >
-        <Brain className="h-3 w-3" />
-        Reasoning
-      </button>
     </>
   );
 }
+
+const CLAUDE_EFFORT_DESCRIPTIONS: Record<ClaudeEffort, string> = {
+  low: "Minimal thinking, fastest responses",
+  medium: "Moderate thinking",
+  high: "Deep reasoning",
+  max: "Maximum effort",
+};
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 type AcceptedMediaType = (typeof ACCEPTED_IMAGE_TYPES)[number];
@@ -483,11 +538,11 @@ interface InputBarProps {
   onStop: () => void;
   isProcessing: boolean;
   model: string;
-  thinking: boolean;
+  claudeEffort: ClaudeEffort;
   planMode: boolean;
   permissionMode: string;
   onModelChange: (model: string) => void;
-  onThinkingChange: (thinking: boolean) => void;
+  onClaudeModelEffortChange: (model: string, effort: ClaudeEffort) => void;
   onPlanModeChange: (enabled: boolean) => void;
   onPermissionModeChange: (mode: string) => void;
   projectPath?: string;
@@ -635,11 +690,11 @@ export const InputBar = memo(function InputBar({
   onStop,
   isProcessing,
   model,
-  thinking,
+  claudeEffort,
   planMode,
   permissionMode,
   onModelChange,
-  onThinkingChange,
+  onClaudeModelEffortChange,
   onPlanModeChange,
   onPermissionModeChange,
   projectPath,
@@ -664,7 +719,6 @@ export const InputBar = memo(function InputBar({
   queuedCount = 0,
   grabbedElements,
   onRemoveGrabbedElement,
-  isIslandLayout = true,
 }: InputBarProps) {
   const [hasContent, setHasContent] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
@@ -708,6 +762,18 @@ export const InputBar = memo(function InputBar({
   const preferredModelId = resolvedModelId ?? model;
   const selectedModel = modelList.find((m) => m.id === preferredModelId) ?? modelList[0];
   const selectedModelId = selectedModel?.id ?? preferredModelId;
+  const claudeCurrentModel = supportedModels?.find((m) => m.value === selectedModelId);
+  const claudeEffortOptionsByModel = Object.fromEntries(
+    (supportedModels ?? [])
+      .filter((m) => m.supportsEffort && (m.supportedEffortLevels?.length ?? 0) > 0)
+      .map((m) => [m.value, m.supportedEffortLevels ?? []]),
+  ) as Partial<Record<string, ClaudeEffort[]>>;
+  const claudeEffortOptions = claudeCurrentModel?.supportsEffort
+    ? (claudeCurrentModel.supportedEffortLevels ?? [])
+    : [];
+  const claudeActiveEffort = claudeEffortOptions.includes(claudeEffort)
+    ? claudeEffort
+    : (claudeEffortOptions.includes("high") ? "high" : (claudeEffortOptions[0] ?? "high"));
 
   // Codex: find the effort options for the currently selected model
   const codexCurrentModel = codexModelData?.find((m) => m.id === selectedModelId)
@@ -1559,14 +1625,15 @@ export const InputBar = memo(function InputBar({
               selectedModel={selectedModel}
               selectedModelId={selectedModelId}
               onModelChange={onModelChange}
+              onClaudeModelEffortChange={onClaudeModelEffortChange}
+              claudeEffortOptionsByModel={claudeEffortOptionsByModel}
+              claudeActiveEffort={claudeActiveEffort}
               modelsLoading={modelsLoading}
               modelsLoadingText={modelsLoadingText}
               permissionMode={permissionMode}
               onPermissionModeChange={onPermissionModeChange}
               planMode={planMode}
               onPlanModeChange={onPlanModeChange}
-              thinking={thinking}
-              onThinkingChange={onThinkingChange}
               codexEffortOptions={codexEffortOptions}
               codexActiveEffort={codexActiveEffort}
               onCodexEffortChange={onCodexEffortChange}

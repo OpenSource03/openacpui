@@ -13,6 +13,108 @@ const SIDEBAR_ARROW_TAIL_GAP = 36;
 const SIDEBAR_ARROW_HEAD_LENGTH = 34;
 const SIDEBAR_ARROW_HEAD_SPREAD = 19;
 
+type TimeBucket = "lateNight" | "morning" | "afternoon" | "evening";
+
+interface ContinueMessage {
+  headline: string;
+  subtitle: string;
+  accent: string;
+}
+
+const ANYTIME_CONTINUE_MESSAGES: readonly ContinueMessage[] = [
+  {
+    headline: "Continue building",
+    subtitle: "Your threads are warm. Pick one and keep shipping.",
+    accent: "oklch(0.62 0.18 185)",
+  },
+  {
+    headline: "Welcome back",
+    subtitle: "The repo missed you for several whole seconds.",
+    accent: "oklch(0.66 0.16 32)",
+  },
+  {
+    headline: "Back at it, menace",
+    subtitle: "Choose a thread and apply tasteful chaos.",
+    accent: "oklch(0.7 0.17 145)",
+  },
+  {
+    headline: "One more tiny change",
+    subtitle: "Famous last words. Your threads are waiting.",
+    accent: "oklch(0.72 0.14 260)",
+  },
+];
+
+const TIME_AWARE_CONTINUE_MESSAGES: Record<TimeBucket, readonly ContinueMessage[]> = {
+  lateNight: [
+    {
+      headline: "Hello, night owl",
+      subtitle: "Your best ideas and worst commit messages happen now.",
+      accent: "oklch(0.7 0.15 250)",
+    },
+    {
+      headline: "Midnight debug club",
+      subtitle: "The stack trace is glowing gently in the dark.",
+      accent: "oklch(0.68 0.18 290)",
+    },
+    {
+      headline: "Moonlight merge pending",
+      subtitle: "Pick up where you left off before the birds clock in.",
+      accent: "oklch(0.74 0.13 215)",
+    },
+  ],
+  morning: [
+    {
+      headline: "Good morning, builder",
+      subtitle: "Fresh tab, fresh coffee, same huge TODO list.",
+      accent: "oklch(0.76 0.16 78)",
+    },
+    {
+      headline: "Rise and refactor",
+      subtitle: "Your threads are awake before some of your teammates.",
+      accent: "oklch(0.73 0.17 110)",
+    },
+    {
+      headline: "Morning commit energy",
+      subtitle: "Start with the easy win before the meetings find you.",
+      accent: "oklch(0.78 0.15 48)",
+    },
+  ],
+  afternoon: [
+    {
+      headline: "Welcome back, sunshine",
+      subtitle: "Prime hour for turning half-finished ideas into features.",
+      accent: "oklch(0.74 0.18 58)",
+    },
+    {
+      headline: "Afternoon sprint mode",
+      subtitle: "The code is warm and your threads are lined up.",
+      accent: "oklch(0.68 0.19 28)",
+    },
+    {
+      headline: "Post-lunch patch attack",
+      subtitle: "Pick a thread and make the roadmap more believable.",
+      accent: "oklch(0.75 0.16 135)",
+    },
+  ],
+  evening: [
+    {
+      headline: "Evening shift engaged",
+      subtitle: "Quiet hours. Strong focus. Mild gremlin energy.",
+      accent: "oklch(0.67 0.17 15)",
+    },
+    {
+      headline: "Twilight build session",
+      subtitle: "A nice time to ship something clever and unnecessary.",
+      accent: "oklch(0.69 0.18 335)",
+    },
+    {
+      headline: "Welcome back after hours",
+      subtitle: "Your threads are ready for that definitely quick check-in.",
+      accent: "oklch(0.72 0.15 210)",
+    },
+  ],
+};
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -26,22 +128,79 @@ function rotateVector(x: number, y: number, radians: number) {
   };
 }
 
-// ── Ambient Gradient Orbs ─────────────────────────────────────────────
+function getTimeBucket(date: Date): TimeBucket {
+  const hour = date.getHours();
+  if (hour < 5) {
+    return "lateNight";
+  }
+  if (hour < 12) {
+    return "morning";
+  }
+  if (hour < 18) {
+    return "afternoon";
+  }
+  return "evening";
+}
 
-function AmbientOrbs() {
+function pickRandomMessage(
+  messages: readonly ContinueMessage[],
+  previous?: ContinueMessage,
+): ContinueMessage {
+  if (messages.length === 1) {
+    return messages[0];
+  }
+
+  let nextMessage = messages[Math.floor(Math.random() * messages.length)];
+  if (!previous) {
+    return nextMessage;
+  }
+
+  let attempts = 0;
+  while (
+    attempts < 6 &&
+    nextMessage.headline === previous.headline &&
+    nextMessage.subtitle === previous.subtitle
+  ) {
+    nextMessage = messages[Math.floor(Math.random() * messages.length)];
+    attempts += 1;
+  }
+
+  return nextMessage;
+}
+
+function getContinueMessage(previous?: ContinueMessage): ContinueMessage {
+  const now = new Date();
+  const bucket = getTimeBucket(now);
+  return pickRandomMessage(
+    [...TIME_AWARE_CONTINUE_MESSAGES[bucket], ...ANYTIME_CONTINUE_MESSAGES],
+    previous,
+  );
+}
+
+// ── Ambient Background ───────────────────────────────────────────────
+
+function AmbientBackground({ accent }: { accent?: string }) {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {/* Central accent halo — slow breathe tied to the greeting's mood color */}
       <motion.div
-        className="absolute -top-[25%] -right-[15%] h-[65%] w-[55%] rounded-full opacity-[0.035] blur-[100px]"
-        style={{ background: "radial-gradient(circle, var(--foreground) 0%, transparent 70%)" }}
-        animate={{ x: [0, -30, 15, 0], y: [0, 20, -15, 0] }}
-        transition={{ duration: 30, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute top-1/2 left-1/2 h-[70%] w-[60%] -translate-x-1/2 -translate-y-1/2 rounded-full"
+        style={{
+          background: accent
+            ? `radial-gradient(ellipse 50% 50% at 50% 50%, ${accent} 0%, transparent 70%)`
+            : "radial-gradient(ellipse 50% 50% at 50% 50%, var(--foreground) 0%, transparent 70%)",
+          opacity: 0.06,
+        }}
+        animate={{ scale: [1, 1.08, 1], opacity: [0.06, 0.08, 0.06] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
       />
+
+      {/* Drifting orb — top-right, very faint */}
       <motion.div
-        className="absolute -bottom-[20%] -left-[20%] h-[55%] w-[50%] rounded-full opacity-[0.025] blur-[120px]"
+        className="absolute -top-[15%] -right-[10%] h-[45%] w-[40%] rounded-full opacity-[0.025] blur-[140px]"
         style={{ background: "radial-gradient(circle, var(--foreground) 0%, transparent 70%)" }}
-        animate={{ x: [0, 30, -20, 0], y: [0, -25, 12, 0] }}
-        transition={{ duration: 35, repeat: Infinity, ease: "easeInOut" }}
+        animate={{ x: [0, -20, 10, 0], y: [0, 15, -10, 0] }}
+        transition={{ duration: 40, repeat: Infinity, ease: "easeInOut" }}
       />
     </div>
   );
@@ -59,89 +218,6 @@ function GrainOverlay() {
         backgroundSize: "128px 128px",
       }}
     />
-  );
-}
-
-// ── Skeleton Chat — realistic conversation ghost ──────────────────────
-
-interface SkeletonMsg {
-  role: "user" | "assistant";
-  lines: number[];
-  hasCodeBlock?: boolean;
-  hasToolUse?: boolean;
-  delay: number;
-}
-
-const SKELETON_MESSAGES: SkeletonMsg[] = [
-  { role: "user", lines: [80, 55], delay: 0.2 },
-  { role: "assistant", lines: [95, 85, 60], hasToolUse: true, delay: 0.35 },
-  { role: "user", lines: [65], delay: 0.5 },
-  { role: "assistant", lines: [90, 75], hasCodeBlock: true, delay: 0.65 },
-  { role: "user", lines: [50, 40], delay: 0.8 },
-  { role: "assistant", lines: [88, 70, 45], delay: 0.95 },
-];
-
-function SkeletonChat() {
-  return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden px-10">
-      <div className="flex w-full max-w-lg flex-col gap-4">
-        {SKELETON_MESSAGES.map((msg, i) => (
-          <motion.div
-            key={i}
-            className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: msg.delay, duration: 0.5, ease: EASE_OUT }}
-          >
-            <div
-              className={`mt-1 h-6 w-6 shrink-0 rounded-full ${
-                msg.role === "user"
-                  ? "bg-foreground/[0.05]"
-                  : "skeleton-line bg-foreground/[0.04]"
-              }`}
-              style={msg.role === "assistant" ? { animationDelay: `${i * 0.3}s` } : undefined}
-            />
-            <div
-              className={`flex min-w-0 flex-1 flex-col gap-1.5 rounded-2xl px-4 py-3 ${
-                msg.role === "user"
-                  ? "ms-12 bg-foreground/[0.025] ring-1 ring-foreground/[0.04]"
-                  : "me-8 bg-muted/20 ring-1 ring-border/20"
-              }`}
-            >
-              {msg.lines.map((w, j) => (
-                <div
-                  key={j}
-                  className="skeleton-line h-[5px] rounded-full bg-foreground/[0.05]"
-                  style={{
-                    width: `${w}%`,
-                    animationDelay: `${i * 0.3 + j * 0.12}s`,
-                  }}
-                />
-              ))}
-
-              {msg.hasToolUse && (
-                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-border/15 bg-foreground/[0.015] px-3 py-2">
-                  <div className="skeleton-line h-3 w-3 rounded-sm bg-foreground/[0.06]" style={{ animationDelay: `${i * 0.3 + 0.5}s` }} />
-                  <div className="skeleton-line h-[5px] w-20 rounded-full bg-foreground/[0.05]" style={{ animationDelay: `${i * 0.3 + 0.6}s` }} />
-                  <div className="skeleton-line ms-auto h-[5px] w-8 rounded-full bg-foreground/[0.04]" style={{ animationDelay: `${i * 0.3 + 0.7}s` }} />
-                </div>
-              )}
-
-              {msg.hasCodeBlock && (
-                <div className="mt-1.5 rounded-lg border border-border/15 bg-foreground/[0.015] p-3">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="skeleton-line h-[5px] w-[70%] rounded-full bg-foreground/[0.05]" style={{ animationDelay: `${i * 0.3 + 0.5}s` }} />
-                    <div className="skeleton-line h-[5px] w-[90%] rounded-full bg-foreground/[0.04]" style={{ animationDelay: `${i * 0.3 + 0.6}s` }} />
-                    <div className="skeleton-line h-[5px] w-[55%] rounded-full bg-foreground/[0.05]" style={{ animationDelay: `${i * 0.3 + 0.7}s` }} />
-                    <div className="skeleton-line h-[5px] w-[40%] rounded-full bg-foreground/[0.04]" style={{ animationDelay: `${i * 0.3 + 0.8}s` }} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -327,12 +403,57 @@ export const WelcomeScreen = memo(function WelcomeScreen({
   onCreateProject,
 }: WelcomeScreenProps) {
   const subtitleRef = useRef<HTMLParagraphElement | null>(null);
+  const [continueMessage, setContinueMessage] = useState<ContinueMessage>(() =>
+    getContinueMessage(),
+  );
+
+  useEffect(() => {
+    if (!hasProjects) {
+      return;
+    }
+
+    let refreshTimer: number | null = null;
+
+    function queueNextRefresh() {
+      const now = new Date();
+      const nextHour = new Date(now);
+      nextHour.setHours(now.getHours() + 1, 0, 0, 0);
+      const delay = Math.max(nextHour.getTime() - now.getTime(), 60_000);
+      refreshTimer = window.setTimeout(() => {
+        setContinueMessage((previous) => getContinueMessage(previous));
+        queueNextRefresh();
+      }, delay);
+    }
+
+    function rerollMessage() {
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+      setContinueMessage((previous) => getContinueMessage(previous));
+      queueNextRefresh();
+    }
+
+    function handleVisibilityChange() {
+      if (!document.hidden) {
+        rerollMessage();
+      }
+    }
+
+    queueNextRefresh();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [hasProjects]);
 
   // --- No projects state ---
   if (!hasProjects) {
     return (
       <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden">
-        <AmbientOrbs />
+        <AmbientBackground />
         <GrainOverlay />
 
         <motion.div
@@ -379,20 +500,6 @@ export const WelcomeScreen = memo(function WelcomeScreen({
   // --- Has projects, no active session ---
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
-      <AmbientOrbs />
-      <GrainOverlay />
-
-      {/* Skeleton chat ghost */}
-      <SkeletonChat />
-
-      {/* Radial vignette — fades skeleton toward edges, focuses center */}
-      <div
-        className="pointer-events-none absolute inset-0 z-[1]"
-        style={{
-          background: "radial-gradient(ellipse 65% 50% at 50% 50%, transparent 0%, var(--background) 100%)",
-        }}
-      />
-
       {/* Hand-drawn arrow from center to sidebar edge */}
       <SidebarArrow anchorRef={subtitleRef} />
 
@@ -411,18 +518,26 @@ export const WelcomeScreen = memo(function WelcomeScreen({
             animate={{ opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.5 }}
           >
-            <h1
+            <motion.h1
+              key={continueMessage.headline}
               className="text-5xl italic"
-              style={{ fontFamily: DISPLAY_FONT, color: "oklch(0.62 0.18 185)" }}
+              style={{ fontFamily: DISPLAY_FONT, color: continueMessage.accent }}
+              initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              transition={{ duration: 0.45, ease: EASE_OUT }}
             >
-              Continue building
-            </h1>
-            <p
+              {continueMessage.headline}
+            </motion.h1>
+            <motion.p
+              key={continueMessage.subtitle}
               ref={subtitleRef}
-              className="max-w-[320px] text-center text-base leading-relaxed text-muted-foreground"
+              className="max-w-[min(92vw,640px)] text-center text-base leading-relaxed text-muted-foreground"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.05, ease: EASE_OUT }}
             >
-              Pick up an existing thread or start fresh.
-            </p>
+              {continueMessage.subtitle}
+            </motion.p>
           </motion.div>
         </motion.div>
       </div>

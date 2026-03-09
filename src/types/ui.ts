@@ -7,6 +7,7 @@ export type VoiceDictationMode = "native" | "whisper";
 export type ThemeOption = "light" | "dark" | "system";
 export type CodexBinarySource = "auto" | "managed" | "custom";
 export type ClaudeBinarySource = "auto" | "managed" | "custom";
+export type ClaudeEffort = "low" | "medium" | "high" | "max";
 
 // ── Notification settings ──
 
@@ -207,6 +208,7 @@ export interface ChatSession extends SessionBase {
 
 export interface PersistedSession extends SessionBase {
   messages: UIMessage[];
+  contextUsage?: ContextUsage | null;
 }
 
 export interface PermissionRequest {
@@ -295,6 +297,10 @@ export interface ModelInfo {
   value: string;
   displayName: string;
   description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: ClaudeEffort[];
+  supportsAdaptiveThinking?: boolean;
+  supportsFastMode?: boolean;
 }
 
 // ── MCP types ──

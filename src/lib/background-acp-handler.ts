@@ -199,6 +199,15 @@ export function handleACPEvent(state: InternalState, event: ACPSessionEvent): vo
       break;
     }
     case "usage_update": {
+      if (update.size != null || update.used != null) {
+        state.contextUsage = {
+          inputTokens: update.used ?? state.contextUsage?.inputTokens ?? 0,
+          outputTokens: state.contextUsage?.outputTokens ?? 0,
+          cacheReadTokens: state.contextUsage?.cacheReadTokens ?? 0,
+          cacheCreationTokens: state.contextUsage?.cacheCreationTokens ?? 0,
+          contextWindow: update.size ?? state.contextUsage?.contextWindow ?? 0,
+        };
+      }
       if (update.cost) {
         state.totalCost += update.cost.amount;
       }

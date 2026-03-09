@@ -82,7 +82,15 @@ export interface AssistantMessageEvent {
     id: string;
     role: "assistant";
     content: ContentBlock[];
+    usage?: AssistantMessageUsage;
   };
+}
+
+export interface AssistantMessageUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
 }
 
 export type ContentBlock =

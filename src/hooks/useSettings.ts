@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ToolId } from "@/components/ToolPicker";
-import type { AcpPermissionBehavior, EngineId, ThemeOption } from "@/types";
+import type { AcpPermissionBehavior, ClaudeEffort, EngineId, ThemeOption } from "@/types";
 
 // ── Helpers ──
 
@@ -61,6 +61,7 @@ const DEFAULT_SPLIT = 0.5;
 const DEFAULT_MODEL = "claude-opus-4-6";
 const DEFAULT_PERMISSION_MODE = "default";
 const DEFAULT_PLAN_MODE = true;
+const DEFAULT_CLAUDE_EFFORT: ClaudeEffort = "high";
 const DEFAULT_ENGINE_MODELS: Record<EngineId, string> = {
   claude: DEFAULT_MODEL,
   acp: "",
@@ -98,8 +99,12 @@ export interface Settings {
   setAcpPermissionBehavior: (b: AcpPermissionBehavior) => void;
   thinking: boolean;
   setThinking: (on: boolean) => void;
+  claudeEffort: ClaudeEffort;
+  setClaudeEffort: (effort: ClaudeEffort) => void;
   autoGroupTools: boolean;
   setAutoGroupTools: (on: boolean) => void;
+  autoExpandTools: boolean;
+  setAutoExpandTools: (on: boolean) => void;
 
   // Per-project
   model: string;
@@ -291,12 +296,31 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     localStorage.setItem("harnss-thinking", String(on));
   }, []);
 
+  const [claudeEffort, setClaudeEffortRaw] = useState<ClaudeEffort>(() => {
+    const stored = localStorage.getItem("harnss-claude-effort");
+    return stored === "low" || stored === "medium" || stored === "high" || stored === "max"
+      ? stored
+      : DEFAULT_CLAUDE_EFFORT;
+  });
+  const setClaudeEffort = useCallback((effort: ClaudeEffort) => {
+    setClaudeEffortRaw(effort);
+    localStorage.setItem("harnss-claude-effort", effort);
+  }, []);
+
   const [autoGroupTools, setAutoGroupToolsRaw] = useState(() =>
     readBool("harnss-auto-group-tools", true),
   );
   const setAutoGroupTools = useCallback((on: boolean) => {
     setAutoGroupToolsRaw(on);
     localStorage.setItem("harnss-auto-group-tools", String(on));
+  }, []);
+
+  const [autoExpandTools, setAutoExpandToolsRaw] = useState(() =>
+    readBool("harnss-auto-expand-tools", true),
+  );
+  const setAutoExpandTools = useCallback((on: boolean) => {
+    setAutoExpandToolsRaw(on);
+    localStorage.setItem("harnss-auto-expand-tools", String(on));
   }, []);
 
   // ── Per-project settings ──
@@ -511,8 +535,12 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     setAcpPermissionBehavior,
     thinking,
     setThinking,
+    claudeEffort,
+    setClaudeEffort,
     autoGroupTools,
     setAutoGroupTools,
+    autoExpandTools,
+    setAutoExpandTools,
     model,
     setModel,
     getModelForEngine,

@@ -44,6 +44,7 @@ interface ChatViewProps {
   isProcessing: boolean;
   showThinking: boolean;
   autoGroupTools: boolean;
+  autoExpandTools: boolean;
   extraBottomPadding?: boolean;
   scrollToMessageId?: string;
   onScrolledToMessage?: () => void;
@@ -71,7 +72,7 @@ interface ChatViewProps {
   onAgentChange?: (agent: InstalledAgent | null) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const bottomLockedRef = useRef(true);
@@ -599,6 +600,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
                     tools={group.tools}
                     messages={group.messages}
                     showThinking={showThinking}
+                    autoExpandTools={autoExpandTools}
                     animate={isNewGroup}
                   />
                   {groupTurnSummary && (
@@ -614,7 +616,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
             // Not in a finalized group — render individually (Feature 1 auto-collapse applies)
             return (
               <Fragment key={msg.id}>
-                <div data-message-id={msg.id} className="message-item"><ToolCall message={msg} /></div>
+                <div data-message-id={msg.id} className="message-item"><ToolCall message={msg} autoExpandTools={autoExpandTools} /></div>
                 {turnSummary && (
                   <TurnChangesSummary summary={turnSummary} onViewInPanel={onViewTurnChanges} />
                 )}

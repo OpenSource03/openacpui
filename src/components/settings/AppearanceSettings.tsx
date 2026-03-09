@@ -14,6 +14,8 @@ interface AppearanceSettingsProps {
   onIslandLayoutChange: (enabled: boolean) => void;
   autoGroupTools: boolean;
   onAutoGroupToolsChange: (enabled: boolean) => void;
+  autoExpandTools: boolean;
+  onAutoExpandToolsChange: (enabled: boolean) => void;
   transparency: boolean;
   onTransparencyChange: (enabled: boolean) => void;
   /** Whether the platform supports transparency (glass/mica) */
@@ -29,6 +31,8 @@ export const AppearanceSettings = memo(function AppearanceSettings({
   onIslandLayoutChange,
   autoGroupTools,
   onAutoGroupToolsChange,
+  autoExpandTools,
+  onAutoExpandToolsChange,
   transparency,
   onTransparencyChange,
   glassSupported,
@@ -96,6 +100,16 @@ export const AppearanceSettings = memo(function AppearanceSettings({
               <Switch
                 checked={autoGroupTools}
                 onCheckedChange={onAutoGroupToolsChange}
+              />
+            </SettingRow>
+
+            <SettingRow
+              label="Auto-expand tool results"
+              description="Temporarily expand completed tool calls, then collapse them again after a short delay. Disable to keep tool rows stable unless you open them yourself."
+            >
+              <Switch
+                checked={autoExpandTools}
+                onCheckedChange={onAutoExpandToolsChange}
               />
             </SettingRow>
           </div>

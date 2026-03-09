@@ -23,7 +23,7 @@ import { resolveModelValue } from "@/lib/model-utils";
 import { getTodoItems } from "@/lib/todo-utils";
 import { isWindows } from "@/lib/utils";
 import { COLUMN_TOOL_IDS, type ToolId } from "@/components/ToolPicker";
-import type { ImageAttachment, Space, SpaceColor, InstalledAgent, AcpPermissionBehavior, EngineId } from "@/types";
+import type { ImageAttachment, Space, SpaceColor, InstalledAgent, AcpPermissionBehavior, ClaudeEffort, EngineId } from "@/types";
 import type { NotificationSettings } from "@/types/ui";
 
 export function useAppOrchestrator() {
@@ -45,9 +45,18 @@ export function useAppOrchestrator() {
     : (selectedAgent?.engine ?? "claude");
   const settings = useSettings(activeProjectId ?? null, settingsEngine);
   const resolvedTheme = useTheme(settings.theme);
-  const showThinking = settingsEngine === "claude" ? settings.thinking : true;
+  const showThinking = true;
   const activeProjectPath = settings.gitCwd ?? activeProject?.path;
   const { agents, refresh: refreshAgents, saveAgent, deleteAgent } = useAgentRegistry();
+  const getClaudeEffortForModel = useCallback((model: string | undefined): ClaudeEffort | undefined => {
+    if (!model) return undefined;
+    const meta = manager.supportedModels.find((entry) => entry.value === model);
+    if (!meta?.supportsEffort) return undefined;
+    const levels = meta.supportedEffortLevels ?? [];
+    if (levels.includes(settings.claudeEffort)) return settings.claudeEffort;
+    if (levels.includes("high")) return "high";
+    return levels[0];
+  }, [manager.supportedModels, settings.claudeEffort]);
 
   const handleAgentWorktreeChange = useCallback(async (nextPath: string | null) => {
     const previousPath = settings.gitCwd;
@@ -71,6 +80,9 @@ export function useAppOrchestrator() {
     const wantedEngine = agent?.engine ?? "claude";
     const wantedAgentId = agent?.id;
     const wantedModel = settings.getModelForEngine(wantedEngine);
+    const wantedClaudeEffort = wantedEngine === "claude"
+      ? getClaudeEffortForModel(wantedModel || undefined)
+      : undefined;
     const needsNewSession = !manager.isDraft && manager.activeSession && (
       currentEngine !== wantedEngine ||
       (currentEngine === "acp" && wantedEngine === "acp" && currentAgentId !== wantedAgentId)
@@ -82,6 +94,7 @@ export function useAppOrchestrator() {
         permissionMode: settings.permissionMode,
         planMode: settings.planMode,
         thinkingEnabled: settings.thinking,
+        effort: wantedClaudeEffort,
         engine: wantedEngine,
         agentId: agent?.id ?? "claude-code",
         cachedConfigOptions: agent?.cachedConfigOptions,
@@ -94,7 +107,7 @@ export function useAppOrchestrator() {
         wantedModel || undefined,
       );
     }
-  }, [manager.setDraftAgent, manager.isDraft, manager.activeSession, manager.createSession, settings.getModelForEngine, settings.permissionMode, settings.planMode, settings.thinking]);
+  }, [manager.setDraftAgent, manager.isDraft, manager.activeSession, manager.createSession, settings.getModelForEngine, settings.permissionMode, settings.planMode, settings.thinking, getClaudeEffortForModel]);
 
   // Engine is locked once a session is active (not draft) — null means free to switch
   const lockedEngine = !manager.isDraft && manager.activeSession?.engine
@@ -226,17 +239,19 @@ export function useAppOrchestrator() {
       setShowSettings(false);
       const agent = selectedAgent;
       const wantedEngine = agent?.engine ?? "claude";
+      const wantedModel = settings.getModelForEngine(wantedEngine) || undefined;
       await manager.createSession(projectId, {
-        model: settings.getModelForEngine(wantedEngine) || undefined,
+        model: wantedModel,
         permissionMode: settings.permissionMode,
         planMode: settings.planMode,
         thinkingEnabled: settings.thinking,
+        effort: wantedEngine === "claude" ? getClaudeEffortForModel(wantedModel) : undefined,
         engine: wantedEngine,
         agentId: agent?.id ?? "claude-code",
         cachedConfigOptions: agent?.cachedConfigOptions,
       });
     },
-    [manager.createSession, settings.getModelForEngine, settings.permissionMode, settings.planMode, settings.thinking, selectedAgent],
+    [manager.createSession, settings.getModelForEngine, settings.permissionMode, settings.planMode, settings.thinking, getClaudeEffortForModel, selectedAgent],
   );
 
   const handleSend = useCallback(
@@ -258,6 +273,7 @@ export function useAppOrchestrator() {
           permissionMode: settings.permissionMode,
           planMode: settings.planMode,
           thinkingEnabled: settings.thinking,
+          effort: wantedEngine === "claude" ? getClaudeEffortForModel(wantedModel || undefined) : undefined,
           engine: wantedEngine,
           agentId: selectedAgent?.id ?? "claude-code",
           cachedConfigOptions: selectedAgent?.cachedConfigOptions,
@@ -265,15 +281,19 @@ export function useAppOrchestrator() {
       }
       await manager.send(text, images, displayText);
     },
-    [manager.send, manager.isDraft, manager.activeSession, manager.createSession, selectedAgent, settings.getModelForEngine, settings.permissionMode, settings.planMode, settings.thinking],
+    [manager.send, manager.isDraft, manager.activeSession, manager.createSession, selectedAgent, settings.getModelForEngine, settings.permissionMode, settings.planMode, settings.thinking, getClaudeEffortForModel],
   );
 
   const handleModelChange = useCallback(
     (nextModel: string) => {
       settings.setModel(nextModel);
       manager.setActiveModel(nextModel);
+      if (settingsEngine !== "claude") return;
+      const nextEffort = getClaudeEffortForModel(nextModel);
+      if (!nextEffort || nextEffort === settings.claudeEffort) return;
+      settings.setClaudeEffort(nextEffort);
     },
-    [settings, manager.setActiveModel],
+    [settings, settingsEngine, manager.setActiveModel, getClaudeEffortForModel],
   );
 
   const handlePermissionModeChange = useCallback(
@@ -298,6 +318,15 @@ export function useAppOrchestrator() {
       manager.setActiveThinking(enabled);
     },
     [settings, manager.setActiveThinking],
+  );
+
+  const handleClaudeModelEffortChange = useCallback(
+    (model: string, effort: ClaudeEffort) => {
+      settings.setModel(model);
+      settings.setClaudeEffort(effort);
+      manager.setActiveClaudeModelAndEffort(model, effort);
+    },
+    [settings, manager.setActiveClaudeModelAndEffort],
   );
 
   const handleStop = useCallback(async () => {
@@ -750,6 +779,7 @@ export function useAppOrchestrator() {
     handlePermissionModeChange,
     handlePlanModeChange,
     handleThinkingChange,
+    handleClaudeModelEffortChange,
     handleAgentWorktreeChange,
     handleStop,
     handleSendQueuedNow,

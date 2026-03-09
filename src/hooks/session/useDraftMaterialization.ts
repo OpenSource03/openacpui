@@ -75,6 +75,7 @@ export function useDraftMaterialization({
         model: options?.model,
         permissionMode: getEffectiveClaudePermissionMode(options ?? {}),
         thinkingEnabled: options?.thinkingEnabled,
+        effort: options?.effort,
         mcpServers,
       });
     } catch (err) {
@@ -281,7 +282,13 @@ export function useDraftMaterialization({
           // Transition to the real session ID — useACP's reset effect will fire and
           // consume initialMessages/initialMeta, preserving the conversation in the chat.
           setInitialMessages(errorMessages);
-          setInitialMeta({ isProcessing: false, isConnected: false, sessionInfo: null, totalCost: 0 });
+          setInitialMeta({
+            isProcessing: false,
+            isConnected: false,
+            sessionInfo: null,
+            totalCost: 0,
+            contextUsage: null,
+          });
           setActiveSessionId(failedId);
           setDraftProjectId(null);
 
@@ -349,7 +356,13 @@ export function useDraftMaterialization({
           ];
           setSessions(prev => prev.map(s => s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s));
           setInitialMessages(errorMessages);
-          setInitialMeta({ isProcessing: false, isConnected: false, sessionInfo: null, totalCost: 0 });
+          setInitialMeta({
+            isProcessing: false,
+            isConnected: false,
+            sessionInfo: null,
+            totalCost: 0,
+            contextUsage: null,
+          });
           setActiveSessionId(failedId);
           setDraftProjectId(null);
           window.claude.sessions.save({ id: failedId, projectId: project.id, title: "New Chat", createdAt: Date.now(), messages: errorMessages, planMode: !!options.planMode, totalCost: 0, engine: "codex" });
@@ -406,6 +419,7 @@ export function useDraftMaterialization({
               isConnected: bgState.isConnected,
               sessionInfo: bgState.sessionInfo,
               totalCost: bgState.totalCost,
+              contextUsage: bgState.contextUsage,
               isCompacting: bgState.isCompacting,
             });
           }
@@ -418,6 +432,7 @@ export function useDraftMaterialization({
               model: options.model,
               permissionMode: getEffectiveClaudePermissionMode(options),
               thinkingEnabled: options.thinkingEnabled,
+              effort: options.effort,
               mcpServers,
             });
           } catch (err) {
@@ -477,7 +492,13 @@ export function useDraftMaterialization({
             ...(displayText ? { displayContent: displayText } : {}),
           };
           setInitialMessages([userMsg]);
-          setInitialMeta({ isProcessing: true, isConnected: true, sessionInfo: null, totalCost: 0 });
+          setInitialMeta({
+            isProcessing: true,
+            isConnected: true,
+            sessionInfo: null,
+            totalCost: 0,
+            contextUsage: null,
+          });
         } else {
           setInitialMessages([]);
           setInitialMeta(null);

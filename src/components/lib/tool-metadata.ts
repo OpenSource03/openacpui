@@ -12,6 +12,7 @@ import {
   Map,
   MessageCircleQuestion,
   PackageSearch,
+  Sparkles,
 } from "lucide-react";
 
 // ── Tool icons ──
@@ -32,6 +33,7 @@ export const TOOL_ICONS: Record<string, typeof Terminal> = {
   ExitPlanMode: Map,
   AskUserQuestion: MessageCircleQuestion,
   ToolSearch: PackageSearch,
+  Skill: Sparkles,
 };
 
 export function getToolIcon(toolName: string) {
@@ -58,6 +60,7 @@ export const TOOL_LABELS: Record<string, ToolLabels> = {
   ExitPlanMode: { past: "Presented plan", active: "Preparing plan", failure: "prepare plan" },
   AskUserQuestion: { past: "Asked", active: "Asking", failure: "ask" },
   ToolSearch: { past: "Loaded tools", active: "Loading tools", failure: "load tools" },
+  Skill: { past: "Loaded skill", active: "Loading skill", failure: "load skill" },
 };
 
 // MCP tool friendly names — pattern-matched for different server name prefixes

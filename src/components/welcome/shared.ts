@@ -29,6 +29,10 @@ export interface AppearanceStepProps extends WizardStepProps {
   onThemeChange: (t: ThemeOption) => void;
   islandLayout: boolean;
   onIslandLayoutChange: (enabled: boolean) => void;
+  autoGroupTools: boolean;
+  onAutoGroupToolsChange: (enabled: boolean) => void;
+  autoExpandTools: boolean;
+  onAutoExpandToolsChange: (enabled: boolean) => void;
   transparency: boolean;
   onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;

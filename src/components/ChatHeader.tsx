@@ -20,6 +20,7 @@ const ACP_PERMISSION_BEHAVIOR_LABELS: Record<AcpPermissionBehavior, string> = {
 };
 
 interface ChatHeaderProps {
+  islandLayout: boolean;
   sidebarOpen: boolean;
   isProcessing: boolean;
   model?: string;
@@ -37,6 +38,7 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader = memo(function ChatHeader({
+  islandLayout,
   sidebarOpen,
   isProcessing,
   model,
@@ -71,15 +73,19 @@ export const ChatHeader = memo(function ChatHeader({
 
   return (
     <div
-      className={`chat-header pointer-events-auto drag-region flex h-8 items-center gap-3 px-3 ${
-        !sidebarOpen && isMac ? "ps-[78px]" : ""
+      className={`chat-header pointer-events-auto drag-region flex items-center gap-3 ${
+        islandLayout ? "h-8 px-3" : "h-[3.25rem] px-4"
+      } ${
+        !sidebarOpen && isMac ? (islandLayout ? "ps-[78px]" : "ps-[84px]") : ""
       }`}
     >
       {!sidebarOpen && (
         <Button
           variant="ghost"
           size="icon"
-          className="no-drag h-7 w-7 text-muted-foreground/60 hover:text-foreground"
+          className={`no-drag h-7 w-7 text-muted-foreground/60 hover:text-foreground ${
+            islandLayout ? "mt-0.5" : ""
+          }`}
           onClick={onToggleSidebar}
         >
           <PanelLeft className="h-4 w-4" />
@@ -118,7 +124,7 @@ export const ChatHeader = memo(function ChatHeader({
       {titleGenerating ? (
         <span className="no-drag inline-block h-4 w-36 animate-pulse rounded bg-foreground/10" />
       ) : title && title !== "New Chat" ? (
-        <span className="no-drag truncate text-sm font-medium text-foreground/80">
+        <span className="no-drag truncate leading-none text-sm font-medium text-foreground/80">
           {title}
         </span>
       ) : null}

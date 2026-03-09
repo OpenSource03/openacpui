@@ -5,6 +5,7 @@ import type {
   GitRepoInfo, GitStatus, GitBranch, GitLogEntry,
   InstalledAgent, ModelInfo, McpServerConfig, McpServerStatus,
   AppSettings,
+  ClaudeEffort,
 } from "./ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
 import type { EngineId, AppPermissionBehavior } from "./engine";
@@ -54,6 +55,7 @@ declare global {
         model?: string;
         permissionMode?: string;
         thinkingEnabled?: boolean;
+        effort?: ClaudeEffort;
         resume?: string;
         /** Fork to a new session ID when resuming (model forgets messages after resumeSessionAt) */
         forkSession?: boolean;
@@ -77,7 +79,7 @@ declare global {
       mcpStatus: (sessionId: string) => Promise<{ servers: McpServerStatus[]; error?: string }>;
       mcpReconnect: (sessionId: string, serverName: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
       revertFiles: (sessionId: string, checkpointId: string) => Promise<{ ok?: boolean; error?: string }>;
-      restartSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
+      restartSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string, effort?: ClaudeEffort, model?: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
       openInEditor: (filePath: string, line?: number, editor?: string) => Promise<{ ok?: boolean; editor?: string; error?: string }>;
       openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;

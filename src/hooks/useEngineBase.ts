@@ -59,8 +59,8 @@ export function useEngineBase({
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(initialMeta?.sessionInfo ?? null);
   const [totalCost, setTotalCost] = useState(initialMeta?.totalCost ?? 0);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(initialPermission ?? null);
-  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
-  const [isCompacting, setIsCompacting] = useState(false);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(initialMeta?.contextUsage ?? null);
+  const [isCompacting, setIsCompacting] = useState(initialMeta?.isCompacting ?? false);
 
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
@@ -79,14 +79,15 @@ export function useEngineBase({
       setIsConnected(initialMeta.isConnected);
       setSessionInfo(initialMeta.sessionInfo);
       setTotalCost(initialMeta.totalCost);
+      setContextUsage(initialMeta.contextUsage);
     } else {
       setIsProcessing(false);
       setIsConnected(false);
       setSessionInfo(null);
       setTotalCost(0);
+      setContextUsage(null);
     }
     setPendingPermission(initialPermission ?? null);
-    setContextUsage(null);
     setIsCompacting(initialMeta?.isCompacting ?? false);
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -92,7 +92,7 @@ function createWindow(): void {
     // macOS Tahoe+ with liquid glass
     windowOptions.titleBarStyle = "hidden";
     windowOptions.transparent = true;
-    windowOptions.trafficLightPosition = { x: 16, y: 16 };
+    windowOptions.trafficLightPosition = { x: 19, y: 19 };
   } else if (process.platform === "win32") {
     // Windows: native Electron backgroundMaterial handles DWM mica/acrylic.
     // WebContents is automatically transparent (no transparent: true needed),
@@ -102,7 +102,7 @@ function createWindow(): void {
   } else {
     // macOS without glass / Linux
     windowOptions.titleBarStyle = "hiddenInset";
-    windowOptions.trafficLightPosition = { x: 16, y: 16 };
+    windowOptions.trafficLightPosition = { x: 19, y: 19 };
     windowOptions.backgroundColor = "#18181b";
   }
 

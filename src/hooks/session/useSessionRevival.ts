@@ -42,6 +42,7 @@ export function useSessionRevival({
     sessionsRef,
     messagesRef,
     totalCostRef,
+    contextUsageRef,
     liveSessionIdsRef,
     startOptionsRef,
     codexEffortRef,
@@ -101,7 +102,13 @@ export function useSessionRevival({
         status: toMcpStatusState(s.status),
       })));
       setInitialMessages(messagesRef.current);
-      setInitialMeta({ isProcessing: false, isConnected: true, sessionInfo: null, totalCost: totalCostRef.current });
+      setInitialMeta({
+        isProcessing: false,
+        isConnected: true,
+        sessionInfo: null,
+        totalCost: totalCostRef.current,
+        contextUsage: contextUsageRef.current,
+      });
       if (result.configOptions?.length) setInitialConfigOptions(result.configOptions);
       setActiveSessionId(newId);
 
@@ -185,7 +192,13 @@ export function useSessionRevival({
         s.id === oldId ? { ...s, id: newId, codexThreadId: result.threadId ?? codexThreadId } : s,
       ));
       setInitialMessages(messagesRef.current);
-      setInitialMeta({ isProcessing: false, isConnected: true, sessionInfo: null, totalCost: totalCostRef.current });
+      setInitialMeta({
+        isProcessing: false,
+        isConnected: true,
+        sessionInfo: null,
+        totalCost: totalCostRef.current,
+        contextUsage: contextUsageRef.current,
+      });
       setActiveSessionId(newId);
 
       // Small delay to let hook pick up new sessionId
@@ -248,6 +261,7 @@ export function useSessionRevival({
         ...(session.model ? { model: session.model } : {}),
         permissionMode: getEffectiveClaudePermissionMode(startOptionsRef.current),
         thinkingEnabled: startOptionsRef.current.thinkingEnabled,
+        effort: startOptionsRef.current.effort,
         resume: oldId, // Resume the SDK session to restore conversation context
       };
 
