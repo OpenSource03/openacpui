@@ -1,5 +1,5 @@
 import { memo, startTransition, useMemo, useCallback, useEffect, useState } from "react";
-import { FileText } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -106,24 +106,33 @@ export const FilesPanel = memo(function FilesPanel({
 
   return (
     <div className="flex h-full flex-col">
-      <PanelHeader icon={FileText} label="Open Files" separator={false} className="h-10 shrink-0 border-b border-border/50 px-3">
+      <PanelHeader icon={FileText} label="Open Files" separator={false} className="h-10 shrink-0 px-3">
         {files.length > 0 && (
-          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-medium">
+          <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px] font-semibold tabular-nums">
             {files.length}
           </Badge>
         )}
       </PanelHeader>
 
+      {/* Gradient separator below header */}
+      <div className="mx-2">
+        <div className="h-px bg-gradient-to-r from-foreground/[0.04] via-foreground/[0.08] to-foreground/[0.04]" />
+      </div>
+
       {enabled && !data ? (
-        <div className="flex flex-1 items-center justify-center p-4">
-          <p className="text-center text-xs text-muted-foreground/70">
-            Indexing files from this session...
+        <div className="flex flex-1 flex-col items-center justify-center gap-2.5 p-4">
+          <Loader2 className="h-4 w-4 animate-spin text-foreground/20" />
+          <p className="text-center text-[11px] text-muted-foreground/50">
+            Indexing files...
           </p>
         </div>
       ) : files.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center p-4">
-          <p className="text-center text-xs text-muted-foreground/70">
-            Files accessed during this session will appear here
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/[0.03]">
+            <FileText className="h-5 w-5 text-foreground/15" />
+          </div>
+          <p className="text-center text-[11px] leading-relaxed text-muted-foreground/45">
+            Files accessed during this session<br />will appear here
           </p>
         </div>
       ) : (
@@ -139,25 +148,27 @@ export const FilesPanel = memo(function FilesPanel({
               return (
                 <div
                   key={file.path}
-                  className="group flex w-full items-center gap-2 px-3 py-1.5 text-start transition-colors hover:bg-foreground/[0.05] cursor-pointer"
+                  className="group flex w-full items-center gap-2.5 px-3 py-1.5 text-start transition-all duration-150 hover:bg-foreground/[0.04] cursor-pointer"
                   onClick={() => handleClick(file.path)}
                 >
-                  <Icon className={`h-3.5 w-3.5 shrink-0 ${color}`} strokeWidth={1.5} />
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-foreground/[0.03] transition-colors duration-150 group-hover:bg-foreground/[0.06]">
+                    <Icon className={`h-3 w-3 ${color}`} strokeWidth={1.75} />
+                  </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-1.5 min-w-0">
-                          <span className="truncate text-xs font-medium text-foreground/90">
+                          <span className="truncate text-xs font-medium text-foreground/85 transition-colors duration-150 group-hover:text-foreground">
                             {fileName}
                           </span>
                           {rangeText && (
-                            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60">
+                            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">
                               {rangeText}
                             </span>
                           )}
                         </div>
                         {dirPath && (
-                          <div className="truncate text-[10px] text-muted-foreground/70">
+                          <div className="truncate text-[10px] text-muted-foreground/55">
                             {dirPath}
                           </div>
                         )}

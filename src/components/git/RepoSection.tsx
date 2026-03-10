@@ -31,7 +31,7 @@ export interface RepoSectionProps {
 }
 
 export function RepoSection({ repoState, git, collapsed: collapsedProp, onToggleCollapsed, activeEngine, activeSessionId }: RepoSectionProps) {
-  const { repo, status, branches, log } = repoState;
+  const { repo, status, branches, log, diffStat } = repoState;
   const cwd = repo.path;
 
   const [localCollapsed, setLocalCollapsed] = useState(false);
@@ -121,29 +121,37 @@ export function RepoSection({ repoState, git, collapsed: collapsedProp, onToggle
   );
 
   return (
-    <div className="py-2">
+    <div className="py-1.5">
       {/* Repo name — collapsible header */}
       <button
         type="button"
         onClick={() => onToggleCollapsed ? onToggleCollapsed() : setLocalCollapsed((c) => !c)}
-        className="flex w-full items-center gap-1.5 px-3 pb-1.5 cursor-pointer"
+        className="flex w-full items-center gap-1.5 px-3 py-1 cursor-pointer hover:bg-foreground/[0.02] transition-colors"
       >
         {collapsed ? (
-          <ChevronRight className="h-3 w-3 shrink-0 text-foreground/30" />
+          <ChevronRight className="h-3 w-3 shrink-0 text-foreground/35" />
         ) : (
-          <ChevronDown className="h-3 w-3 shrink-0 text-foreground/30" />
+          <ChevronDown className="h-3 w-3 shrink-0 text-foreground/35" />
         )}
-        <FolderGit2 className="h-3 w-3 shrink-0 text-foreground/30" />
-        <span className="text-[11px] font-medium text-foreground/55">{repo.name}</span>
+        <div className="flex h-4.5 w-4.5 items-center justify-center rounded bg-foreground/[0.04]">
+          <FolderGit2 className="h-3 w-3 shrink-0 text-foreground/35" />
+        </div>
+        <span className="text-[11px] font-semibold text-foreground/60">{repo.name}</span>
         {repo.isSubRepo && (
-          <span className="rounded bg-foreground/[0.06] px-1 text-[9px] text-foreground/25">sub</span>
+          <span className="rounded-sm bg-foreground/[0.06] px-1 py-px text-[9px] font-medium text-foreground/30">sub</span>
         )}
         {repo.isWorktree && !repo.isPrimaryWorktree && (
-          <span className="rounded bg-foreground/[0.06] px-1 text-[9px] text-foreground/25">wt</span>
+          <span className="rounded-sm bg-blue-500/10 px-1 py-px text-[9px] font-medium text-blue-400/60">wt</span>
         )}
         {totalChanges > 0 && (
-          <span className="rounded-full bg-foreground/[0.08] px-1.5 text-[10px] text-foreground/40">
+          <span className="rounded-full bg-foreground/[0.06] px-1.5 py-px text-[10px] font-semibold tabular-nums text-foreground/45">
             {totalChanges}
+          </span>
+        )}
+        {!collapsed && (diffStat.additions > 0 || diffStat.deletions > 0) && (
+          <span className="ms-auto flex items-center gap-1 text-[10px] font-medium tabular-nums">
+            {diffStat.additions > 0 && <span className="text-emerald-400/70">+{diffStat.additions}</span>}
+            {diffStat.deletions > 0 && <span className="text-red-400/70">-{diffStat.deletions}</span>}
           </span>
         )}
         {collapsed && status?.branch && (
@@ -158,18 +166,16 @@ export function RepoSection({ repoState, git, collapsed: collapsedProp, onToggle
       {/* Branch selector */}
       <BranchPicker
         currentBranch={status?.branch}
-        ahead={status?.ahead}
-        behind={status?.behind}
         branches={branches}
         onCheckout={handleCheckout}
         onCreateBranch={handleCreateBranch}
       />
 
-      {/* Sync buttons */}
-      <div className="flex items-center gap-0.5 px-3 pb-1">
+      {/* Sync action bar */}
+      <div className="mx-3 mb-1.5 flex items-center gap-0.5 rounded-md bg-foreground/[0.025] px-1 py-0.5">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-foreground/30 hover:text-foreground/60" onClick={() => handleSync("fetch")}>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-foreground/35 hover:text-foreground/70 hover:bg-foreground/[0.06]" onClick={() => handleSync("fetch")}>
               <RefreshCw className="h-3 w-3" />
             </Button>
           </TooltipTrigger>
@@ -177,7 +183,7 @@ export function RepoSection({ repoState, git, collapsed: collapsedProp, onToggle
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-foreground/30 hover:text-foreground/60" onClick={() => handleSync("pull")}>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-foreground/35 hover:text-foreground/70 hover:bg-foreground/[0.06]" onClick={() => handleSync("pull")}>
               <ArrowDown className="h-3 w-3" />
             </Button>
           </TooltipTrigger>
@@ -185,25 +191,30 @@ export function RepoSection({ repoState, git, collapsed: collapsedProp, onToggle
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-foreground/30 hover:text-foreground/60" onClick={() => handleSync("push")}>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-foreground/35 hover:text-foreground/70 hover:bg-foreground/[0.06]" onClick={() => handleSync("push")}>
               <ArrowUp className="h-3 w-3" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom"><p className="text-xs">Push</p></TooltipContent>
         </Tooltip>
+        <div className="min-w-0 flex-1" />
         {(status?.ahead ?? 0) > 0 && (
-          <span className="ms-1 text-[10px] text-emerald-400/50">{status?.ahead} to push</span>
+          <span className="flex items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-px text-[10px] font-medium text-emerald-400/70">
+            <ArrowUp className="h-2.5 w-2.5" />{status?.ahead}
+          </span>
         )}
         {(status?.behind ?? 0) > 0 && (
-          <span className="ms-1 text-[10px] text-amber-400/50">{status?.behind} to pull</span>
+          <span className="flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-400/70">
+            <ArrowDown className="h-2.5 w-2.5" />{status?.behind}
+          </span>
         )}
       </div>
 
       {/* Sync error */}
       {syncError && (
-        <div className="mx-3 mb-1 flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5">
+        <div className="mx-3 mb-1.5 flex items-start gap-1.5 rounded-md border border-red-500/20 bg-red-500/[0.06] px-2.5 py-2">
           <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-red-400/60" />
-          <p className="min-w-0 flex-1 text-[10px] text-red-400/70 wrap-break-word">{syncError}</p>
+          <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-red-400/80 wrap-break-word">{syncError}</p>
           <button type="button" onClick={() => setSyncError(null)} className="shrink-0 text-red-400/40 hover:text-red-400/60 cursor-pointer">
             <X className="h-3 w-3" />
           </button>
@@ -224,7 +235,7 @@ export function RepoSection({ repoState, git, collapsed: collapsedProp, onToggle
       {/* Changes sections */}
       {stagedFiles.length > 0 && (
         <ChangesSection
-          label="Staged Changes"
+          label="Staged"
           count={stagedFiles.length}
           group="staged"
           files={stagedFiles}
@@ -278,31 +289,33 @@ export function RepoSection({ repoState, git, collapsed: collapsedProp, onToggle
       )}
 
       {totalChanges === 0 && status && (
-        <div className="flex flex-col items-center justify-center py-4">
-          <Check className="mb-1 h-4 w-4 text-foreground/15" />
-          <p className="text-[10px] text-foreground/25">No changes</p>
+        <div className="flex flex-col items-center justify-center gap-1 py-5">
+          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/[0.08]">
+            <Check className="h-3 w-3 text-emerald-400/50" />
+          </div>
+          <p className="text-[10px] text-foreground/30">Working tree clean</p>
         </div>
       )}
 
       {/* Log section */}
-      <div className="mt-0.5">
+      <div className="mt-1">
         <button
           type="button"
           onClick={() => setShowLog(!showLog)}
-          className="flex w-full items-center gap-1.5 px-3 py-1 text-[11px] text-foreground/40 transition-colors hover:bg-foreground/[0.03] cursor-pointer"
+          className="flex w-full items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-foreground/[0.03] cursor-pointer"
         >
-          {showLog ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-          <History className="h-3 w-3 shrink-0" />
-          <span className="font-medium">Commits</span>
-          <span className="ms-auto text-[10px] text-foreground/20">{log.length}</span>
+          {showLog ? <ChevronDown className="h-3 w-3 shrink-0 text-foreground/35" /> : <ChevronRight className="h-3 w-3 shrink-0 text-foreground/35" />}
+          <History className="h-3 w-3 shrink-0 text-foreground/35" />
+          <span className="text-[11px] font-semibold text-foreground/45">Commits</span>
+          <span className="rounded-full bg-foreground/[0.05] px-1.5 py-px text-[10px] font-medium tabular-nums text-foreground/30">{log.length}</span>
         </button>
         {showLog && (
           <div className="pb-1">
             {log.map((entry) => (
-              <div key={entry.hash} className="flex items-baseline gap-2 px-3 py-0.5 text-[10px] hover:bg-foreground/[0.03]">
-                <span className="shrink-0 font-mono text-foreground/30">{entry.shortHash}</span>
+              <div key={entry.hash} className="flex items-baseline gap-2 px-3 py-1 text-[10px] transition-colors hover:bg-foreground/[0.03]">
+                <span className="shrink-0 rounded bg-foreground/[0.04] px-1 py-px font-mono text-[9px] text-foreground/35">{entry.shortHash}</span>
                 <span className="min-w-0 flex-1 truncate text-foreground/55">{entry.subject}</span>
-                <span className="shrink-0 text-foreground/20">{formatRelativeDate(entry.date)}</span>
+                <span className="shrink-0 tabular-nums text-foreground/25">{formatRelativeDate(entry.date)}</span>
               </div>
             ))}
           </div>

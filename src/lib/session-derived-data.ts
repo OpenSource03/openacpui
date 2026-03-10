@@ -1,22 +1,9 @@
 import { extractFiles, extractFilePath, getToolAccess, type FileAccess } from "./file-access";
-import {
-  extractAllFileChanges,
-  extractTurnSummaries,
-  groupChangesByFile,
-  type FileChange,
-  type TurnSummary,
-} from "./turn-changes";
 import type { UIMessage } from "../types";
 
 export interface FilePanelData {
   files: FileAccess[];
   lastToolCallIdByFile: Map<string, string>;
-}
-
-export interface ChangesPanelData {
-  turnSummaries: TurnSummary[];
-  allChanges: FileChange[];
-  groupedByFile: Map<string, FileChange[]>;
 }
 
 interface CacheEntry<T> {
@@ -27,7 +14,6 @@ interface CacheEntry<T> {
 const MAX_CACHE_ENTRIES = 12;
 
 const filePanelCache = new Map<string, CacheEntry<FilePanelData>>();
-const changesPanelCache = new Map<string, CacheEntry<ChangesPanelData>>();
 
 function touchCacheEntry<T>(cache: Map<string, CacheEntry<T>>, sessionId: string, entry: CacheEntry<T>): void {
   cache.delete(sessionId);
@@ -87,31 +73,5 @@ export function computeFilePanelData(
     lastToolCallIdByFile,
   };
   touchCacheEntry(filePanelCache, sessionId, { cacheKey, value });
-  return value;
-}
-
-export function getCachedChangesPanelData(sessionId: string, cacheKey: string): ChangesPanelData | null {
-  const entry = changesPanelCache.get(sessionId);
-  if (!entry || entry.cacheKey !== cacheKey) return null;
-  touchCacheEntry(changesPanelCache, sessionId, entry);
-  return entry.value;
-}
-
-export function computeChangesPanelData(
-  sessionId: string,
-  cacheKey: string,
-  messages: UIMessage[],
-  isProcessing: boolean,
-): ChangesPanelData {
-  const cached = getCachedChangesPanelData(sessionId, cacheKey);
-  if (cached) return cached;
-
-  const allChanges = extractAllFileChanges(messages);
-  const value: ChangesPanelData = {
-    turnSummaries: extractTurnSummaries(messages, isProcessing),
-    groupedByFile: groupChangesByFile(allChanges),
-    allChanges,
-  };
-  touchCacheEntry(changesPanelCache, sessionId, { cacheKey, value });
   return value;
 }

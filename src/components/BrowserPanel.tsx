@@ -451,20 +451,20 @@ function BrowserStartPage({
             )}
           </div>
 
-          {/* Feature indicators — minimal horizontal list */}
-          <div className="flex items-center gap-4 text-[11px] text-foreground/30">
-            <span className="inline-flex items-center gap-1.5">
-              <Eye className="h-3 w-3" />
+          {/* Feature indicators — minimal horizontal list, wraps at narrow widths */}
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11px] text-foreground/30">
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <Eye className="h-3 w-3 shrink-0" />
               Preview
             </span>
             <span className="h-3 w-px bg-foreground/[0.08]" />
-            <span className="inline-flex items-center gap-1.5">
-              <Crosshair className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <Crosshair className="h-3 w-3 shrink-0" />
               Inspect
             </span>
             <span className="h-3 w-px bg-foreground/[0.08]" />
-            <span className="inline-flex items-center gap-1.5">
-              <Sparkles className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <Sparkles className="h-3 w-3 shrink-0" />
               Use in chat
             </span>
           </div>

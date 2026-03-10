@@ -1,6 +1,6 @@
 /**
  * Consistent panel header used across TodoPanel, BackgroundAgentsPanel,
- * McpPanel, FilesPanel, GitPanel, and ChangesPanel.
+ * McpPanel, FilesPanel, and GitPanel.
  *
  * Provides a standardized layout: [icon] [label] [...children (right side)]
  * followed by an optional separator.
@@ -32,11 +32,17 @@ export function PanelHeader({
   return (
     <>
       <div className={`flex items-center gap-2 ${className}`}>
-        <Icon className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        {children && <div className="ms-auto flex items-center gap-1">{children}</div>}
+        <div className="flex h-5 w-5 items-center justify-center rounded-md bg-foreground/[0.04]">
+          <Icon className={`h-3 w-3 shrink-0 ${iconClass}`} />
+        </div>
+        <span className="text-[11px] font-semibold tracking-wide text-muted-foreground/80 uppercase">{label}</span>
+        {children && <div className="ms-auto flex items-center gap-1.5">{children}</div>}
       </div>
-      {separator && <div className="border-t border-foreground/[0.08]" />}
+      {separator && (
+        <div className="mx-2">
+          <div className="h-px bg-gradient-to-r from-foreground/[0.06] via-foreground/[0.1] to-foreground/[0.06]" />
+        </div>
+      )}
     </>
   );
 }

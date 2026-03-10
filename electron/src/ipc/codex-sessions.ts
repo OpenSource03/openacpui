@@ -14,7 +14,7 @@ import { safeSend } from "../lib/safe-send";
 import { CodexRpcClient } from "../lib/codex-rpc";
 import { getCodexBinaryPath, getCodexBinaryStatus, getCodexVersion } from "../lib/codex-binary";
 import { getAppSetting } from "../lib/app-settings";
-import { extractErrorMessage } from "../lib/error-utils";
+import { reportError } from "../lib/error-utils";
 import { captureEvent } from "../lib/posthog";
 
 import type {
@@ -327,7 +327,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             session.model = selectedModel;
           }
         } catch (err) {
-          log("codex",` model/list failed: ${extractErrorMessage(err)}`);
+          reportError("CODEX_MODEL_LIST_ERR", err, { engine: "codex", sessionId: internalId });
         }
 
         // ── Start a thread ──
@@ -359,14 +359,14 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         };
       } catch (err) {
         void captureEvent("session_error", { engine: "codex", phase: "start" });
-        log("codex",` Start failed: ${extractErrorMessage(err)}`);
+        const errMsg = reportError("CODEX_START_ERR", err, { engine: "codex", sessionId: internalId });
         // Clean up on failure
         const session = codexSessions.get(internalId);
         if (session) {
           session.rpc.destroy();
           codexSessions.delete(internalId);
         }
-        return { error: extractErrorMessage(err) };
+        return { error: errMsg };
       }
     },
   );
@@ -404,8 +404,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             ` Thread lazily started: session=${shortId(data.sessionId, 12)} thread=${shortId(session.threadId, 12)}`,
           );
         } catch (err) {
-          const msg = extractErrorMessage(err);
-          log("codex", ` Send rejected: no active thread session=${shortId(data.sessionId, 12)} error=${msg}`);
+          const msg = reportError("CODEX_THREAD_START_ERR", err, { engine: "codex", sessionId: data.sessionId });
           return { error: msg };
         }
       }
@@ -440,11 +439,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         );
         return { turnId: result.turn.id };
       } catch (err) {
-        log(
-          "codex",
-          ` Send failed: session=${shortId(data.sessionId, 12)} error=${extractErrorMessage(err)}`,
-        );
-        return { error: extractErrorMessage(err) };
+        const errMsg = reportError("CODEX_SEND_ERR", err, { engine: "codex", sessionId: data.sessionId });
+        return { error: errMsg };
       }
     },
   );
@@ -470,7 +466,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       });
       return {};
     } catch (err) {
-      return { error: extractErrorMessage(err) };
+      return { error: reportError("CODEX_INTERRUPT_ERR", err, { engine: "codex", sessionId }) };
     }
   });
 
@@ -539,7 +535,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       await session.rpc.request("thread/compact/start", { threadId: session.threadId });
       return {};
     } catch (err) {
-      return { error: extractErrorMessage(err) };
+      return { error: reportError("CODEX_COMPACT_ERR", err, { engine: "codex", sessionId }) };
     }
   });
 
@@ -553,8 +549,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       });
       return { skills: result.data ?? [] };
     } catch (err) {
-      log("codex", ` skills/list failed: ${extractErrorMessage(err)}`);
-      return { skills: [], error: extractErrorMessage(err) };
+      const errMsg = reportError("CODEX_SKILLS_LIST_ERR", err, { engine: "codex", sessionId });
+      return { skills: [], error: errMsg };
     }
   });
 
@@ -566,8 +562,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const result = await session.rpc.request<AppsListResponse>("app/list", {});
       return { apps: result.data ?? [] };
     } catch (err) {
-      log("codex", ` app/list failed: ${extractErrorMessage(err)}`);
-      return { apps: [], error: extractErrorMessage(err) };
+      const errMsg = reportError("CODEX_APPS_LIST_ERR", err, { engine: "codex", sessionId });
+      return { apps: [], error: errMsg };
     }
   });
 
@@ -613,7 +609,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         rpc.destroy();
       }
     } catch (err) {
-      return { models: [], error: extractErrorMessage(err) };
+      return { models: [], error: reportError("CODEX_MODELS_SPAWN_ERR", err, { engine: "codex" }) };
     }
   });
 
@@ -653,7 +649,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         const result = await session.rpc.request("account/login/start", params, 60000);
         return result;
       } catch (err) {
-        return { error: extractErrorMessage(err) };
+        return { error: reportError("CODEX_LOGIN_ERR", err, { engine: "codex", sessionId: data.sessionId }) };
       }
     },
   );
@@ -724,13 +720,13 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         return { sessionId: internalId, threadId: session.threadId };
       } catch (err) {
         void captureEvent("session_revived", { engine: "codex", success: false });
-        log("codex",` Resume failed: ${extractErrorMessage(err)}`);
+        const errMsg = reportError("CODEX_RESUME_ERR", err, { engine: "codex", sessionId: internalId });
         const session = codexSessions.get(internalId);
         if (session) {
           session.rpc.destroy();
           codexSessions.delete(internalId);
         }
-        return { error: extractErrorMessage(err) };
+        return { error: errMsg };
       }
     },
   );
@@ -752,7 +748,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     try {
       return { version: await getCodexVersion() };
     } catch (err) {
-      return { error: extractErrorMessage(err) };
+      return { error: reportError("CODEX_VERSION_ERR", err, { engine: "codex" }) };
     }
   });
 

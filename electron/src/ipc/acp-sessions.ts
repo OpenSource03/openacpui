@@ -6,8 +6,9 @@ import path from "path";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { getAgent } from "../lib/agent-registry";
+import type { InstalledAgent } from "../lib/agent-registry";
 import { getMcpAuthHeaders } from "../lib/mcp-oauth-flow";
-import { extractErrorMessage } from "../lib/error-utils";
+import { extractErrorMessage, reportError } from "../lib/error-utils";
 import { captureEvent } from "../lib/posthog";
 
 // ACP SDK is ESM-only, must be async-imported
@@ -71,6 +72,7 @@ interface ACPSessionEntry {
   connection: ClientSideConnection;
   acpSessionId: string;
   internalId: string;
+  analyticsProperties: AcpAnalyticsProperties;
   eventCounter: number;
   pendingPermissions: Map<string, { resolve: (response: unknown) => void }>;
   cwd: string;
@@ -97,6 +99,40 @@ const commandsBuffer = new Map<string, unknown[]>();
 // Track in-flight acp:start so the renderer can abort during npx download / protocol init.
 // Only one start can be in-flight at a time (guarded by materializingRef in the renderer).
 let pendingStartProcess: { id: string; process: ChildProcess; aborted?: boolean } | null = null;
+
+type AcpAnalyticsProperties = {
+  acp_agent: string;
+  acp_agent_source: "registry" | "custom";
+  acp_agent_launch_method: "npx" | "binary" | "unknown";
+  acp_agent_registry_id?: string;
+  acp_agent_registry_version?: string;
+};
+
+function buildAcpAnalyticsProperties(agent: InstalledAgent): AcpAnalyticsProperties {
+  const registryId = agent.registryId?.trim();
+  const launchMethod = agent.binary === "npx" ? "npx" : agent.binary ? "binary" : "unknown";
+
+  if (registryId) {
+    return {
+      acp_agent: registryId,
+      acp_agent_source: "registry",
+      acp_agent_launch_method: launchMethod,
+      acp_agent_registry_id: registryId,
+      ...(agent.registryVersion ? { acp_agent_registry_version: agent.registryVersion } : {}),
+    };
+  }
+
+  const customHash = crypto.createHash("sha256").update(agent.id).digest("hex").slice(0, 12);
+  return {
+    acp_agent: `custom:${customHash}`,
+    acp_agent_source: "custom",
+    acp_agent_launch_method: launchMethod,
+  };
+}
+
+export function getAcpAnalyticsPropertiesForSession(sessionId: string): Record<string, unknown> | null {
+  return acpSessions.get(sessionId)?.analyticsProperties ?? null;
+}
 
 /** One-line summary for each ACP session update (mirrors summarizeEvent for Claude) */
 function summarizeUpdate(update: Record<string, unknown>): string {
@@ -423,6 +459,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
 
     let connResult: AcpConnectionResult | null = null;
+    const analyticsProperties = buildAcpAnalyticsProperties(agentDef);
     try {
       connResult = await createAcpConnection(agentDef as { binary: string; args?: string[]; env?: Record<string, string>; name: string }, getMainWindow, "ACP_SPAWN");
       const { proc, connection, pendingPermissions, internalId, supportsLoadSession } = connResult;
@@ -444,6 +481,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         connection,
         acpSessionId: sessionResult.sessionId,
         internalId,
+        analyticsProperties,
         eventCounter: 0,
         pendingPermissions,
         cwd: options.cwd,
@@ -463,7 +501,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       // Startup succeeded — clear the pending tracker before returning
       pendingStartProcess = null;
 
-      void captureEvent("session_created", { engine: "acp" });
+      void captureEvent("session_created", { engine: "acp", ...analyticsProperties });
 
       return {
         sessionId: internalId,
@@ -485,11 +523,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         return { cancelled: true };
       }
 
-      const msg = extractErrorMessage(err);
-      log("ACP_SPAWN", `ERROR: ${msg}`);
-      if (err instanceof Error && err.stack) {
-        log("ACP_SPAWN", `Stack: ${err.stack}`);
-      }
+      const msg = reportError("ACP_SPAWN", err, { engine: "acp", ...analyticsProperties });
       return { error: msg };
     }
   });
@@ -511,6 +545,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
 
     let connResult: AcpConnectionResult | null = null;
+    const analyticsProperties = buildAcpAnalyticsProperties(agentDef);
     try {
       connResult = await createAcpConnection(agentDef as { binary: string; args?: string[]; env?: Record<string, string>; name: string }, getMainWindow, "ACP_REVIVE");
       const { proc, connection, pendingPermissions, internalId, supportsLoadSession } = connResult;
@@ -523,7 +558,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       if (supportsLoadSession && options.agentSessionId) {
         // Restore full context — suppress history replay from reaching the renderer
-        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId: options.agentSessionId, internalId, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: true };
+        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId: options.agentSessionId, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: true };
         acpSessions.set(internalId, entry);
         const loadResult = await connection.loadSession({ sessionId: options.agentSessionId, cwd: options.cwd, mcpServers: acpMcpServers });
         entry.isReloading = false;
@@ -536,14 +571,14 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         // Fall back to fresh session — UI messages already restored from disk
         const sessionResult = await connection.newSession({ cwd: options.cwd, mcpServers: acpMcpServers });
         acpSessionId = sessionResult.sessionId;
-        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId, internalId, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: false };
+        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: false };
         acpSessions.set(internalId, entry);
         configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_REVIVE");
         log("ACP_REVIVE", `newSession fallback, session=${acpSessionId.slice(0, 12)}`);
       }
 
       const mcpStatuses = (options.mcpServers ?? []).map(s => ({ name: s.name, status: "connected" as const }));
-      void captureEvent("session_revived", { engine: "acp", success: true });
+      void captureEvent("session_revived", { engine: "acp", success: true, ...analyticsProperties });
       return { sessionId: internalId, agentSessionId: acpSessionId, usedLoad, configOptions, mcpStatuses };
     } catch (err) {
       // Kill process and clean up any partial session entry
@@ -552,8 +587,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         acpSessions.delete(connResult.internalId);
         configBuffer.delete(connResult.internalId);
       }
-      const msg = extractErrorMessage(err);
-      log("ACP_REVIVE", `ERROR: ${msg}`);
+      const msg = reportError("ACP_REVIVE", err, { engine: "acp", ...analyticsProperties });
       return { error: msg };
     }
   });
@@ -594,7 +628,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     } catch (err) {
       const msg = extractErrorMessage(err);
       const surfacedError = msg === "Internal error" && session.lastStderrError ? session.lastStderrError : msg;
-      log("ACP_SEND", `ERROR: session=${sessionId.slice(0, 8)} ${surfacedError}`);
+      reportError("ACP_PROMPT_ERR", err, { engine: "acp", sessionId, surfacedError });
       return { error: surfacedError };
     }
   });
@@ -681,8 +715,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("ACP_RELOAD", `session=${sessionId.slice(0, 8)} loadSession OK`);
       return { ok: true, supportsLoad: true };
     } catch (err) {
-      const msg = extractErrorMessage(err);
-      log("ACP_RELOAD", `ERROR: session=${sessionId.slice(0, 8)} loadSession failed: ${msg}`);
+      const msg = reportError("ACP_RELOAD_ERR", err, { engine: "acp", sessionId });
       return { error: msg, supportsLoad: true };
     }
   });
@@ -707,8 +740,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("ACP_CANCEL", `session=${sessionId.slice(0, 8)} acknowledged`);
       return { ok: true };
     } catch (err) {
-      const msg = extractErrorMessage(err);
-      log("ACP_CANCEL", `ERROR: session=${sessionId.slice(0, 8)} ${msg}`);
+      const msg = reportError("ACP_CANCEL_ERR", err, { engine: "acp", sessionId });
       return { error: msg };
     }
   });
@@ -755,8 +787,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         throw configErr;
       }
     } catch (err) {
-      log("ACP_CONFIG", `ERROR: session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("ACP_CONFIG_ERR", err, { engine: "acp", sessionId, configId });
+      return { error: errMsg };
     }
   });
 

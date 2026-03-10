@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { JiraProjectConfig } from "@shared/types/jira";
+import { captureException } from "@/lib/analytics";
 
 export function useJiraConfig(projectId: string | null) {
   const [config, setConfig] = useState<JiraProjectConfig | null>(null);
@@ -28,6 +29,7 @@ export function useJiraConfig(projectId: string | null) {
         setLoading(false);
       })
       .catch((err) => {
+        captureException(err instanceof Error ? err : new Error(String(err)), { label: "JIRA_CONFIG_LOAD_ERR" });
         setError(String(err));
         setLoading(false);
       });
@@ -42,6 +44,7 @@ export function useJiraConfig(projectId: string | null) {
         await window.claude.jira.saveConfig(projectId, newConfig);
         setConfig(newConfig);
       } catch (err) {
+        captureException(err instanceof Error ? err : new Error(String(err)), { label: "JIRA_CONFIG_SAVE_ERR" });
         setError(String(err));
         throw err;
       }
@@ -57,6 +60,7 @@ export function useJiraConfig(projectId: string | null) {
       await window.claude.jira.deleteConfig(projectId);
       setConfig(null);
     } catch (err) {
+      captureException(err instanceof Error ? err : new Error(String(err)), { label: "JIRA_CONFIG_DELETE_ERR" });
       setError(String(err));
       throw err;
     }

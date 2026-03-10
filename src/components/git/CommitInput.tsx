@@ -65,53 +65,68 @@ export function CommitInput({
     }
   }, [cwd, activeEngine, activeSessionId, onSyncError]);
 
+  const canCommit = commitMessage.trim().length > 0 && stagedCount > 0;
+
   return (
-    <div className="px-3 pt-1 pb-1">
-      <div className="relative">
+    <div className="mx-3 mb-1.5">
+      <div className="overflow-hidden rounded-lg border border-foreground/[0.06] bg-foreground/[0.02] transition-colors focus-within:border-foreground/[0.12] focus-within:bg-foreground/[0.03]">
         <textarea
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           onKeyDown={handleCommitKeyDown}
-          placeholder="Commit message"
+          placeholder="Commit message…"
           rows={2}
-          className="w-full resize-none rounded bg-foreground/[0.04] px-2 py-1.5 pe-14 text-[11px] text-foreground/70 outline-none transition-colors placeholder:text-foreground/20 focus:bg-foreground/[0.07] focus:ring-1 focus:ring-foreground/[0.08]"
+          className="w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[11px] leading-relaxed text-foreground/70 outline-none placeholder:text-foreground/20"
         />
-        <div className="absolute end-1.5 top-1.5 flex items-center gap-0.5">
+        {/* Action bar */}
+        <div className="flex items-center gap-1 border-t border-foreground/[0.04] px-1.5 py-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={handleGenerateMessage}
                 disabled={generatingMessage || totalChanges === 0}
-                className="flex h-5 w-5 items-center justify-center rounded text-foreground/30 transition-colors hover:text-foreground/60 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                className="flex h-5.5 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium text-foreground/30 transition-colors hover:bg-foreground/[0.05] hover:text-foreground/60 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
               >
                 {generatingMessage ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <Sparkles className="h-3 w-3" />
                 )}
+                <span>Generate</span>
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left" sideOffset={4}>
-              <p className="text-xs">Generate commit message</p>
+            <TooltipContent side="bottom" sideOffset={4}>
+              <p className="text-xs">AI commit message</p>
               <p className="text-[10px] text-background/60">Respects CLAUDE.md rules</p>
             </TooltipContent>
           </Tooltip>
+          <div className="min-w-0 flex-1" />
+          {stagedCount > 0 && (
+            <span className="text-[10px] tabular-nums text-foreground/25">
+              {stagedCount} staged
+            </span>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={handleCommit}
-                disabled={!commitMessage.trim() || stagedCount === 0}
-                className="flex h-5 w-5 items-center justify-center rounded text-foreground/30 transition-colors hover:text-foreground/60 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                disabled={!canCommit}
+                className={`flex h-5.5 items-center gap-1 rounded-md px-2 text-[10px] font-medium transition-colors cursor-pointer ${
+                  canCommit
+                    ? "bg-foreground/[0.08] text-foreground/60 hover:bg-foreground/[0.12] hover:text-foreground/80"
+                    : "text-foreground/20 cursor-not-allowed"
+                }`}
               >
-                <Check className="h-3.5 w-3.5" />
+                <Check className="h-3 w-3" />
+                <span>Commit</span>
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left" sideOffset={4}>
+            <TooltipContent side="bottom" sideOffset={4}>
               <p className="text-xs">
-                Commit {stagedCount > 0 ? `(${stagedCount} file${stagedCount > 1 ? "s" : ""})` : ""}
-                <span className="ms-1 text-foreground/40">Cmd+Enter</span>
+                Commit changes
+                <span className="ms-1.5 text-background/50">⌘↵</span>
               </p>
             </TooltipContent>
           </Tooltip>

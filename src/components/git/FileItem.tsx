@@ -2,7 +2,6 @@ import {
   Plus,
   Minus,
   Undo2,
-  FileText,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { STATUS_COLORS, STATUS_LETTERS } from "./git-panel-utils";
@@ -24,28 +23,29 @@ export function FileItem({
   const statusLetter = STATUS_LETTERS[file.status] ?? "?";
 
   return (
-    <div className={`group flex items-center gap-1.5 px-3 py-[3px] text-[11px] transition-colors hover:bg-foreground/[0.04] ${isExpanded ? "bg-foreground/[0.03]" : ""}`}>
-      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold ${statusColor}`}>
-        {statusLetter}
-      </span>
+    <div className={`group flex items-center gap-1.5 pe-2 ps-5 py-[3px] text-[11px] transition-colors hover:bg-foreground/[0.04] ${isExpanded ? "bg-foreground/[0.04]" : ""}`}>
+      {/* File name + path — clickable for diff */}
       <button
         type="button"
         onClick={() => onViewDiff?.(file)}
-        className="flex min-w-0 flex-1 items-baseline gap-1 truncate cursor-pointer"
+        className="flex min-w-0 flex-1 items-center gap-1.5 truncate cursor-pointer"
         disabled={!onViewDiff}
       >
-        <FileText className="h-3 w-3 shrink-0 self-center text-foreground/20" />
-        <span className="truncate text-foreground/65">{fileName}</span>
-        {dirPath && <span className="truncate text-[10px] text-foreground/25">{dirPath}</span>}
+        <span className="min-w-0 truncate text-foreground/60">{fileName}</span>
+        {dirPath && (
+          <span className="min-w-0 shrink truncate text-[10px] text-foreground/20">{dirPath}</span>
+        )}
         {file.oldPath && (
-          <span className="truncate text-[10px] text-foreground/25">&larr; {file.oldPath.split("/").pop()}</span>
+          <span className="shrink-0 text-[10px] text-foreground/20">← {file.oldPath.split("/").pop()}</span>
         )}
       </button>
+
+      {/* Hover actions */}
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
         {onDiscard && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={() => onDiscard(file)} className="flex h-4 w-4 items-center justify-center rounded text-foreground/25 hover:text-red-400/60 cursor-pointer">
+              <button type="button" onClick={() => onDiscard(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/25 hover:bg-red-500/10 hover:text-red-400/70 cursor-pointer transition-colors">
                 <Undo2 className="h-2.5 w-2.5" />
               </button>
             </TooltipTrigger>
@@ -55,7 +55,7 @@ export function FileItem({
         {onStage && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={() => onStage(file)} className="flex h-4 w-4 items-center justify-center rounded text-foreground/25 hover:text-emerald-400/60 cursor-pointer">
+              <button type="button" onClick={() => onStage(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/25 hover:bg-emerald-500/10 hover:text-emerald-400/70 cursor-pointer transition-colors">
                 <Plus className="h-3 w-3" />
               </button>
             </TooltipTrigger>
@@ -65,7 +65,7 @@ export function FileItem({
         {onUnstage && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={() => onUnstage(file)} className="flex h-4 w-4 items-center justify-center rounded text-foreground/25 hover:text-amber-400/60 cursor-pointer">
+              <button type="button" onClick={() => onUnstage(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/25 hover:bg-amber-500/10 hover:text-amber-400/70 cursor-pointer transition-colors">
                 <Minus className="h-3 w-3" />
               </button>
             </TooltipTrigger>
@@ -73,6 +73,11 @@ export function FileItem({
           </Tooltip>
         )}
       </div>
+
+      {/* Status badge — pinned right */}
+      <span className={`flex h-4 min-w-4 shrink-0 items-center justify-center rounded px-0.5 text-[9px] font-bold ${statusColor}`}>
+        {statusLetter}
+      </span>
     </div>
   );
 }

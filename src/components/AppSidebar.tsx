@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
-import { PanelLeft, Plus } from "lucide-react";
+import { Bug, PanelLeft, Plus } from "lucide-react";
 import { isMac } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,6 +26,7 @@ interface AppSidebarProps {
   onCreateProject: () => void;
   onDeleteProject: (id: string) => void;
   onRenameProject: (id: string, name: string) => void;
+  onUpdateProjectIcon: (id: string, icon: string | null, iconType: "emoji" | "lucide" | null) => void;
   onImportCCSession: (projectId: string, ccSessionId: string) => void;
   onToggleSidebar: () => void;
   onNavigateToMessage: (sessionId: string, messageId: string) => void;
@@ -56,6 +57,7 @@ export const AppSidebar = memo(function AppSidebar({
   onCreateProject,
   onDeleteProject,
   onRenameProject,
+  onUpdateProjectIcon,
   onImportCCSession,
   onToggleSidebar,
   onNavigateToMessage,
@@ -146,9 +148,16 @@ export const AppSidebar = memo(function AppSidebar({
     );
     if (!viewport) return;
     viewport.addEventListener("scroll", updateFade, { passive: true });
-    // Check initial state
-    updateFade();
-    return () => viewport.removeEventListener("scroll", updateFade);
+
+    // ResizeObserver catches initial content render + any size changes
+    const ro = new ResizeObserver(updateFade);
+    ro.observe(viewport);
+    if (viewport.firstElementChild) ro.observe(viewport.firstElementChild);
+
+    return () => {
+      viewport.removeEventListener("scroll", updateFade);
+      ro.disconnect();
+    };
   }, [updateFade]);
 
   // Recheck fade when projects/space change (content size changes)
@@ -157,13 +166,15 @@ export const AppSidebar = memo(function AppSidebar({
   }, [filteredProjects, activeSpaceId, updateFade]);
 
   const maskTop = fadeTop ? "transparent 0%, black 32px" : "black 0%";
-  const maskBottom = fadeBottom ? "black calc(100% - 32px), transparent 100%" : "black 100%";
+  const maskBottom = fadeBottom
+    ? "black calc(100% - 48px), rgba(0,0,0,0.35) calc(100% - 26px), rgba(0,0,0,0.07) calc(100% - 10px), transparent 100%"
+    : "black 100%";
   const maskValue = `linear-gradient(to bottom, ${maskTop}, ${maskBottom})`;
 
   return (
     <div
       className={`flex shrink-0 flex-col overflow-hidden bg-sidebar transition-[width] duration-200 ${
-        isOpen ? "ps-2" : ""
+        isOpen ? (islandLayout ? "ps-[var(--island-gap)]" : "ps-2") : ""
       }`}
       style={{ width: isOpen ? APP_SIDEBAR_WIDTH : 0 }}
     >
@@ -223,6 +234,9 @@ export const AppSidebar = memo(function AppSidebar({
                   onRenameSession={onRenameSession}
                   onDeleteProject={() => onDeleteProject(project.id)}
                   onRenameProject={(name) => onRenameProject(project.id, name)}
+                  onUpdateIcon={(icon, iconType) =>
+                    onUpdateProjectIcon(project.id, icon, iconType)
+                  }
                   onImportCCSession={(ccSessionId) =>
                     onImportCCSession(project.id, ccSessionId)
                   }
@@ -250,6 +264,20 @@ export const AppSidebar = memo(function AppSidebar({
       </div>
 
       <UpdateBanner />
+
+      <div className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] text-sidebar-foreground/40">
+        <span>Harnss is in early beta</span>
+        <span className="text-sidebar-foreground/20">·</span>
+        <a
+          href="https://github.com/OpenSource03/harnss/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground/80"
+        >
+          <Bug className="h-3 w-3" />
+          <span>Report a bug</span>
+        </a>
+      </div>
 
       <SpaceBar
         spaces={spaces}

@@ -58,7 +58,7 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
   tools,
   messages,
   showThinking = true,
-  autoExpandTools = true,
+  autoExpandTools = false,
   animate,
 }: ToolGroupBlockProps) {
   // Lock animation decision at mount. Parent re-renders may flip `animate` to false
@@ -235,7 +235,7 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
                 message.role === "tool_call" ? (
                   <ToolCall key={message.id} message={message} compact autoExpandTools={autoExpandTools} />
                 ) : (
-                  <div key={message.id} className="py-1">
+                  <div key={message.id}>
                     <ThinkingBlock
                       thinking={message.thinking ?? ""}
                       isStreaming={message.isStreaming}

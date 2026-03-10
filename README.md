@@ -109,6 +109,18 @@ Projects map to folders on disk. Spaces let you organize projects into named gro
 
 Browse and install agents from the ACP community registry directly in the app. Add custom agents by specifying a command, arguments, environment variables, and an icon. All configuration is managed through Settings — no config files.
 
+### Plan mode & permission control
+
+Work in plan mode to have the agent draft a plan before making any changes. Three permission levels — Ask First, Accept Edits, Allow All — control how much autonomy the agent has. Switch modes at any point without interrupting context.
+
+### Background task agents
+
+Task agents spawned during a session continue running in the background and are tracked in a dedicated panel. Keep working in other sessions while long-running tasks complete.
+
+### Image attachments & annotation
+
+Attach screenshots or images directly in the chat. An built-in annotation tool lets you draw, highlight, and mark up images with freehand strokes before sending them to the agent.
+
 ### Voice input & notifications
 
 Voice input via native macOS dictation or an on-device Whisper model (no API key required). Configurable OS notifications for plan approval requests, permission prompts, agent questions, and session completion.

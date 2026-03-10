@@ -26,11 +26,17 @@ export interface ToolGroupInfo {
 // ── Tool names excluded from grouping ──
 
 const EXCLUDED_TOOL_NAMES = new Set(["task", "agent", "exitplanmode", "askuserquestion"]);
+const EDIT_BOUNDARY_TOOL_NAMES = new Set(["edit", "write"]);
 
 function isGroupableToolCall(msg: UIMessage): boolean {
   if (msg.role !== "tool_call") return false;
   const name = (msg.toolName ?? "").toLowerCase();
   return !EXCLUDED_TOOL_NAMES.has(name);
+}
+
+function isEditBoundaryToolCall(msg: UIMessage): boolean {
+  if (msg.role !== "tool_call") return false;
+  return EDIT_BOUNDARY_TOOL_NAMES.has((msg.toolName ?? "").toLowerCase());
 }
 
 /** Returns true for assistant messages that contain only thinking text. */
@@ -58,6 +64,7 @@ function isAssistantText(msg: UIMessage): boolean {
 export function computeToolGroups(
   messages: UIMessage[],
   isProcessing: boolean,
+  avoidGroupingEdits: boolean,
 ): ToolGroupInfo {
   const groups = new Map<number, ToolGroup>();
   const groupedIndices = new Set<number>();
@@ -94,6 +101,14 @@ export function computeToolGroups(
     const msg = messages[i];
 
     if (isGroupableToolCall(msg)) {
+      if (avoidGroupingEdits && isEditBoundaryToolCall(msg)) {
+        finalizeGroup();
+        currentStartIndex = i;
+        currentTools.push(msg);
+        currentMessages.push(msg);
+        finalizeGroup();
+        continue;
+      }
       if (currentStartIndex === -1) currentStartIndex = i;
       currentTools.push(msg);
       currentMessages.push(msg);

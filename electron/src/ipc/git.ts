@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { gitExec, ALWAYS_SKIP } from "../lib/git-exec";
 import { captureEvent } from "../lib/posthog";
+import { reportError } from "../lib/error-utils";
 
 interface DiscoveredRepo {
   path: string;
@@ -216,7 +217,7 @@ export function register(): void {
 
       return { branch, upstream, ahead, behind, files };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_STATUS_ERR", err) };
     }
   });
 
@@ -225,7 +226,7 @@ export function register(): void {
       await gitExec(["add", "--", ...files], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_STAGE_ERR", err) };
     }
   });
 
@@ -234,7 +235,7 @@ export function register(): void {
       await gitExec(["restore", "--staged", "--", ...files], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_UNSTAGE_ERR", err) };
     }
   });
 
@@ -243,7 +244,7 @@ export function register(): void {
       await gitExec(["add", "-A"], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_STAGE_ALL_ERR", err) };
     }
   });
 
@@ -252,7 +253,7 @@ export function register(): void {
       await gitExec(["reset", "HEAD", "--", "."], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_UNSTAGE_ALL_ERR", err) };
     }
   });
 
@@ -275,7 +276,7 @@ export function register(): void {
       }
       return { ok: true };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_DISCARD_ERR", err) };
     }
   });
 
@@ -285,7 +286,7 @@ export function register(): void {
       void captureEvent("git_commit_created", { message_length: message.length });
       return { ok: true, output };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_COMMIT_ERR", err) };
     }
   });
 
@@ -327,7 +328,7 @@ export function register(): void {
       }
       return branches;
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_BRANCHES_ERR", err) };
     }
   });
 
@@ -338,7 +339,7 @@ export function register(): void {
       void captureEvent("git_branch_switched");
       return { ok: true };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_CHECKOUT_ERR", err) };
     }
   });
 
@@ -348,7 +349,7 @@ export function register(): void {
       await gitExec(["checkout", "-b", name], cwd);
       return { ok: true };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_CREATE_BRANCH_ERR", err) };
     }
   });
 
@@ -362,7 +363,7 @@ export function register(): void {
       const output = await gitExec(args, cwd);
       return { ok: true, path: resolvedPath, output };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_CREATE_WORKTREE_ERR", err) };
     }
   });
 
@@ -376,7 +377,7 @@ export function register(): void {
       const output = await gitExec(args, cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_REMOVE_WORKTREE_ERR", err) };
     }
   });
 
@@ -385,7 +386,7 @@ export function register(): void {
       const output = await gitExec(["worktree", "prune"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_PRUNE_WORKTREES_ERR", err) };
     }
   });
 
@@ -394,7 +395,7 @@ export function register(): void {
       const output = await gitExec(["push"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_PUSH_ERR", err) };
     }
   });
 
@@ -403,7 +404,7 @@ export function register(): void {
       const output = await gitExec(["pull"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_PULL_ERR", err) };
     }
   });
 
@@ -412,7 +413,7 @@ export function register(): void {
       const output = await gitExec(["fetch", "--all"], cwd);
       return { ok: true, output };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_FETCH_ERR", err) };
     }
   });
 
@@ -424,7 +425,30 @@ export function register(): void {
       const diff = await gitExec(diffArgs, cwd);
       return { diff };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_DIFF_FILE_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:diff-stat", async (_event, cwd: string) => {
+    try {
+      // Get line stats for both unstaged and staged changes
+      const [unstagedRaw, stagedRaw] = await Promise.all([
+        gitExec(["diff", "--shortstat"], cwd).catch(() => ""),
+        gitExec(["diff", "--cached", "--shortstat"], cwd).catch(() => ""),
+      ]);
+
+      let additions = 0;
+      let deletions = 0;
+      for (const raw of [unstagedRaw, stagedRaw]) {
+        const insMatch = raw.match(/(\d+) insertion/);
+        const delMatch = raw.match(/(\d+) deletion/);
+        if (insMatch) additions += parseInt(insMatch[1], 10);
+        if (delMatch) deletions += parseInt(delMatch[1], 10);
+      }
+
+      return { additions, deletions };
+    } catch (err) {
+      return { additions: 0, deletions: 0 };
     }
   });
 
@@ -443,7 +467,7 @@ export function register(): void {
       }
       return entries;
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      return { error: reportError("GIT_LOG_ERR", err) };
     }
   });
 }

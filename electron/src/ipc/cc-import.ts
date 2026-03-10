@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import os from "os";
-import { log } from "../lib/logger";
+import { reportError } from "../lib/error-utils";
 
 interface SessionPreview {
   firstUserMessage: string;
@@ -243,7 +243,7 @@ export function register(): void {
       result.sort((a, b) => b.fileModified - a.fileModified);
       return result;
     } catch (err) {
-      log("CC_SESSIONS:LIST_ERR", (err as Error).message);
+      reportError("CC_SESSIONS:LIST_ERR", err);
       return [];
     }
   });
@@ -260,8 +260,8 @@ export function register(): void {
       const messages = parseJsonlToUIMessages(filePath);
       return { messages, ccSessionId };
     } catch (err) {
-      log("CC_SESSIONS:IMPORT_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      const errMsg = reportError("CC_SESSIONS:IMPORT_ERR", err);
+      return { error: errMsg };
     }
   });
 }

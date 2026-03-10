@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, RefreshCw, X } from "lucide-react";
+import { captureException } from "@/lib/analytics";
 
 type UpdateState =
   | { phase: "idle" }
@@ -66,6 +67,7 @@ export const UpdateBanner = memo(function UpdateBanner() {
     setIsInstalling(true);
 
     void window.claude.updater.install().catch((err: unknown) => {
+      captureException(err instanceof Error ? err : new Error(String(err)), { label: "UPDATE_INSTALL_ERR" });
       installRequestedRef.current = false;
       setIsInstalling(false);
       setDismissed(false);

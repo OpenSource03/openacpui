@@ -37,13 +37,14 @@ function SpaceIcon({ space, size = 18 }: { space: Space; size?: number }) {
 
 function getSpaceIndicatorStyle(space: Space) {
   if (space.color.chroma === 0) return { background: "currentColor" };
+  const indicatorChroma = Math.min(space.color.chroma, 0.22);
   if (space.color.gradientHue !== undefined) {
     return {
-      background: `linear-gradient(135deg, oklch(0.6 0.15 ${space.color.hue}), oklch(0.6 0.15 ${space.color.gradientHue}))`,
+      background: `linear-gradient(135deg, oklch(0.6 ${indicatorChroma} ${space.color.hue}), oklch(0.6 ${indicatorChroma} ${space.color.gradientHue}))`,
     };
   }
   return {
-    background: `oklch(0.6 ${Math.min(space.color.chroma, 0.15)} ${space.color.hue})`,
+    background: `oklch(0.6 ${indicatorChroma} ${space.color.hue})`,
   };
 }
 

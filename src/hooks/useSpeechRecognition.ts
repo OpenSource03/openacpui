@@ -12,6 +12,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceDictationMode } from "@/types/ui";
+import { captureException } from "@/lib/analytics";
 
 // ── Types ──
 
@@ -140,6 +141,7 @@ export function useSpeechRecognition({
       } catch (err) {
         whisperLoadingPromise = null;
         const msg = err instanceof Error ? err.message : "Failed to load speech model";
+        captureException(err instanceof Error ? err : new Error(msg), { label: "WHISPER_LOAD_ERR" });
         setError(msg);
         onErrorRef.current?.(msg);
         throw err;
@@ -203,6 +205,7 @@ export function useSpeechRecognition({
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Transcription failed";
+          captureException(err instanceof Error ? err : new Error(msg), { label: "WHISPER_TRANSCRIBE_ERR" });
           setError(msg);
           onErrorRef.current?.(msg);
         } finally {
@@ -214,6 +217,7 @@ export function useSpeechRecognition({
       setIsListening(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to access microphone";
+      captureException(err instanceof Error ? err : new Error(msg), { label: "WHISPER_MIC_ERR" });
       setError(msg);
       onErrorRef.current?.(msg);
     }

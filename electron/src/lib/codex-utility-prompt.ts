@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { CodexRpcClient } from "./codex-rpc";
 import { getCodexBinaryPath } from "./codex-binary";
 import { log } from "./logger";
-import { extractErrorMessage } from "./error-utils";
+import { reportError } from "./error-utils";
 import type {
   CodexInitializeResponse,
   CodexModel,
@@ -162,7 +162,7 @@ export async function codexUtilityPrompt(
       const models = await rpc.request<CodexModelListResponse>("model/list", { includeHidden: false });
       selectedModel = pickModelId(options?.model, models.data ?? []);
     } catch (err) {
-      log("CODEX_UTILITY", `${logLabel} model/list failed: ${extractErrorMessage(err)}`);
+      reportError("CODEX_UTILITY", err, { context: "model/list", logLabel });
     }
 
     const threadParams: Record<string, unknown> = {
@@ -194,8 +194,7 @@ export async function codexUtilityPrompt(
     log("CODEX_UTILITY", `${logLabel} completed elapsed_ms=${elapsed} output_len=${output.length}`);
     return output;
   } catch (err) {
-    const message = extractErrorMessage(err);
-    log("CODEX_UTILITY_ERR", `${logLabel}: ${message}`);
+    const message = reportError("CODEX_UTILITY_ERR", err, { logLabel });
     throw new Error(message);
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);

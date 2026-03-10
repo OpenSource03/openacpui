@@ -123,6 +123,12 @@ export function useSessionRevival({
         ...(displayText ? { displayContent: displayText } : {}),
       }]);
       acp.setIsProcessing(true);
+      capture("message_sent", {
+        engine: "acp",
+        session_id: newId,
+        has_images: !!images?.length,
+        message_length: text.length,
+      });
       const promptResult = await window.claude.acp.prompt(newId, text, images);
       if (promptResult?.error) {
         acp.setMessages((prev) => [...prev, {

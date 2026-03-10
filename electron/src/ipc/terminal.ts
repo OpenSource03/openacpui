@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { captureEvent } from "../lib/posthog";
+import { reportError } from "../lib/error-utils";
 import {
   appendTerminalHistory,
   EMPTY_TERMINAL_HISTORY,
@@ -100,8 +101,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("TERMINAL", `Created terminal ${terminalId.slice(0, 8)} shell=${shellPath} cwd=${cwd}`);
       return { terminalId };
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log("TERMINAL_ERR", `Create failed: ${errMsg}`);
+      const errMsg = reportError("TERMINAL_CREATE_ERR", err);
       return { error: errMsg };
     }
   });

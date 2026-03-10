@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { PanelHeader } from "@/components/PanelHeader";
 import { useGitStatus } from "@/hooks/useGitStatus";
 import { RepoSection } from "./RepoSection";
 import { InlineSelector } from "./InlineSelector";
@@ -27,8 +28,7 @@ interface GitPanelProps {
   collapsedRepos?: Set<string>;
   onToggleRepoCollapsed?: (path: string) => void;
   selectedWorktreePath?: string | null;
-  onSelectWorktreePath?: (path: string | null) => Promise<{ ok?: boolean; error?: string } | void> | { ok?: boolean; error?: string } | void;
-  confirmWorktreeRestart?: boolean;
+  onSelectWorktreePath?: (path: string | null) => void;
   /** Active session engine — used to route commit message generation */
   activeEngine?: EngineId;
   /** Active session ID — used for ACP utility prompts */
@@ -41,7 +41,6 @@ export const GitPanel = memo(function GitPanel({
   onToggleRepoCollapsed,
   selectedWorktreePath,
   onSelectWorktreePath,
-  confirmWorktreeRestart = false,
   activeEngine,
   activeSessionId,
 }: GitPanelProps) {
@@ -62,32 +61,43 @@ export const GitPanel = memo(function GitPanel({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [isRemovingWorktree, setIsRemovingWorktree] = useState(false);
   const [isPruningWorktrees, setIsPruningWorktrees] = useState(false);
-  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
-  const [pendingWorktreePath, setPendingWorktreePath] = useState<string | null>(null);
-  const [restartError, setRestartError] = useState<string | null>(null);
-  const [isApplyingWorktree, setIsApplyingWorktree] = useState(false);
 
   const selectableRepos = useMemo(() => git.repoStates.map((rs) => rs.repo), [git.repoStates]);
+  const hasSubRepos = useMemo(() => selectableRepos.some((r) => r.isSubRepo), [selectableRepos]);
   const linkedWorktrees = useMemo(
     () => selectableRepos.filter((repo) => repo.isWorktree && !repo.isPrimaryWorktree),
     [selectableRepos],
   );
-  const repoOptions = useMemo(
-    () => selectableRepos.map((repo) => ({ value: repo.path, label: formatWorktreeLabel(repo) })),
-    [selectableRepos],
-  );
+  const repoOptions = useMemo(() => {
+    const opts = selectableRepos.map((repo) => ({
+      value: repo.path,
+      label: formatWorktreeLabel(repo, { showRoot: hasSubRepos && !repo.isSubRepo }),
+    }));
+
+    // Always ensure the project root directory is available as an option.
+    // When the root isn't a discovered git repo (e.g. a dir containing sub-repos),
+    // we still need it so the user can point the agent at the root.
+    if (cwd && !selectableRepos.some((r) => r.path === cwd)) {
+      const rootName = cwd.split("/").pop() ?? cwd;
+      opts.unshift({ value: cwd, label: `${rootName} (root)` });
+    }
+
+    return opts;
+  }, [selectableRepos, hasSubRepos, cwd]);
   const linkedWorktreeOptions = useMemo(
     () => linkedWorktrees.map((repo) => ({ value: repo.path, label: repo.path })),
     [linkedWorktrees],
   );
 
   const selectedCwdValue = useMemo(() => {
-    if (selectableRepos.length === 0) return "";
-    if (selectedWorktreePath && selectableRepos.some((repo) => repo.path === selectedWorktreePath)) {
-      return selectedWorktreePath;
+    if (selectableRepos.length === 0 && !cwd) return "";
+    if (selectedWorktreePath) {
+      // Check discovered repos and the cwd itself
+      if (selectedWorktreePath === cwd) return cwd;
+      if (selectableRepos.some((repo) => repo.path === selectedWorktreePath)) return selectedWorktreePath;
     }
-    if (cwd && selectableRepos.some((repo) => repo.path === cwd)) return cwd;
-    return selectableRepos[0].path;
+    // Default to project root
+    return cwd ?? selectableRepos[0]?.path ?? "";
   }, [selectableRepos, selectedWorktreePath, cwd]);
 
   const openCreateDialog = useCallback(() => {
@@ -107,39 +117,12 @@ export const GitPanel = memo(function GitPanel({
     });
   }, [linkedWorktrees, removeSourcePath, selectedCwdValue, selectableRepos]);
 
-  const applyWorktreeSelection = useCallback(async (nextPath: string | null) => {
-    if (!onSelectWorktreePath) return true;
-
-    setIsApplyingWorktree(true);
-    setRestartError(null);
-    try {
-      const result = await onSelectWorktreePath(nextPath);
-      if (result && "error" in result && result.error) {
-        setRestartError(result.error);
-        return false;
-      }
-      setRestartDialogOpen(false);
-      setPendingWorktreePath(null);
-      return true;
-    } finally {
-      setIsApplyingWorktree(false);
-    }
-  }, [onSelectWorktreePath]);
-
   const requestWorktreeSelection = useCallback((nextPath: string | null) => {
     const normalizedNext = nextPath?.trim() || null;
     const normalizedCurrent = selectedWorktreePath?.trim() || null;
     if (normalizedNext === normalizedCurrent) return;
-
-    if (confirmWorktreeRestart && activeSessionId) {
-      setPendingWorktreePath(normalizedNext);
-      setRestartError(null);
-      setRestartDialogOpen(true);
-      return;
-    }
-
-    void applyWorktreeSelection(normalizedNext);
-  }, [activeSessionId, applyWorktreeSelection, confirmWorktreeRestart, selectedWorktreePath]);
+    onSelectWorktreePath?.(normalizedNext);
+  }, [onSelectWorktreePath, selectedWorktreePath]);
 
   const handleRemoveWorktree = useCallback(async () => {
     if (!removeSourcePath || !removeTargetPath) return;
@@ -205,8 +188,14 @@ export const GitPanel = memo(function GitPanel({
 
   if (!cwd) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-xs text-foreground/30">No project open</p>
+      <div className="flex h-full flex-col">
+        <PanelHeader icon={GitBranchIcon} label="Source Control" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground/[0.03]">
+            <FolderGit2 className="h-4 w-4 text-foreground/15" />
+          </div>
+          <p className="text-[11px] text-foreground/30">No project open</p>
+        </div>
       </div>
     );
   }
@@ -214,19 +203,14 @@ export const GitPanel = memo(function GitPanel({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center gap-1 px-2 pt-2 pb-1">
-        <div className="flex items-center gap-1.5 ps-1.5">
-          <GitBranchIcon className="h-3.5 w-3.5 text-foreground/40" />
-          <span className="text-xs font-medium text-foreground/50">Source Control</span>
-        </div>
-        <div className="min-w-0 flex-1" />
-        {git.isLoading && <Loader2 className="h-3 w-3 animate-spin text-foreground/20" />}
+      <PanelHeader icon={GitBranchIcon} label="Source Control">
+        {git.isLoading && <Loader2 className="h-3 w-3 animate-spin text-foreground/25" />}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 w-5 shrink-0 text-foreground/30 hover:text-foreground/60"
+              className="h-5 w-5 shrink-0 text-foreground/35 hover:text-foreground/60"
               onClick={() => git.refreshAll()}
             >
               <RefreshCw className="h-3 w-3" />
@@ -236,19 +220,19 @@ export const GitPanel = memo(function GitPanel({
             <p className="text-xs">Refresh All</p>
           </TooltipContent>
         </Tooltip>
-      </div>
+      </PanelHeader>
 
       {onSelectWorktreePath && repoOptions.length > 0 && (
-        <div className="px-3 pb-2">
-          <div className="mb-1 flex items-center gap-1">
-            <label className="text-[10px] uppercase tracking-wider text-foreground/25">Agent Worktree</label>
+        <div className="px-3 pt-2 pb-2">
+          <div className="mb-1.5 flex items-center gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-foreground/30">Agent Worktree</label>
             <div className="min-w-0 flex-1" />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-5 w-5 shrink-0 text-foreground/30 hover:text-foreground/60"
+                  className="h-5 w-5 shrink-0 text-foreground/35 hover:text-foreground/60"
                   onClick={openCreateDialog}
                 >
                   <Plus className="h-3 w-3" />
@@ -263,7 +247,7 @@ export const GitPanel = memo(function GitPanel({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-5 w-5 shrink-0 text-foreground/30 hover:text-foreground/60 disabled:opacity-30"
+                  className="h-5 w-5 shrink-0 text-foreground/35 hover:text-foreground/60 disabled:opacity-30"
                   onClick={openRemoveDialog}
                   disabled={linkedWorktrees.length === 0}
                 >
@@ -283,21 +267,23 @@ export const GitPanel = memo(function GitPanel({
         </div>
       )}
 
-      <div className="border-t border-foreground/[0.06]" />
-
       {/* Scrollable list of all repos */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {git.repoStates.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8">
-            <FolderGit2 className="mb-2 h-5 w-5 text-foreground/15" />
-            <p className="text-[11px] text-foreground/25">No git repos found</p>
+          <div className="flex flex-col items-center justify-center gap-2 py-10">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground/[0.03]">
+              <FolderGit2 className="h-4 w-4 text-foreground/15" />
+            </div>
+            <p className="text-[11px] text-foreground/30">No git repos found</p>
           </div>
         )}
 
         {git.repoStates.map((rs, i) => (
           <div key={rs.repo.path}>
             {i > 0 && (
-              <div className="mx-3 border-t border-foreground/[0.08]" />
+              <div className="mx-3 my-1">
+                <div className="h-px bg-gradient-to-r from-transparent via-foreground/[0.08] to-transparent" />
+              </div>
             )}
             <RepoSection
               repoState={rs}
@@ -460,64 +446,6 @@ export const GitPanel = memo(function GitPanel({
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={restartDialogOpen}
-        onOpenChange={(open) => {
-          if (isApplyingWorktree) return;
-          setRestartDialogOpen(open);
-          if (!open) {
-            setPendingWorktreePath(null);
-            setRestartError(null);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md" showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle className="text-sm">Restart Agent in Selected Worktree</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-foreground/75">
-              The active session will restart so the agent runs in this worktree.
-            </p>
-            <div className="rounded border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground/80">
-              {pendingWorktreePath ?? cwd ?? "Project root"}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Conversation history is preserved. Any in-flight turn must finish first.
-            </p>
-            {restartError && (
-              <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300/90">
-                {restartError}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => {
-                setRestartDialogOpen(false);
-                setPendingWorktreePath(null);
-                setRestartError(null);
-              }}
-              disabled={isApplyingWorktree}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => {
-                void applyWorktreeSelection(pendingWorktreePath);
-              }}
-              disabled={isApplyingWorktree}
-            >
-              {isApplyingWorktree ? "Restarting..." : "Restart Agent"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 });

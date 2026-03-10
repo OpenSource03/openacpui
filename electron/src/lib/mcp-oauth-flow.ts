@@ -2,6 +2,7 @@ import http from "http";
 import net from "net";
 import { URL } from "url";
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 import { ElectronOAuthClientProvider } from "./mcp-oauth-provider";
 import { loadOAuthData } from "./mcp-oauth-store";
 
@@ -124,8 +125,7 @@ export async function authenticateMcpServer(
           resolved = true;
           clearTimeout(timeout);
           cleanup();
-          const msg = err instanceof Error ? err.message : String(err);
-          log("MCP_OAUTH", `Token exchange failed for "${serverName}": ${msg}`);
+          const msg = reportError("MCP_OAUTH", err, { context: "token-exchange", serverName });
           resolve({ error: `Token exchange failed: ${msg}` });
         }
       }
@@ -155,8 +155,7 @@ export async function authenticateMcpServer(
           resolved = true;
           clearTimeout(timeout);
           cleanup();
-          const msg = err instanceof Error ? err.message : String(err);
-          log("MCP_OAUTH", `OAuth flow initiation failed for "${serverName}": ${msg}`);
+          const msg = reportError("MCP_OAUTH", err, { context: "flow-initiation", serverName });
           resolve({ error: `OAuth initiation failed: ${msg}` });
         }
       }
@@ -213,7 +212,7 @@ async function refreshMcpToken(
     log("MCP_OAUTH", `Token refresh for "${serverName}" returned ${result}, needs re-auth`);
     return null;
   } catch (err) {
-    log("MCP_OAUTH", `Token refresh failed for "${serverName}": ${err instanceof Error ? err.message : String(err)}`);
+    reportError("MCP_OAUTH", err, { context: "token-refresh", serverName });
     return null;
   }
 }

@@ -54,6 +54,11 @@
   --space-hue: 0;
   --space-chroma: 0;
   --radius: 0.625rem;
+  --island-gap: 0.375rem;
+  --island-panel-gap: 0.25rem;
+  --island-radius: 0.75rem;
+  --island-control-radius: 0.6875rem;
+  --tool-picker-strip-width: 3.375rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -90,25 +95,25 @@
 }
 
 .dark {
-  --background: oklch(0.205 0 0);
+  --background: oklch(0.203 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.26 0 0);
+  --card: oklch(0.257 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.26 0 0);
+  --popover: oklch(0.257 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.34 0 0);
+  --primary-foreground: oklch(0.203 0 0);
+  --secondary: oklch(0.337 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.34 0 0);
+  --muted: oklch(0.337 0 0);
   --muted-foreground: oklch(0.82 0 0);
-  --accent: oklch(0.34 0 0);
+  --accent: oklch(0.337 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.40 0 0);
+  --border: oklch(0.399 0 0);
   --layout-divider: var(--border);
-  --input: oklch(0.40 0 0);
-  --ring: oklch(0.64 0 0);
+  --input: oklch(0.399 0 0);
+  --ring: oklch(0.641 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -118,10 +123,10 @@
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.32 0 0);
+  --sidebar-accent: oklch(0.316 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.38 0 0);
-  --sidebar-ring: oklch(0.64 0 0);
+  --sidebar-ring: oklch(0.641 0 0);
   --line-number-color: rgba(255, 255, 255, 0.3);
 }
 
@@ -143,8 +148,8 @@ html.glass-enabled #root {
 
 .dark.glass-enabled {
   --sidebar: transparent;
-  --sidebar-border: oklch(0.38 0 0 / 0.3);
-  --sidebar-accent: oklch(0.32 0 0 / 0.4);
+  --sidebar-border: oklch(0.40 0 0 / 0.3);
+  --sidebar-accent: oklch(0.333 0 0 / 0.4);
 }
 
 .glass-enabled:not(.dark) {
@@ -189,20 +194,22 @@ html.glass-enabled #root {
 /* ── Island glass border — diagonal reflection ── */
 /* Double-background trick: padding-box fills interior with bg color,
    border-box gradient shows through the 1px transparent border as a
-   liquid-glass reflection — strongest top-left and bottom-right.
+   liquid-glass reflection — shines all around, strongest top-left
+   and bottom-right.
    Override --island-fill on an element to darken/tint the interior. */
 .island {
   position: relative;
   border: 1px solid transparent;
+  border-radius: var(--island-radius);
   background:
     linear-gradient(var(--island-fill, var(--background)) 0 0) padding-box,
     linear-gradient(
       135deg,
       oklch(1 0 0 / 0.22) 0%,
       oklch(1 0 0 / 0.08) 12%,
-      oklch(1 0 0 / 0.03) 30%,
-      transparent 50%,
-      oklch(1 0 0 / 0.03) 70%,
+      oklch(1 0 0 / 0.04) 30%,
+      oklch(1 0 0 / 0.03) 50%,
+      oklch(1 0 0 / 0.04) 70%,
       oklch(1 0 0 / 0.08) 88%,
       oklch(1 0 0 / 0.18) 100%
     ) border-box;
@@ -217,7 +224,7 @@ html.glass-enabled #root {
       oklch(0 0 0 / 0.10) 0%,
       oklch(0 0 0 / 0.04) 12%,
       oklch(0 0 0 / 0.02) 30%,
-      transparent 50%,
+      oklch(0 0 0 / 0.015) 50%,
       oklch(0 0 0 / 0.02) 70%,
       oklch(0 0 0 / 0.04) 88%,
       oklch(0 0 0 / 0.08) 100%
@@ -243,14 +250,14 @@ html.glass-enabled #root {
   border: 1px solid transparent;
   background:
     linear-gradient(var(--island-fill) 0 0) padding-box,
-    linear-gradient(135deg, oklch(1 0 0 / 0.08), oklch(1 0 0 / 0.04) 50%, oklch(1 0 0 / 0.08)) border-box;
+    linear-gradient(135deg, oklch(1 0 0 / 0.08), oklch(1 0 0 / 0.03) 50%, oklch(1 0 0 / 0.08)) border-box;
 }
 
 /* Light mode glass: dark outline gradient (mirrors .island light-mode fix) */
 .glass-enabled:not(.dark) .glass-outline {
   background:
     linear-gradient(var(--island-fill) 0 0) padding-box,
-    linear-gradient(135deg, oklch(0 0 0 / 0.06), oklch(0 0 0 / 0.03) 50%, oklch(0 0 0 / 0.06)) border-box;
+    linear-gradient(135deg, oklch(0 0 0 / 0.06), oklch(0 0 0 / 0.02) 50%, oklch(0 0 0 / 0.06)) border-box;
 }
 
 /* Skip layout/paint for off-screen messages — large chats render instantly */
@@ -267,6 +274,23 @@ html.glass-enabled #root {
 
 .dark .island {
   will-change: transform;
+}
+
+.resize-col,
+.resize-row {
+  position: relative;
+}
+
+.resize-col::after {
+  content: "";
+  position: absolute;
+  inset: 0 -2px;
+}
+
+.resize-row::after {
+  content: "";
+  position: absolute;
+  inset: -2px 0;
 }
 
 /* ── Flat layout: edge-to-edge sections with simple 1px borders ── */
@@ -327,6 +351,11 @@ html.glass-enabled #root {
   margin-inline: auto;
 }
 
+/* Active tool picker button — subtle inner glow in dark mode */
+.dark .tool-picker-btn-active {
+  background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.04) 100%);
+}
+
 /* Row resize handles become full-width 1px borders */
 .no-islands .resize-row {
   height: 1px;
@@ -377,6 +406,8 @@ html.glass-enabled #root {
 /* Windows: smaller corner radius to match native chrome, no traffic-light padding */
 html.platform-win32 {
   --radius: 0.375rem;
+  --island-radius: 0.625rem;
+  --island-control-radius: 0.5625rem;
 }
 html.platform-win32 .drag-region {
   -webkit-app-region: none;
@@ -549,6 +580,17 @@ html.platform-win32 .drag-region {
 }
 *::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Terminal: hide xterm scrollbar by default, show on hover */
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+.terminal-container:hover .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+.terminal-container:hover .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* Defensive scrollbar hiding for overflow containers (InputBar toolbar fallback) */

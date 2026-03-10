@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/tooltip";
 import { AgentIcon } from "@/components/AgentIcon";
 import { useAgentStore } from "@/hooks/useAgentStore";
-import type { BinaryCheckResult } from "@/hooks/useAgentStore";
+import type { BinaryCheckResult } from "@/lib/acp-agent-registry";
+import { mergeRegistryAgentUpdate } from "@/lib/acp-agent-updates";
 import {
   registryAgentToDefinition,
   hasUpdate,
@@ -273,9 +274,11 @@ export const AgentStore = memo(function AgentStore({
       const binaryInfo = binaryPaths[registryAgent.id] ?? undefined;
       const def = registryAgentToDefinition(registryAgent, binaryInfo);
       if (!def) return;
+      const existing = installedMap.get(registryAgent.id);
+      const next = existing ? mergeRegistryAgentUpdate(existing, def) : def;
       setInstalling((prev) => new Set(prev).add(registryAgent.id));
       try {
-        await onInstall(def);
+        await onInstall(next);
       } finally {
         setInstalling((prev) => {
           const next = new Set(prev);
@@ -284,7 +287,7 @@ export const AgentStore = memo(function AgentStore({
         });
       }
     },
-    [onInstall, binaryPaths],
+    [installedMap, onInstall, binaryPaths],
   );
 
   const handleUninstall = useCallback(

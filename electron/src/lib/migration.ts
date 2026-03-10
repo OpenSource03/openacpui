@@ -14,6 +14,7 @@ import path from "path";
 import fs from "fs";
 import { app } from "electron";
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 
 /** Construct the old "OpenACP UI" userData path for each platform. */
 function getOldUserDataPath(): string {
@@ -45,7 +46,7 @@ function cleanOldUpdaterCache(): void {
       fs.rmSync(oldCacheDir, { recursive: true, force: true });
       log("MIGRATION", "Cleaned old updater cache: open-acp-ui-updater");
     } catch (err) {
-      log("MIGRATION_WARN", `Failed to clean old updater cache: ${err instanceof Error ? err.message : String(err)}`);
+      reportError("MIGRATION_WARN", err, { context: "clean-old-updater-cache" });
     }
   }
 }
@@ -83,7 +84,7 @@ export function migrateFromOpenAcpUi(): void {
         fs.cpSync(src, dst, { recursive: true });
         log("MIGRATION", `Copied directory: ${dir}`);
       } catch (err) {
-        log("MIGRATION_ERR", `Failed to copy ${dir}: ${err instanceof Error ? err.message : String(err)}`);
+        reportError("MIGRATION_ERR", err, { context: "copy-directory", dir });
       }
     }
   }
@@ -98,7 +99,7 @@ export function migrateFromOpenAcpUi(): void {
         fs.copyFileSync(src, dst);
         log("MIGRATION", `Copied file: ${file}`);
       } catch (err) {
-        log("MIGRATION_ERR", `Failed to copy ${file}: ${err instanceof Error ? err.message : String(err)}`);
+        reportError("MIGRATION_ERR", err, { context: "copy-file", file });
       }
     }
   }

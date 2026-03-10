@@ -8,7 +8,7 @@ import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import { buildSdkContent } from "../../lib/protocol";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { bgAgentStore } from "../../lib/background-agent-store";
-import { capture } from "../../lib/analytics";
+import { capture, captureException } from "../../lib/analytics";
 import {
   DRAFT_ID,
   DEFAULT_PERMISSION_MODE,
@@ -33,9 +33,11 @@ interface UseSessionLifecycleParams {
   seedBackgroundStore: () => void;
   // From draft materialization
   eagerStartSession: (projectId: string, options?: StartOptions) => Promise<void>;
+  eagerStartAcpSession: (projectId: string, options?: StartOptions, overrideServers?: McpServerConfig[]) => Promise<void>;
   prefetchCodexModels: (preferredModel?: string) => Promise<void>;
   probeMcpServers: (projectId: string, overrideServers?: McpServerConfig[]) => Promise<void>;
   abandonEagerSession: (reason?: string) => void;
+  abandonDraftAcpSession: (reason?: string) => void;
   materializeDraft: (text: string, images?: ImageAttachment[], displayText?: string) => Promise<string>;
   // From revival
   reviveSession: (text: string, images?: ImageAttachment[], displayText?: string) => Promise<void>;
@@ -60,9 +62,11 @@ export function useSessionLifecycle({
   saveCurrentSession,
   seedBackgroundStore,
   eagerStartSession,
+  eagerStartAcpSession,
   prefetchCodexModels,
   probeMcpServers,
   abandonEagerSession,
+  abandonDraftAcpSession,
   materializeDraft,
   reviveSession,
   reviveAcpSession,
@@ -85,6 +89,7 @@ export function useSessionLifecycle({
     setDraftProjectId,
     setPreStartedSessionId,
     setDraftMcpStatuses,
+    setAcpConfigOptionsLoading,
     setAcpMcpStatuses,
     setCachedModels,
   } = setters;
@@ -98,6 +103,7 @@ export function useSessionLifecycle({
     liveSessionIdsRef,
     backgroundStoreRef,
     preStartedSessionIdRef,
+    draftAcpSessionIdRef,
     draftProjectIdRef,
     startOptionsRef,
     acpAgentIdRef,
@@ -153,6 +159,10 @@ export function useSessionLifecycle({
       if (cancelled) return;
       if (result.models?.length) {
         setCachedModels(result.models);
+        return;
+      }
+      if (result.error) {
+        toast.error("Failed to load Claude models", { description: result.error });
       }
     }).catch(() => { /* keep stale cache if revalidation fails */ });
 
@@ -183,18 +193,20 @@ export function useSessionLifecycle({
   const createSession = useCallback(
     async (projectId: string, options?: StartOptions) => {
       abandonEagerSession("new_draft");
+      abandonDraftAcpSession("new_draft");
       acpAgentIdRef.current = null;
       acpAgentSessionIdRef.current = null;
       setAcpMcpStatuses([]);
       await saveCurrentSession();
       seedBackgroundStore();
+      const draftEngine = options?.engine ?? "claude";
       setStartOptions(options ?? {});
       setDraftProjectId(projectId);
       setInitialMessages([]);
       setInitialMeta(null);
-      // Pre-populate config dropdowns from cache for ACP agents (before session starts)
-      setInitialConfigOptions(options?.cachedConfigOptions ?? []);
+      setInitialConfigOptions([]);
       setInitialSlashCommands([]);
+      setAcpConfigOptionsLoading(draftEngine === "acp");
       setInitialPermission(null);
       setInitialRawAcpPermission(null);
       // Explicitly clear ACP state — when activeSessionId is already DRAFT_ID,
@@ -205,7 +217,6 @@ export function useSessionLifecycle({
       // Remove any leftover pending DRAFT_ID session from a previous failed ACP start
       setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
 
-      const draftEngine = options?.engine ?? "claude";
       if (draftEngine === "claude") {
         // Eager start for Claude engine (fire-and-forget)
         eagerStartSession(projectId, options);
@@ -219,7 +230,7 @@ export function useSessionLifecycle({
           }
         }).catch(() => { /* IPC failure */ });
       } else if (draftEngine === "acp") {
-        // ACP: no eager session — probe servers ourselves for preliminary status
+        eagerStartAcpSession(projectId, options);
         probeMcpServers(projectId);
       } else {
         // Codex: no eager start; prefetch model list for the picker.
@@ -227,7 +238,7 @@ export function useSessionLifecycle({
         prefetchCodexModels(options?.model);
       }
     },
-    [saveCurrentSession, seedBackgroundStore, eagerStartSession, abandonEagerSession, prefetchCodexModels, probeMcpServers],
+    [saveCurrentSession, seedBackgroundStore, eagerStartSession, eagerStartAcpSession, abandonEagerSession, abandonDraftAcpSession, prefetchCodexModels, probeMcpServers],
   );
 
   const switchSession = useCallback(
@@ -235,6 +246,7 @@ export function useSessionLifecycle({
       if (id === activeSessionIdRef.current) return;
 
       abandonEagerSession("switch_session");
+      abandonDraftAcpSession("switch_session");
       acpAgentIdRef.current = null;
       acpAgentSessionIdRef.current = null;
       await saveCurrentSession();
@@ -380,6 +392,7 @@ export function useSessionLifecycle({
 
   const deselectSession = useCallback(async () => {
     abandonEagerSession("deselect");
+    abandonDraftAcpSession("deselect");
     await saveCurrentSession();
     seedBackgroundStore();
     setActiveSessionId(null);
@@ -390,7 +403,7 @@ export function useSessionLifecycle({
     setInitialRawAcpPermission(null);
     // Filter out any leftover DRAFT_ID placeholder from a pending ACP start
     setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
-  }, [saveCurrentSession, seedBackgroundStore, abandonEagerSession]);
+  }, [saveCurrentSession, seedBackgroundStore, abandonEagerSession, abandonDraftAcpSession]);
 
   const importCCSession = useCallback(
     async (projectId: string, ccSessionId: string) => {
@@ -445,8 +458,9 @@ export function useSessionLifecycle({
     [findProject, saveCurrentSession, seedBackgroundStore, switchSession],
   );
 
-  const setDraftAgent = useCallback((draftEngine: string, agentId: string, cachedConfigOptions?: ACPConfigOption[], model?: string) => {
+  const setDraftAgent = useCallback((draftEngine: string, agentId: string, _cachedConfigOptions?: ACPConfigOption[], model?: string) => {
     const prevEngine = startOptionsRef.current.engine ?? "claude";
+    const prevAgentId = startOptionsRef.current.agentId;
     if (prevEngine !== draftEngine) {
       capture("engine_switched", { from_engine: prevEngine, to_engine: draftEngine });
     }
@@ -454,6 +468,9 @@ export function useSessionLifecycle({
     if (draftEngine !== "claude" && preStartedSessionIdRef.current) {
       // Switching away from Claude draft should immediately close the eager Claude session.
       abandonEagerSession("engine_switch");
+    }
+    if (prevEngine === "acp" && draftAcpSessionIdRef.current && (draftEngine !== "acp" || agentId !== prevAgentId)) {
+      abandonDraftAcpSession("engine_switch");
     }
 
     const normalizedModel = typeof model === "string" ? model.trim() : "";
@@ -463,12 +480,20 @@ export function useSessionLifecycle({
       agentId,
       model: normalizedModel || undefined,
     }));
-    // Load cached config options so dropdowns show "last known" values during draft
-    setInitialConfigOptions(cachedConfigOptions ?? []);
     if (draftEngine === "codex") {
       prefetchCodexModels(normalizedModel || undefined);
+    } else if (draftEngine === "acp" && draftProjectIdRef.current) {
+      setInitialConfigOptions([]);
+      setInitialSlashCommands([]);
+      eagerStartAcpSession(draftProjectIdRef.current, {
+        ...startOptionsRef.current,
+        engine: "acp",
+        agentId,
+        model: normalizedModel || undefined,
+      });
+      probeMcpServers(draftProjectIdRef.current);
     }
-  }, [prefetchCodexModels, abandonEagerSession]);
+  }, [prefetchCodexModels, abandonEagerSession, abandonDraftAcpSession, draftProjectIdRef, eagerStartAcpSession, probeMcpServers, setAcpConfigOptionsLoading, setInitialConfigOptions, setInitialSlashCommands]);
 
   const setActiveModel = useCallback((model: string) => {
     const id = activeSessionIdRef.current;
@@ -543,6 +568,7 @@ export function useSessionLifecycle({
         }
         persistModel();
       }).catch((err) => {
+        captureException(err instanceof Error ? err : new Error(String(err)), { label: "CLAUDE_MODEL_SWITCH_ERR" });
         const message = err instanceof Error ? err.message : String(err);
         toast.error("Failed to switch model", { description: message });
       });
@@ -558,6 +584,7 @@ export function useSessionLifecycle({
         applyCodexDefaultEffort(model);
         persistModel();
       }).catch((err) => {
+        captureException(err instanceof Error ? err : new Error(String(err)), { label: "CODEX_MODEL_SWITCH_ERR" });
         const message = err instanceof Error ? err.message : String(err);
         toast.error("Failed to switch model", { description: message });
       });
@@ -663,6 +690,7 @@ export function useSessionLifecycle({
         toast.error("Failed to update reasoning", { description: result.error });
       }
     }).catch((err) => {
+      captureException(err instanceof Error ? err : new Error(String(err)), { label: "THINKING_TOGGLE_ERR" });
       const message = err instanceof Error ? err.message : String(err);
       toast.error("Failed to update reasoning", { description: message });
     });
@@ -1038,16 +1066,19 @@ export function useSessionLifecycle({
   // The main send function
   const send = useCallback(
     async (text: string, images?: ImageAttachment[], displayText?: string) => {
+      const activeId = activeSessionIdRef.current;
       const sendEngine = activeSessionIdRef.current === DRAFT_ID
         ? (startOptionsRef.current.engine ?? "claude")
         : (sessionsRef.current.find(s => s.id === activeSessionIdRef.current)?.engine ?? "claude");
-      capture("message_sent", {
-        engine: sendEngine,
-        has_images: !!images?.length,
-        message_length: text.length,
-      });
+      const trackMessageSent = (sessionId?: string) => {
+        capture("message_sent", {
+          engine: sendEngine,
+          has_images: !!images?.length,
+          message_length: text.length,
+          ...(sendEngine === "acp" && sessionId ? { session_id: sessionId } : {}),
+        });
+      };
 
-      const activeId = activeSessionIdRef.current;
       if (activeId === DRAFT_ID) {
         const draftEngine = startOptionsRef.current.engine ?? "claude";
 
@@ -1071,6 +1102,8 @@ export function useSessionLifecycle({
             return;
           }
 
+          trackMessageSent(sessionId);
+
           // Session is live — send the prompt (user message already in UI)
           await new Promise((resolve) => setTimeout(resolve, 50));
           const promptResult = await window.claude.acp.prompt(sessionId, text, images);
@@ -1090,6 +1123,7 @@ export function useSessionLifecycle({
         }
 
         if (draftEngine === "codex") {
+          trackMessageSent();
           const sessionId = await materializeDraft(text, images, displayText);
           if (!sessionId) return;
           await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1150,6 +1184,7 @@ export function useSessionLifecycle({
         }
 
         // Claude SDK path
+        trackMessageSent();
         const sessionId = await materializeDraft(text);
         if (!sessionId) return;
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1191,17 +1226,17 @@ export function useSessionLifecycle({
       if (!activeId) return;
 
       // Queue check: if engine is processing, enqueue instead of sending directly
+      const activeSessionEngine = sessionsRef.current.find(s => s.id === activeId)?.engine ?? "claude";
       if (isProcessingRef.current && liveSessionIdsRef.current.has(activeId)) {
+        trackMessageSent(activeSessionEngine === "acp" ? activeId : undefined);
         enqueueMessage(text, images, displayText);
         return;
       }
 
-      // Check engine of the active session
-      const activeSessionEngine = sessionsRef.current.find(s => s.id === activeId)?.engine ?? "claude";
-
       if (activeSessionEngine === "acp") {
         // ACP sessions: send through ACP hook if live
         if (liveSessionIdsRef.current.has(activeId)) {
+          trackMessageSent(activeId);
           await acp.send(text, images, displayText);
           return;
         }
@@ -1209,6 +1244,8 @@ export function useSessionLifecycle({
         await reviveAcpSession(text, images, displayText);
         return;
       }
+
+      trackMessageSent();
 
       if (activeSessionEngine === "codex") {
         // Codex sessions: send through Codex hook if live

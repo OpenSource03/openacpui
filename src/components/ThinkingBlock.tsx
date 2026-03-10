@@ -111,7 +111,7 @@ export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: Think
   }, []);
 
   return (
-    <Collapsible open={open} onOpenChange={handleOpenChange} className="mb-2">
+    <Collapsible open={open} onOpenChange={handleOpenChange}>
       <CollapsibleTrigger className="flex items-center gap-1.5 py-1 text-xs text-foreground/40 hover:text-foreground/70 transition-colors">
         <Minus className={`h-3 w-3 ${isThinking ? "text-foreground/40" : "text-foreground/30"}`} />
         {isThinking ? (
@@ -128,7 +128,7 @@ export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: Think
           <div
             ref={contentRef}
             onScroll={handleScroll}
-            className="mt-1 max-h-60 overflow-auto border-s-2 border-foreground/10 ps-3 py-1 text-xs text-foreground/40 whitespace-pre-wrap"
+            className="mt-1 mb-2 max-h-60 overflow-auto border-s-2 border-foreground/10 ps-3 py-1 text-xs text-foreground/40 whitespace-pre-wrap"
           >
             {baseText}
             {animatedChunks.map((chunk) => (

@@ -33,11 +33,23 @@ export const STATUS_LETTERS: Record<string, string> = {
   unmerged: "U",
 };
 
-export function formatWorktreeLabel(repo: { name: string; isPrimaryWorktree?: boolean; isWorktree?: boolean; isSubRepo?: boolean }): string {
+export function formatWorktreeLabel(
+  repo: { name: string; isPrimaryWorktree?: boolean; isWorktree?: boolean; isSubRepo?: boolean },
+  options?: { showRoot?: boolean },
+): string {
   const tags: string[] = [];
-  if (repo.isPrimaryWorktree) tags.push("main");
-  else if (repo.isWorktree) tags.push("worktree");
-  if (repo.isSubRepo) tags.push("sub");
+
+  if (repo.isSubRepo) {
+    tags.push("sub");
+    // Only tag linked worktrees within sub-repos (isPrimaryWorktree is true for
+    // both root and sub-repos — it just means "not a linked worktree").
+    if (repo.isWorktree && !repo.isPrimaryWorktree) tags.push("worktree");
+  } else {
+    // Root / non-sub repo
+    if (options?.showRoot) tags.push("root");
+    if (repo.isWorktree && !repo.isPrimaryWorktree) tags.push("worktree");
+  }
+
   return tags.length > 0 ? repo.name + " (" + tags.join(", ") + ")" : repo.name;
 }
 

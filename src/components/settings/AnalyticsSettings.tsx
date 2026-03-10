@@ -3,6 +3,7 @@ import { BarChart3 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingRow } from "@/components/settings/shared";
+import { syncAnalyticsSettings } from "@/lib/posthog";
 import type { AppSettings } from "@/types/ui";
 
 interface AnalyticsSettingsProps {
@@ -31,6 +32,8 @@ export const AnalyticsSettings = memo(function AnalyticsSettings({
     async (checked: boolean) => {
       setAnalyticsEnabled(checked); // optimistic
       await onUpdateAppSettings({ analyticsEnabled: checked });
+      // Sync renderer-side posthog-js opt-in/out state to match
+      await syncAnalyticsSettings();
     },
     [onUpdateAppSettings],
   );

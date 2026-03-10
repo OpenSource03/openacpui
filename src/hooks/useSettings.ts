@@ -68,7 +68,11 @@ const DEFAULT_ENGINE_MODELS: Record<EngineId, string> = {
   codex: "",
 };
 
-const DEFAULT_TOOL_ORDER: ToolId[] = ["terminal", "git", "browser", "files", "project-files", "mcp", "changes"];
+const MIN_BOTTOM_HEIGHT = 120;
+const MAX_BOTTOM_HEIGHT = 600;
+const DEFAULT_BOTTOM_HEIGHT = 250;
+
+const DEFAULT_TOOL_ORDER: ToolId[] = ["terminal", "git", "browser", "files", "project-files", "mcp"];
 const VALID_TOOL_IDS = new Set<ToolId>([
   "terminal",
   "browser",
@@ -78,7 +82,6 @@ const VALID_TOOL_IDS = new Set<ToolId>([
   "tasks",
   "agents",
   "mcp",
-  "changes",
 ]);
 
 // ── Hook ──
@@ -103,6 +106,8 @@ export interface Settings {
   setClaudeEffort: (effort: ClaudeEffort) => void;
   autoGroupTools: boolean;
   setAutoGroupTools: (on: boolean) => void;
+  avoidGroupingEdits: boolean;
+  setAvoidGroupingEdits: (on: boolean) => void;
   autoExpandTools: boolean;
   setAutoExpandTools: (on: boolean) => void;
 
@@ -137,6 +142,16 @@ export interface Settings {
   suppressedPanels: Set<ToolId>;
   suppressPanel: (id: ToolId) => void;
   unsuppressPanel: (id: ToolId) => void;
+  /** Tools placed in the bottom row instead of the right column */
+  bottomTools: Set<ToolId>;
+  moveToolToBottom: (id: ToolId) => void;
+  moveToolToSide: (id: ToolId) => void;
+  bottomToolsHeight: number;
+  setBottomToolsHeight: (h: number) => void;
+  saveBottomToolsHeight: () => void;
+  bottomToolsSplitRatios: number[];
+  setBottomToolsSplitRatios: (r: number[]) => void;
+  saveBottomToolsSplitRatios: () => void;
 }
 
 /** Read toolsSplitRatios, with migration from the old single-ratio key */
@@ -315,8 +330,16 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     localStorage.setItem("harnss-auto-group-tools", String(on));
   }, []);
 
+  const [avoidGroupingEdits, setAvoidGroupingEditsRaw] = useState(() =>
+    readBool("harnss-avoid-grouping-edits", false),
+  );
+  const setAvoidGroupingEdits = useCallback((on: boolean) => {
+    setAvoidGroupingEditsRaw(on);
+    localStorage.setItem("harnss-avoid-grouping-edits", String(on));
+  }, []);
+
   const [autoExpandTools, setAutoExpandToolsRaw] = useState(() =>
-    readBool("harnss-auto-expand-tools", true),
+    readBool("harnss-auto-expand-tools", false),
   );
   const setAutoExpandTools = useCallback((on: boolean) => {
     setAutoExpandToolsRaw(on);
@@ -492,6 +515,57 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     [pid],
   );
 
+  // ── Bottom tools placement ──
+
+  const [bottomTools, setBottomToolsRaw] = useState<Set<ToolId>>(() => {
+    const arr = readJson<ToolId[]>(`harnss-${pid}-bottom-tools`, []).filter((id) => VALID_TOOL_IDS.has(id));
+    return new Set(arr);
+  });
+  const moveToolToBottom = useCallback(
+    (id: ToolId) => {
+      setBottomToolsRaw((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        localStorage.setItem(`harnss-${pid}-bottom-tools`, JSON.stringify([...next]));
+        return next;
+      });
+    },
+    [pid],
+  );
+  const moveToolToSide = useCallback(
+    (id: ToolId) => {
+      setBottomToolsRaw((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        localStorage.setItem(`harnss-${pid}-bottom-tools`, JSON.stringify([...next]));
+        return next;
+      });
+    },
+    [pid],
+  );
+
+  const [bottomToolsHeight, setBottomToolsHeight] = useState(() =>
+    readNumber(`harnss-${pid}-bottom-tools-height`, DEFAULT_BOTTOM_HEIGHT, MIN_BOTTOM_HEIGHT, MAX_BOTTOM_HEIGHT),
+  );
+  const bottomToolsHeightRef = useRef(bottomToolsHeight);
+  bottomToolsHeightRef.current = bottomToolsHeight;
+  const saveBottomToolsHeight = useCallback(() => {
+    localStorage.setItem(`harnss-${pid}-bottom-tools-height`, String(bottomToolsHeightRef.current));
+  }, [pid]);
+
+  const [bottomToolsSplitRatios, setBottomToolsSplitRatiosRaw] = useState<number[]>(() =>
+    readJson<number[]>(`harnss-${pid}-bottom-tools-split-ratios`, []),
+  );
+  const bottomToolsSplitRatiosRef = useRef(bottomToolsSplitRatios);
+  bottomToolsSplitRatiosRef.current = bottomToolsSplitRatios;
+  const setBottomToolsSplitRatios = useCallback((r: number[]) => {
+    setBottomToolsSplitRatiosRaw(r);
+  }, []);
+  const saveBottomToolsSplitRatios = useCallback(() => {
+    localStorage.setItem(`harnss-${pid}-bottom-tools-split-ratios`, JSON.stringify(bottomToolsSplitRatiosRef.current));
+  }, [pid]);
+
   // ── Re-read per-project values when projectId changes ──
 
   useEffect(() => {
@@ -518,6 +592,13 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
 
     const suppressed = readJson<ToolId[]>(`harnss-${pid}-suppressed-panels`, []);
     setSuppressedPanels(new Set(suppressed));
+
+    const bottom = readJson<ToolId[]>(`harnss-${pid}-bottom-tools`, []).filter((id) => VALID_TOOL_IDS.has(id as ToolId));
+    setBottomToolsRaw(new Set(bottom));
+    setBottomToolsHeight(
+      readNumber(`harnss-${pid}-bottom-tools-height`, DEFAULT_BOTTOM_HEIGHT, MIN_BOTTOM_HEIGHT, MAX_BOTTOM_HEIGHT),
+    );
+    setBottomToolsSplitRatiosRaw(readJson<number[]>(`harnss-${pid}-bottom-tools-split-ratios`, []));
   }, [pid]);
 
   return {
@@ -539,6 +620,8 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     setClaudeEffort,
     autoGroupTools,
     setAutoGroupTools,
+    avoidGroupingEdits,
+    setAvoidGroupingEdits,
     autoExpandTools,
     setAutoExpandTools,
     model,
@@ -568,5 +651,14 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     suppressedPanels,
     suppressPanel,
     unsuppressPanel,
+    bottomTools,
+    moveToolToBottom,
+    moveToolToSide,
+    bottomToolsHeight,
+    setBottomToolsHeight,
+    saveBottomToolsHeight,
+    bottomToolsSplitRatios,
+    setBottomToolsSplitRatios,
+    saveBottomToolsSplitRatios,
   };
 }

@@ -162,4 +162,30 @@ describe("claude binary resolution", () => {
 
     await expect(mod.getClaudeVersion()).resolves.toBe("2.1.70");
   });
+
+  it("exposes binary metadata for auto-detected paths", async () => {
+    allowExecutable("/Users/tester/.local/bin/claude");
+
+    const mod = await loadModule();
+
+    expect(mod.getClaudeBinaryMetadata({ installIfMissing: false, allowSdkFallback: true })).toEqual({
+      path: "/Users/tester/.local/bin/claude",
+      strategy: "known",
+      source: "auto",
+    });
+  });
+
+  it("reads a provided binary path version directly", async () => {
+    mockExecFileSync.mockImplementation((command: string, args: string[]) => {
+      if (command === "/Users/tester/.local/bin/claude") {
+        expect(args).toEqual(["--version"]);
+        return "1.2.3\n";
+      }
+      throw new Error("unexpected");
+    });
+
+    const mod = await loadModule();
+
+    await expect(mod.getClaudeVersion("/Users/tester/.local/bin/claude")).resolves.toBe("1.2.3");
+  });
 });

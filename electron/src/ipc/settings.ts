@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getAppSettings, setAppSettings, type AppSettings } from "../lib/app-settings";
-import { log } from "../lib/logger";
+import { reportError } from "../lib/error-utils";
 
 // Listeners notified when any setting changes (used by updater, etc.)
 type SettingsListener = (settings: AppSettings) => void;
@@ -15,7 +15,7 @@ export function register(): void {
     try {
       return getAppSettings();
     } catch (err) {
-      log("SETTINGS:GET_ERR", (err as Error).message);
+      reportError("SETTINGS:GET_ERR", err);
       return null;
     }
   });
@@ -27,8 +27,8 @@ export function register(): void {
       for (const cb of listeners) cb(next);
       return { ok: true };
     } catch (err) {
-      log("SETTINGS:SET_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      const errMsg = reportError("SETTINGS:SET_ERR", err);
+      return { error: errMsg };
     }
   });
 }

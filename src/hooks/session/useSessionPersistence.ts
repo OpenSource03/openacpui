@@ -22,7 +22,14 @@ export function useSessionPersistence({
 }: UseSessionPersistenceParams) {
   const { claude, acp, codex, engine } = engines;
   const { messages, totalCost, sessionInfo } = engine;
-  const { setSessions, setDraftMcpStatuses, setPreStartedSessionId } = setters;
+  const {
+    setSessions,
+    setDraftMcpStatuses,
+    setPreStartedSessionId,
+    setDraftAcpSessionId,
+    setInitialConfigOptions,
+    setInitialSlashCommands,
+  } = setters;
   const {
     activeSessionIdRef,
     sessionsRef,
@@ -37,6 +44,7 @@ export function useSessionPersistence({
     liveSessionIdsRef,
     backgroundStoreRef,
     preStartedSessionIdRef,
+    draftAcpSessionIdRef,
     lastMessageSyncSessionRef,
     switchSessionRef,
     acpPermissionBehaviorRef,
@@ -124,6 +132,14 @@ export function useSessionPersistence({
         backgroundStoreRef.current.delete(sid);
         return;
       }
+      if (sid === draftAcpSessionIdRef.current) {
+        draftAcpSessionIdRef.current = null;
+        setDraftAcpSessionId(null);
+        setInitialConfigOptions([]);
+        setInitialSlashCommands([]);
+        backgroundStoreRef.current.delete(sid);
+        return;
+      }
 
       // Auto-save and mark disconnected for background sessions
       if (sid !== activeSessionIdRef.current && backgroundStoreRef.current.has(sid)) {
@@ -185,6 +201,7 @@ export function useSessionPersistence({
       const sid = event._sessionId;
       if (!sid) return;
       if (sid === activeSessionIdRef.current) return;
+      if (sid === draftAcpSessionIdRef.current) return;
       backgroundStoreRef.current.handleACPEvent(event);
     });
 
@@ -207,6 +224,7 @@ export function useSessionPersistence({
     const unsubBgAcpPerm = window.claude.acp.onPermissionRequest((data: ACPPermissionEvent) => {
       const sid = data._sessionId;
       if (!sid || sid === activeSessionIdRef.current) return;
+      if (sid === draftAcpSessionIdRef.current) return;
 
       // Auto-respond for background ACP sessions when behavior is configured
       const autoOptionId = pickAutoResponseOption(data.options, acpPermissionBehaviorRef.current);

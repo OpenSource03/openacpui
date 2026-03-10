@@ -1,6 +1,7 @@
 import type { ACPSessionEvent } from "../types/acp";
 import type { InternalState } from "./background-session-store";
 import {
+  mergeToolInput as acpMergeToolInput,
   normalizeToolInput as acpNormalizeToolInput,
   normalizeToolResult as acpNormalizeToolResult,
   deriveToolName,
@@ -157,14 +158,9 @@ export function handleACPEvent(state: InternalState, event: ACPSessionEvent): vo
           if (taskSteps) taskMsg.subagentSteps = taskSteps;
           state.activeTask = null;
         } else if (taskMsg) {
-          // In-progress update — update toolInput from rawInput if richer data arrived
-          const rawInput = update.rawInput as Record<string, unknown> | undefined;
-          if (rawInput && Object.keys(rawInput).length > 0) {
-            const updatedInput = acpNormalizeToolInput(rawInput, update.kind);
-            const existingKeys = Object.keys(taskMsg.toolInput ?? {}).length;
-            if (Object.keys(updatedInput).length > existingKeys) {
-              taskMsg.toolInput = updatedInput;
-            }
+          const updatedInput = acpMergeToolInput(taskMsg.toolInput, update.rawInput, update.kind, update.locations);
+          if (updatedInput) {
+            taskMsg.toolInput = updatedInput;
           }
         }
         break;
@@ -176,6 +172,7 @@ export function handleACPEvent(state: InternalState, event: ACPSessionEvent): vo
         if (taskMsg) {
           const step = (taskMsg.subagentSteps ?? []).find(s => s.toolUseId === update.toolCallId);
           if (step) {
+            step.toolInput = acpMergeToolInput(step.toolInput, update.rawInput, update.kind, update.locations) ?? step.toolInput;
             if (result) step.toolResult = result;
             else if (!step.toolResult) step.toolResult = { status: "completed" };
             if (update.status === "failed") step.toolError = true;
@@ -188,6 +185,7 @@ export function handleACPEvent(state: InternalState, event: ACPSessionEvent): vo
       const msgId = `tool-${update.toolCallId}`;
       const msg = state.messages.find(m => m.id === msgId);
       if (msg) {
+        msg.toolInput = acpMergeToolInput(msg.toolInput, update.rawInput, update.kind, update.locations) ?? msg.toolInput;
         if (result) msg.toolResult = result;
         if (update.status === "failed") msg.toolError = true;
         if (isTaskToolName(msg.toolName)) {

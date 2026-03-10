@@ -21,7 +21,6 @@ import { useSessionPersistence } from "./session/useSessionPersistence";
 import { useDraftMaterialization } from "./session/useDraftMaterialization";
 import { useSessionRevival } from "./session/useSessionRevival";
 import { useSessionLifecycle } from "./session/useSessionLifecycle";
-import { suppressNextSessionCompletion } from "@/lib/notification-utils";
 
 export function useSessionManager(projects: Project[], acpPermissionBehavior: AcpPermissionBehavior = "ask", onSpaceChange?: (spaceId: string) => void) {
   // ── Core state ──
@@ -36,7 +35,9 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   const [initialPermission, setInitialPermission] = useState<PermissionRequest | null>(null);
   const [initialRawAcpPermission, setInitialRawAcpPermission] = useState<ACPPermissionEvent | null>(null);
   const [acpMcpStatuses, setAcpMcpStatuses] = useState<McpServerStatus[]>([]);
+  const [acpConfigOptionsLoading, setAcpConfigOptionsLoading] = useState(false);
   const [preStartedSessionId, setPreStartedSessionId] = useState<string | null>(null);
+  const [draftAcpSessionId, setDraftAcpSessionId] = useState<string | null>(null);
   const [draftMcpStatuses, setDraftMcpStatuses] = useState<McpServerStatus[]>([]);
   const [cachedModels, setCachedModels] = useState<ModelInfo[]>([]);
   const [codexRawModels, setCodexRawModels] = useState<CodexModelSummary[]>([]);
@@ -51,16 +52,39 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   const isCodex = activeEngine === "codex";
 
   const claudeSessionId = (activeEngine === "claude" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
-  const acpSessionId = (activeEngine === "acp" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
+  const acpSessionId = activeEngine === "acp"
+    ? (activeSessionId !== DRAFT_ID ? activeSessionId : draftAcpSessionId)
+    : null;
   const codexSessionId = (activeEngine === "codex" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
   const codexSessionModel = (activeEngine === "codex" && activeSessionId !== DRAFT_ID)
     ? (sessions.find((s) => s.id === activeSessionId)?.model ?? startOptions.model)
     : undefined;
+  const codexPlanModeEnabled = activeEngine === "codex"
+    ? (activeSessionId === DRAFT_ID
+      ? !!startOptions.planMode
+      : !!sessions.find((s) => s.id === activeSessionId)?.planMode)
+    : false;
 
   // ── Engine hooks ──
   const claude = useClaude({ sessionId: claudeSessionId, initialMessages: activeEngine === "claude" ? initialMessages : [], initialMeta: activeEngine === "claude" ? initialMeta : null, initialPermission: activeEngine === "claude" ? initialPermission : null });
-  const acp = useACP({ sessionId: acpSessionId, initialMessages: isACP ? initialMessages : [], initialConfigOptions: isACP ? initialConfigOptions : [], initialSlashCommands: isACP ? initialSlashCommands : [], initialMeta: isACP ? initialMeta : null, initialPermission: isACP ? initialPermission : null, initialRawAcpPermission: isACP ? initialRawAcpPermission : null, acpPermissionBehavior });
-  const codex = useCodex({ sessionId: codexSessionId, sessionModel: codexSessionModel, initialMessages: isCodex ? initialMessages : [], initialMeta: isCodex ? initialMeta : null, initialPermission: isCodex ? initialPermission : null });
+  const acp = useACP({
+    sessionId: acpSessionId,
+    initialMessages: isACP ? initialMessages : [],
+    initialConfigOptions: isACP ? initialConfigOptions : undefined,
+    initialSlashCommands: isACP ? initialSlashCommands : undefined,
+    initialMeta: isACP ? initialMeta : null,
+    initialPermission: isACP ? initialPermission : null,
+    initialRawAcpPermission: isACP ? initialRawAcpPermission : null,
+    acpPermissionBehavior,
+  });
+  const codex = useCodex({
+    sessionId: codexSessionId,
+    sessionModel: codexSessionModel,
+    planModeEnabled: codexPlanModeEnabled,
+    initialMessages: isCodex ? initialMessages : [],
+    initialMeta: isCodex ? initialMeta : null,
+    initialPermission: isCodex ? initialPermission : null,
+  });
 
   // Pick the active engine's state
   const engine = isCodex ? codex : isACP ? acp : claude;
@@ -98,6 +122,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   const lastMessageSyncSessionRef = useRef<string | null>(null);
   const preStartedSessionIdRef = useRef<string | null>(null);
   preStartedSessionIdRef.current = preStartedSessionId;  // kept in sync with state for event routing
+  const draftAcpSessionIdRef = useRef<string | null>(null);
+  draftAcpSessionIdRef.current = draftAcpSessionId;
   const draftMcpStatusesRef = useRef<McpServerStatus[]>([]);
   draftMcpStatusesRef.current = draftMcpStatuses;
   const materializingRef = useRef(false);
@@ -163,6 +189,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     liveSessionIdsRef,
     backgroundStoreRef,
     preStartedSessionIdRef,
+    draftAcpSessionIdRef,
     draftMcpStatusesRef,
     materializingRef,
     saveTimerRef,
@@ -190,6 +217,8 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     setStartOptions,
     setDraftProjectId,
     setPreStartedSessionId,
+    setDraftAcpSessionId,
+    setAcpConfigOptionsLoading,
     setDraftMcpStatuses,
     setAcpMcpStatuses,
     setQueuedCount,
@@ -215,7 +244,15 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     activeSessionId,
   });
 
-  const { eagerStartSession, prefetchCodexModels, probeMcpServers, abandonEagerSession, materializeDraft } =
+  const {
+    eagerStartSession,
+    eagerStartAcpSession,
+    prefetchCodexModels,
+    probeMcpServers,
+    abandonEagerSession,
+    abandonDraftAcpSession,
+    materializeDraft,
+  } =
     useDraftMaterialization({
       refs,
       setters,
@@ -264,9 +301,11 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     saveCurrentSession,
     seedBackgroundStore,
     eagerStartSession,
+    eagerStartAcpSession,
     prefetchCodexModels,
     probeMcpServers,
     abandonEagerSession,
+    abandonDraftAcpSession,
     materializeDraft,
     reviveSession,
     reviveAcpSession,
@@ -357,8 +396,11 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
       if (activeSessionIdRef.current === DRAFT_ID
           && startOptionsRef.current.engine === "acp"
           && isProcessingRef.current) {
-        suppressNextSessionCompletion(activeSessionIdRef.current);
-        await window.claude.acp.abortPendingStart();
+        if (draftAcpSessionIdRef.current && liveSessionIdsRef.current.has(draftAcpSessionIdRef.current)) {
+          await window.claude.acp.cancel(draftAcpSessionIdRef.current);
+        } else {
+          await window.claude.acp.abortPendingStart();
+        }
         acp.setIsProcessing(false);
         return;
       }
@@ -375,6 +417,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
         ? acp.slashCommands
         : claude.slashCommands,
     acpConfigOptions: acp.configOptions,
+    acpConfigOptionsLoading,
     setACPConfig: acp.setConfig,
     mcpServerStatuses: isACP || isCodex
       ? (acpMcpStatuses.length > 0 ? acpMcpStatuses : draftMcpStatuses)
@@ -398,8 +441,12 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     reconnectMcpServer: isACP
       ? isDraft
         ? async (_name: string) => {
-            // ACP draft: re-probe to pick up auth changes
-            if (draftProjectIdRef.current) await probeMcpServers(draftProjectIdRef.current);
+            // ACP draft: restart the hidden draft session so fresh auth is applied
+            if (draftProjectIdRef.current) {
+              abandonDraftAcpSession("mcp_reconnect");
+              await probeMcpServers(draftProjectIdRef.current);
+              await eagerStartAcpSession(draftProjectIdRef.current, startOptionsRef.current);
+            }
           }
         : async (_name: string) => {
             // ACP live: restart session so fresh auth tokens are applied
@@ -434,9 +481,11 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     restartWithMcpServers: isACP
       ? isDraft
         ? async (servers: McpServerConfig[]) => {
-            // ACP draft: reprobe with new server list
+            // ACP draft: restart the hidden session with the updated MCP server list
             if (draftProjectIdRef.current) {
               await probeMcpServers(draftProjectIdRef.current, servers);
+              abandonDraftAcpSession("mcp_restart");
+              await eagerStartAcpSession(draftProjectIdRef.current, startOptionsRef.current, servers);
             }
           }
         : async (servers: McpServerConfig[]) => {

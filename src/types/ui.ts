@@ -179,6 +179,8 @@ export interface Project {
   path: string;
   createdAt: number;
   spaceId?: string;
+  icon?: string;
+  iconType?: "emoji" | "lucide";
 }
 
 /** Fields shared between live and persisted session representations. */

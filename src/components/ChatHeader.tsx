@@ -59,6 +59,7 @@ export const ChatHeader = memo(function ChatHeader({
     ? ACP_PERMISSION_BEHAVIOR_LABELS[acpPermissionBehavior]
     : null;
   const permissionDisplay = acpBehaviorLabel ?? modeLabel;
+  const macIslandTitlebarOffsetClass = islandLayout && isMac ? "translate-y-0.5" : "";
 
   // Collect all session detail rows for the unified tooltip
   const detailRows: { label: string; value: string }[] = [];
@@ -85,7 +86,7 @@ export const ChatHeader = memo(function ChatHeader({
           size="icon"
           className={`no-drag h-7 w-7 text-muted-foreground/60 hover:text-foreground ${
             islandLayout ? "mt-0.5" : ""
-          }`}
+          } ${macIslandTitlebarOffsetClass}`}
           onClick={onToggleSidebar}
         >
           <PanelLeft className="h-4 w-4" />
@@ -96,7 +97,7 @@ export const ChatHeader = memo(function ChatHeader({
       {isProcessing && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="no-drag flex items-center justify-center">
+            <span className={`no-drag flex items-center justify-center ${macIslandTitlebarOffsetClass}`}>
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             </span>
           </TooltipTrigger>
@@ -122,9 +123,17 @@ export const ChatHeader = memo(function ChatHeader({
       )}
 
       {titleGenerating ? (
-        <span className="no-drag inline-block h-4 w-36 animate-pulse rounded bg-foreground/10" />
+        <span
+          className={`no-drag inline-block h-4 w-36 animate-pulse rounded bg-foreground/10 ${
+            islandLayout ? "relative top-px" : ""
+          } ${macIslandTitlebarOffsetClass}`}
+        />
       ) : title && title !== "New Chat" ? (
-        <span className="no-drag truncate leading-none text-sm font-medium text-foreground/80">
+        <span
+          className={`no-drag truncate leading-none text-sm font-medium text-foreground/80 ${
+            islandLayout ? "relative top-px" : ""
+          } ${macIslandTitlebarOffsetClass}`}
+        >
           {title}
         </span>
       ) : null}

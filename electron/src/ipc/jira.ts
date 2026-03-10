@@ -31,7 +31,7 @@ import {
   deleteJiraOAuthData,
   hasJiraOAuthToken,
 } from "../lib/jira-oauth-store";
-import { log } from "../lib/logger";
+import { reportError } from "../lib/error-utils";
 
 /** Build the Authorization header for Jira API requests */
 function buildAuthHeader(oauthData: {
@@ -57,7 +57,7 @@ export function register() {
       try {
         return loadJiraConfig(projectId);
       } catch (error) {
-        log("jira:get-config error:", error);
+        reportError("JIRA_GET_CONFIG_ERR", error);
         return null;
       }
     }
@@ -72,7 +72,7 @@ export function register() {
       try {
         saveJiraConfig(projectId, config);
       } catch (error) {
-        log("jira:save-config error:", error);
+        reportError("JIRA_SAVE_CONFIG_ERR", error);
         throw error;
       }
     }
@@ -82,7 +82,7 @@ export function register() {
     try {
       deleteJiraConfig(projectId);
     } catch (error) {
-      log("jira:delete-config error:", error);
+      reportError("JIRA_DELETE_CONFIG_ERR", error);
       throw error;
     }
   });
@@ -131,8 +131,7 @@ export function register() {
           };
         }
       } catch (error) {
-        log("jira:authenticate error:", error);
-        return { error: String(error) };
+        return { error: reportError("JIRA_AUTH_ERR", error) };
       }
     }
   );
@@ -143,7 +142,7 @@ export function register() {
       try {
         return { hasToken: hasJiraOAuthToken(instanceUrl) };
       } catch (error) {
-        log("jira:auth-status error:", error);
+        reportError("JIRA_AUTH_STATUS_ERR", error);
         return { hasToken: false };
       }
     }
@@ -153,7 +152,7 @@ export function register() {
     try {
       deleteJiraOAuthData(instanceUrl);
     } catch (error) {
-      log("jira:logout error:", error);
+      reportError("JIRA_LOGOUT_ERR", error);
       throw error;
     }
   });
@@ -202,7 +201,7 @@ export function register() {
 
         return boards;
       } catch (error) {
-        log("jira:get-boards error:", error);
+        reportError("JIRA_GET_BOARDS_ERR", error);
         throw error;
       }
     }
@@ -243,7 +242,7 @@ export function register() {
           name: String(project.name ?? project.key ?? "Untitled project"),
         }));
       } catch (error) {
-        log("jira:get-projects error:", error);
+        reportError("JIRA_GET_PROJECTS_ERR", error);
         throw error;
       }
     }
@@ -292,7 +291,7 @@ export function register() {
 
         return sprints;
       } catch (error) {
-        log("jira:get-sprints error:", error);
+        reportError("JIRA_GET_SPRINTS_ERR", error);
         throw error;
       }
     }
@@ -343,7 +342,7 @@ export function register() {
           })),
         };
       } catch (error) {
-        log("jira:get-board-configuration error:", error);
+        reportError("JIRA_GET_BOARD_CONFIG_ERR", error);
         throw error;
       }
     }
@@ -417,7 +416,7 @@ export function register() {
 
         return issues;
       } catch (error) {
-        log("jira:get-issues error:", error);
+        reportError("JIRA_GET_ISSUES_ERR", error);
         throw error;
       }
     }
@@ -468,7 +467,7 @@ export function register() {
 
         return comments;
       } catch (error) {
-        log("jira:get-comments error:", error);
+        reportError("JIRA_GET_COMMENTS_ERR", error);
         throw error;
       }
     }
@@ -513,7 +512,7 @@ export function register() {
           },
         }));
       } catch (error) {
-        log("jira:get-transitions error:", error);
+        reportError("JIRA_GET_TRANSITIONS_ERR", error);
         throw error;
       }
     }
@@ -554,7 +553,7 @@ export function register() {
 
         return { ok: true };
       } catch (error) {
-        log("jira:transition-issue error:", error);
+        reportError("JIRA_TRANSITION_ISSUE_ERR", error);
         throw error;
       }
     }

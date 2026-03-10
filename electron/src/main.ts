@@ -20,12 +20,13 @@ if (process.platform !== "win32") {
   }
 }
 import { log } from "./lib/logger";
+import { reportError } from "./lib/error-utils";
 import { migrateFromOpenAcpUi } from "./lib/migration";
 import { glassEnabled, liquidGlass } from "./lib/glass";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
 import { initPostHog, shutdownPostHog, reinitPostHog, captureEvent } from "./lib/posthog";
 import { sessions } from "./ipc/claude-sessions";
-import { acpSessions } from "./ipc/acp-sessions";
+import { acpSessions, getAcpAnalyticsPropertiesForSession } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
 
 // IPC module registrations
@@ -171,7 +172,7 @@ spacesIpc.register();
 projectsIpc.register(getMainWindow);
 sessionsIpc.register();
 ccImportIpc.register();
-filesIpc.register();
+filesIpc.register(getMainWindow);
 claudeSessionsIpc.register(getMainWindow);
 titleGenIpc.register();
 terminalIpc.register(getMainWindow);
@@ -189,7 +190,7 @@ onSettingsChanged((settings) => {
   if (lastAnalyticsEnabled !== undefined && settings.analyticsEnabled !== lastAnalyticsEnabled) {
     lastAnalyticsEnabled = settings.analyticsEnabled;
     reinitPostHog().catch((err) => {
-      log("POSTHOG", `Failed to reinitialize PostHog: ${(err as Error).message}`);
+      reportError("POSTHOG", err, { context: "reinitialize" });
     });
   } else {
     lastAnalyticsEnabled = settings.analyticsEnabled;
@@ -198,7 +199,15 @@ onSettingsChanged((settings) => {
 
 // --- Renderer→main analytics bridge ---
 ipcMain.on("analytics:capture", (_event, eventName: string, properties?: Record<string, unknown>) => {
-  captureEvent(eventName, properties).catch(() => { /* non-fatal */ });
+  const nextProperties: Record<string, unknown> = properties ? { ...properties } : {};
+  const sessionId = typeof nextProperties.session_id === "string" ? nextProperties.session_id : null;
+  delete nextProperties.session_id;
+
+  if (nextProperties.engine === "acp" && sessionId) {
+    Object.assign(nextProperties, getAcpAnalyticsPropertiesForSession(sessionId) ?? {});
+  }
+
+  captureEvent(eventName, nextProperties).catch(() => { /* non-fatal */ });
 });
 
 // --- DevTools in separate window via remote debugging ---
@@ -253,11 +262,11 @@ function openDevToolsWindow(): void {
 
         log("DEVTOOLS", `Opened DevTools window: ${fullUrl}`);
       } catch (err) {
-        log("DEVTOOLS_ERR", `Failed to parse targets: ${(err as Error).message}`);
+        reportError("DEVTOOLS_ERR", err, { context: "parse-targets" });
       }
     });
   }).on("error", (err) => {
-    log("DEVTOOLS_ERR", `Remote debugging not available: ${err.message}`);
+    reportError("DEVTOOLS_ERR", err, { context: "remote-debugging" });
   });
 }
 
@@ -346,12 +355,7 @@ app.on("will-quit", (event) => {
   shutdownPostHog()
     .catch((err) => {
       // Log and continue exit even if analytics shutdown fails
-      log(
-        "POSTHOG",
-        `Error shutting down PostHog: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      reportError("POSTHOG", err, { context: "shutdown" });
     })
     .finally(() => {
       app.exit(0);

@@ -10,6 +10,8 @@ import {
   ChevronDown,
   History,
   ArrowRightLeft,
+  Smile,
+  X,
 } from "lucide-react";
 import { resolveLucideIcon } from "@/lib/icon-utils";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,12 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { IconPicker } from "@/components/IconPicker";
 import type { ChatSession, Project, Space } from "@/types";
 import { SessionItem } from "./SessionItem";
 import { CCSessionList } from "./CCSessionList";
@@ -84,6 +92,7 @@ export function ProjectSection({
   onRenameSession,
   onDeleteProject,
   onRenameProject,
+  onUpdateIcon,
   onImportCCSession,
   otherSpaces,
   onMoveToSpace,
@@ -103,6 +112,7 @@ export function ProjectSection({
   onRenameSession: (id: string, title: string) => void;
   onDeleteProject: () => void;
   onRenameProject: (name: string) => void;
+  onUpdateIcon: (icon: string | null, iconType: "emoji" | "lucide" | null) => void;
   onImportCCSession: (ccSessionId: string) => void;
   otherSpaces: Space[];
   onMoveToSpace: (spaceId: string) => void;
@@ -113,6 +123,7 @@ export function ProjectSection({
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(project.name);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
   // Pagination: show N chats initially, load 20 more on each click
   const [visibleCount, setVisibleCount] = useState(defaultChatLimit);
 
@@ -199,7 +210,16 @@ export function ProjectSection({
               expanded ? "rotate-90" : ""
             }`}
           />
-          <FolderOpen className="h-4 w-4 shrink-0 text-sidebar-foreground/60" />
+          {project.icon && project.iconType === "emoji" ? (
+            <span className="h-4 w-4 shrink-0 text-sm leading-4 text-center">{project.icon}</span>
+          ) : project.icon && project.iconType === "lucide" ? (
+            (() => {
+              const Icon = resolveLucideIcon(project.icon);
+              return Icon ? <Icon className="h-4 w-4 shrink-0 text-sidebar-foreground/60" /> : <FolderOpen className="h-4 w-4 shrink-0 text-sidebar-foreground/60" />;
+            })()
+          ) : (
+            <FolderOpen className="h-4 w-4 shrink-0 text-sidebar-foreground/60" />
+          )}
           <span className="min-w-0 truncate">{project.name}</span>
         </button>
 
@@ -228,6 +248,8 @@ export function ProjectSection({
           <SquarePen className="h-4 w-4" />
         </Button>
 
+        <Popover open={iconPickerOpen} onOpenChange={setIconPickerOpen}>
+        <PopoverAnchor>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -248,6 +270,20 @@ export function ProjectSection({
               <Pencil className="me-2 h-3.5 w-3.5" />
               Rename
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              // Delay so the dropdown fully unmounts before the popover opens —
+              // otherwise Radix focus management immediately dismisses the popover.
+              setTimeout(() => setIconPickerOpen(true), 150);
+            }}>
+              <Smile className="me-2 h-3.5 w-3.5" />
+              Set icon
+            </DropdownMenuItem>
+            {project.icon && (
+              <DropdownMenuItem onClick={() => onUpdateIcon(null, null)}>
+                <X className="me-2 h-3.5 w-3.5" />
+                Remove icon
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
@@ -297,6 +333,20 @@ export function ProjectSection({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        </PopoverAnchor>
+
+        {/* Icon picker popover — anchored to the ⋯ button, triggered from dropdown "Set icon" */}
+        <PopoverContent align="start" side="right" className="w-72 p-3">
+          <IconPicker
+            value={project.icon ?? ""}
+            iconType={project.iconType ?? "emoji"}
+            onChange={(icon, type) => {
+              onUpdateIcon(icon, type);
+              setIconPickerOpen(false);
+            }}
+          />
+        </PopoverContent>
+        </Popover>
       </div>
 
       {/* Nested chats */}

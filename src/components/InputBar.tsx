@@ -309,6 +309,7 @@ function EngineControls({
   isCodexAgent,
   isACPAgent,
   isProcessing,
+  showACPConfigOptions,
   // Model
   modelList,
   selectedModel,
@@ -333,11 +334,13 @@ function EngineControls({
   acpPermissionBehavior,
   onAcpPermissionBehaviorChange,
   acpConfigOptions,
+  acpConfigOptionsLoading,
   onACPConfigChange,
 }: {
   isCodexAgent: boolean;
   isACPAgent: boolean;
   isProcessing: boolean;
+  showACPConfigOptions: boolean;
   modelList: Array<{ id: string; label: string; description?: string }>;
   selectedModel: { id: string; label: string; description?: string } | undefined;
   selectedModelId: string;
@@ -357,6 +360,7 @@ function EngineControls({
   acpPermissionBehavior?: AcpPermissionBehavior;
   onAcpPermissionBehaviorChange?: (behavior: AcpPermissionBehavior) => void;
   acpConfigOptions?: ACPConfigOption[];
+  acpConfigOptionsLoading?: boolean;
   onACPConfigChange?: (configId: string, value: string) => void;
 }) {
   if (isCodexAgent) {
@@ -441,7 +445,7 @@ function EngineControls({
           </DropdownMenu>
         )}
         {/* Agent-provided config dropdowns */}
-        {acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
+        {showACPConfigOptions && acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
           acpConfigOptions.map((opt) => {
             const flat = flattenConfigOptions(opt.options);
             const current = flat.find((o) => o.value === opt.currentValue);
@@ -476,6 +480,12 @@ function EngineControls({
             );
           })
         }
+        {acpConfigOptionsLoading && !showACPConfigOptions && (
+          <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading options...
+          </div>
+        )}
       </>
     );
   }
@@ -555,6 +565,7 @@ interface InputBarProps {
   /** Slash commands available for the current engine session */
   slashCommands?: SlashCommand[];
   acpConfigOptions?: ACPConfigOption[];
+  acpConfigOptionsLoading?: boolean;
   onACPConfigChange?: (configId: string, value: string) => void;
   acpPermissionBehavior?: AcpPermissionBehavior;
   onAcpPermissionBehaviorChange?: (behavior: AcpPermissionBehavior) => void;
@@ -706,6 +717,7 @@ export const InputBar = memo(function InputBar({
   onAgentChange,
   slashCommands,
   acpConfigOptions,
+  acpConfigOptionsLoading,
   onACPConfigChange,
   acpPermissionBehavior,
   onAcpPermissionBehaviorChange,
@@ -746,7 +758,8 @@ export const InputBar = memo(function InputBar({
   const mentionListRef = useRef<HTMLDivElement>(null);
   const mentionStartNode = useRef<Node | null>(null);
   const mentionStartOffset = useRef<number>(0);
-  const fileCachePathRef = useRef<string | undefined>(undefined);
+  const fileCacheFetchIdRef = useRef(0);
+  const fileCacheRefreshTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hasContentRef = useRef(false);
 
   const modelList = supportedModels?.length
@@ -754,6 +767,8 @@ export const InputBar = memo(function InputBar({
     : [];
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
   const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
+  const showACPConfigOptions = isACPAgent && (acpConfigOptions?.length ?? 0) > 0;
+  const isAwaitingAcpOptions = isACPAgent && !!acpConfigOptionsLoading;
   const modelsLoading = modelList.length === 0;
   const modelsLoadingText = isCodexAgent
     ? (codexModelsLoadingMessage?.trim() || "Loading Codex models...")
@@ -784,14 +799,56 @@ export const InputBar = memo(function InputBar({
     ? codexEffort
     : codexCurrentModel?.defaultReasoningEffort ?? codexEffort ?? "medium";
 
-  // Fetch file list when projectPath changes
+  const refreshFileCache = useCallback(async (cwd: string) => {
+    const fetchId = ++fileCacheFetchIdRef.current;
+    const result = await window.claude.files.list(cwd);
+    if (fetchId !== fileCacheFetchIdRef.current) return;
+    setFileCache(result);
+  }, []);
+
+  const scheduleFileCacheRefresh = useCallback((cwd: string) => {
+    clearTimeout(fileCacheRefreshTimerRef.current);
+    fileCacheRefreshTimerRef.current = setTimeout(() => {
+      void refreshFileCache(cwd);
+    }, 150);
+  }, [refreshFileCache]);
+
+  // Fetch and keep the mention file cache fresh for the active project.
   useEffect(() => {
-    if (!projectPath || fileCachePathRef.current === projectPath) return;
-    fileCachePathRef.current = projectPath;
-    window.claude.files.list(projectPath).then((result) => {
-      setFileCache(result);
+    if (!projectPath) {
+      fileCacheFetchIdRef.current += 1;
+      clearTimeout(fileCacheRefreshTimerRef.current);
+      setFileCache(null);
+      return;
+    }
+
+    setFileCache(null);
+    void refreshFileCache(projectPath);
+    void window.claude.files.watch(projectPath);
+
+    const unsubscribe = window.claude.files.onChanged(({ cwd }) => {
+      if (cwd !== projectPath) return;
+      scheduleFileCacheRefresh(projectPath);
     });
-  }, [projectPath]);
+
+    const refreshOnFocus = () => scheduleFileCacheRefresh(projectPath);
+    const refreshOnVisible = () => {
+      if (document.visibilityState === "visible") {
+        scheduleFileCacheRefresh(projectPath);
+      }
+    };
+
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnVisible);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnVisible);
+      clearTimeout(fileCacheRefreshTimerRef.current);
+      void window.claude.files.unwatch(projectPath);
+    };
+  }, [projectPath, refreshFileCache, scheduleFileCacheRefresh]);
 
   // Filtered mention results
   const mentionResults = useCallback(() => {
@@ -981,7 +1038,7 @@ export const InputBar = memo(function InputBar({
     const { text: fullText, mentionPaths } = extractEditableContent(el);
     const trimmed = fullText.trim();
     const hasGrabs = grabbedElements && grabbedElements.length > 0;
-    if ((!trimmed && attachments.length === 0 && !hasGrabs) || isSending) return;
+    if (isAwaitingAcpOptions || (!trimmed && attachments.length === 0 && !hasGrabs) || isSending) return;
 
     const currentImages = attachments.length > 0 ? [...attachments] : undefined;
     const contextParts: string[] = [];
@@ -1063,7 +1120,7 @@ export const InputBar = memo(function InputBar({
     setHasContent(false);
     setAttachments([]);
     closeMentions();
-  }, [attachments, isSending, projectPath, onSend, closeMentions, grabbedElements]);
+  }, [attachments, isAwaitingAcpOptions, isSending, projectPath, onSend, closeMentions, grabbedElements]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // Slash command picker keyboard navigation
@@ -1128,7 +1185,7 @@ export const InputBar = memo(function InputBar({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!isSending) {
+      if (!isSending && !isAwaitingAcpOptions) {
         handleSend();
       }
     }
@@ -1382,6 +1439,8 @@ export const InputBar = memo(function InputBar({
             <div className="pointer-events-none absolute inset-0 flex items-start px-4 pt-3.5 pb-2 text-sm text-muted-foreground/50">
               {isCompacting
                 ? "Compacting context..."
+                : isAwaitingAcpOptions
+                  ? "Loading agent options..."
                 : isProcessing
                   ? `${selectedAgent?.name ?? "Claude"} is responding... (messages will be queued)`
                   : slashCommands?.length
@@ -1395,13 +1454,16 @@ export const InputBar = memo(function InputBar({
             onInput={handleEditableInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            className="min-h-[1.5em] max-h-[200px] overflow-y-auto text-sm text-foreground outline-none whitespace-pre-wrap wrap-break-word"
+            className={`min-h-[1.5em] max-h-[200px] overflow-y-auto text-sm outline-none whitespace-pre-wrap wrap-break-word ${
+              isAwaitingAcpOptions ? "cursor-wait text-muted-foreground/60" : "text-foreground"
+            }`}
             role="textbox"
             aria-multiline="true"
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"
             data-gramm="false"
+            aria-disabled={isAwaitingAcpOptions}
             suppressContentEditableWarning
           />
         </div>
@@ -1621,6 +1683,7 @@ export const InputBar = memo(function InputBar({
               isCodexAgent={isCodexAgent}
               isACPAgent={isACPAgent}
               isProcessing={isProcessing}
+              showACPConfigOptions={showACPConfigOptions}
               modelList={modelList}
               selectedModel={selectedModel}
               selectedModelId={selectedModelId}
@@ -1640,6 +1703,7 @@ export const InputBar = memo(function InputBar({
               acpPermissionBehavior={acpPermissionBehavior}
               onAcpPermissionBehaviorChange={onAcpPermissionBehaviorChange}
               acpConfigOptions={acpConfigOptions}
+              acpConfigOptionsLoading={acpConfigOptionsLoading}
               onACPConfigChange={onACPConfigChange}
             />
           </div>
@@ -1725,7 +1789,7 @@ export const InputBar = memo(function InputBar({
               <Button
                 size="icon"
                 onClick={handleSend}
-                disabled={(!hasContent && attachments.length === 0 && (!grabbedElements || grabbedElements.length === 0)) || isSending}
+                disabled={isAwaitingAcpOptions || ((!hasContent && attachments.length === 0 && (!grabbedElements || grabbedElements.length === 0)) || isSending)}
                 className="h-8 w-8 rounded-full"
               >
                 <ArrowUp className="h-4 w-4" />

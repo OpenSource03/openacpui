@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import { log } from "../lib/logger";
 import { getSDK, clientAppEnv } from "../lib/sdk";
-import { extractErrorMessage } from "../lib/error-utils";
+import { reportError } from "../lib/error-utils";
 import { gitExec } from "../lib/git-exec";
 import { getClaudeBinaryPath } from "../lib/claude-binary";
 
@@ -130,7 +130,7 @@ async function oneShotSdkQuery(
       }
     } catch (err) {
       clearTimeout(timeout);
-      const errMsg = extractErrorMessage(err);
+      const errMsg = reportError(`${logLabel}_QUERY_ERR`, err, { context: "one-shot-query" });
       const elapsed = Date.now() - startedAt;
       log(
         `${logLabel}_ERR`,
@@ -155,8 +155,7 @@ async function oneShotSdkQuery(
     );
     return { error: "No result received" };
   } catch (err) {
-    const errMsg = extractErrorMessage(err);
-    log(`${logLabel}_ERR`, `spawn error: ${errMsg}`);
+    const errMsg = reportError(`${logLabel}_SPAWN_ERR`, err, { context: "one-shot-spawn" });
     return { error: errMsg };
   }
 }
@@ -187,8 +186,7 @@ export function register(): void {
         log("TITLE_GEN", `ACP generated: "${title}"`);
         return { title: title || undefined, error: title ? undefined : "empty result" };
       } catch (err) {
-        const msg = extractErrorMessage(err);
-        log("TITLE_GEN_ERR", `ACP: ${msg}`);
+        const msg = reportError("TITLE_GEN_ERR", err, { engine: "acp" });
         return { error: msg };
       }
     }
@@ -207,8 +205,7 @@ export function register(): void {
         log("TITLE_GEN", `Codex generated: "${title}"`);
         return { title: title || undefined, error: title ? undefined : "empty result" };
       } catch (err) {
-        const msg = extractErrorMessage(err);
-        log("TITLE_GEN_ERR", `Codex: ${msg}`);
+        const msg = reportError("TITLE_GEN_ERR", err, { engine: "codex" });
         return { error: msg };
       }
     }
@@ -277,8 +274,7 @@ export function register(): void {
           log("COMMIT_MSG_GEN", `ACP generated: "${message}"`);
           return { message: message || undefined, error: message ? undefined : "empty result" };
         } catch (err) {
-          const msg = extractErrorMessage(err);
-          log("COMMIT_MSG_GEN_ERR", `ACP: ${msg}`);
+          const msg = reportError("COMMIT_MSG_GEN_ERR", err, { engine: "acp" });
           return { error: msg };
         }
       }
@@ -297,8 +293,7 @@ export function register(): void {
           log("COMMIT_MSG_GEN", `Codex generated: "${message}"`);
           return { message: message || undefined, error: message ? undefined : "empty result" };
         } catch (err) {
-          const msg = extractErrorMessage(err);
-          log("COMMIT_MSG_GEN_ERR", `Codex: ${msg}`);
+          const msg = reportError("COMMIT_MSG_GEN_ERR", err, { engine: "codex" });
           return { error: msg };
         }
       }
@@ -314,8 +309,8 @@ export function register(): void {
       });
       return { message: result, error };
     } catch (err) {
-      log("COMMIT_MSG_GEN_ERR", `spawn error: ${extractErrorMessage(err)}`);
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("COMMIT_MSG_GEN_ERR", err, { context: "spawn" });
+      return { error: errMsg };
     }
   });
 }

@@ -31,11 +31,13 @@ import {
   imageAttachmentsToCodexInputs,
 } from "@/lib/codex-adapter";
 import { suppressNextSessionCompletion } from "@/lib/notification-utils";
+import { captureException } from "@/lib/analytics";
 import { useEngineBase } from "./useEngineBase";
 
 interface UseCodexOptions {
   sessionId: string | null;
   sessionModel?: string;
+  planModeEnabled?: boolean;
   initialMessages?: import("@/types").UIMessage[];
   initialMeta?: SessionMeta | null;
   initialPermission?: import("@/types").PermissionRequest | null;
@@ -60,7 +62,14 @@ interface CodexQuestionInput {
   multiSelect: boolean;
 }
 
-export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta, initialPermission }: UseCodexOptions) {
+export function useCodex({
+  sessionId,
+  sessionModel,
+  planModeEnabled,
+  initialMessages,
+  initialMeta,
+  initialPermission,
+}: UseCodexOptions) {
   const base = useEngineBase({ sessionId, initialMessages, initialMeta, initialPermission });
   const {
     messages, setMessages,
@@ -99,10 +108,28 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
   const planTextRef = useRef("");
   // Per-turn counter for unique plan card message IDs
   const planTurnCounterRef = useRef(0);
+  const planModeEnabledRef = useRef(!!planModeEnabled);
 
   useEffect(() => {
     sessionModelRef.current = sessionModel;
   }, [sessionModel]);
+
+  useEffect(() => {
+    planModeEnabledRef.current = !!planModeEnabled;
+  }, [planModeEnabled]);
+
+  useEffect(() => {
+    if (planModeEnabled) return;
+
+    setPendingPermission((prev) =>
+      prev?.toolName === "ExitPlanMode" ? null : prev,
+    );
+    setSessionInfo((prev) =>
+      prev?.permissionMode === "plan"
+        ? { ...prev, permissionMode: undefined }
+        : prev,
+    );
+  }, [planModeEnabled, setPendingPermission, setSessionInfo]);
 
   // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
@@ -495,24 +522,22 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
           ];
         });
 
-        // Ensure sessionInfo has permissionMode "plan" so AppLayout's sync effect
-        // can toggle plan mode off when the user accepts ExitPlanMode.
-        // Only update permissionMode on existing sessionInfo — don't create
-        // an incomplete SessionInfo from scratch (missing model, cwd, etc.)
-        setSessionInfo((prev) => prev
-          ? { ...prev, permissionMode: "plan" }
-          : prev,
-        );
+        if (planModeEnabledRef.current) {
+          // Only keep the session in plan mode while the toggle is still enabled.
+          // If the user already turned it off, just show the plan result and do not
+          // re-open the synthetic ExitPlanMode gate.
+          setSessionInfo((prev) => prev
+            ? { ...prev, permissionMode: "plan" }
+            : prev,
+          );
 
-        // Synthesize a fake ExitPlanMode permission prompt — reuses the same
-        // ExitPlanModePrompt UI that Claude shows ("Ready to implement. How should
-        // permissions work?" with Accept Edits / Ask First / Allow All / Stay in Plan).
-        setPendingPermission({
-          requestId: `codex-plan-${Date.now()}`,
-          toolName: "ExitPlanMode",
-          toolInput: {},
-          toolUseId: "codex-plan",
-        });
+          setPendingPermission({
+            requestId: `codex-plan-${Date.now()}`,
+            toolName: "ExitPlanMode",
+            toolInput: {},
+            toolUseId: "codex-plan",
+          });
+        }
       }
       return;
     }
@@ -853,7 +878,8 @@ export function useCodex({ sessionId, sessionModel, initialMessages, initialMeta
           return false;
         }
         return true;
-      } catch {
+      } catch (err) {
+        captureException(err instanceof Error ? err : new Error(String(err)), { label: "CODEX_SEND_ERR" });
         setIsProcessing(false);
         return false;
       }

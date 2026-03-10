@@ -4,12 +4,12 @@ import os from "os";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { AsyncChannel } from "../lib/async-channel";
-import { getSDK, clientAppEnv } from "../lib/sdk";
+import { getSDK, clientAppEnv, getCliPath } from "../lib/sdk";
 import type { QueryHandle } from "../lib/sdk";
 import { getMcpAuthHeaders } from "../lib/mcp-oauth-flow";
 import { getClaudeModelsCache, setClaudeModelsCache } from "../lib/claude-model-cache";
-import { extractErrorMessage } from "../lib/error-utils";
-import { getClaudeBinaryPath, getClaudeBinaryStatus, getClaudeVersion } from "../lib/claude-binary";
+import { reportError } from "../lib/error-utils";
+import { getClaudeBinaryMetadata, getClaudeBinaryPath, getClaudeBinaryStatus, getClaudeVersion } from "../lib/claude-binary";
 import { captureEvent } from "../lib/posthog";
 
 /** SDK options for file checkpointing — enables Write/Edit/NotebookEdit revert support */
@@ -216,8 +216,8 @@ function startEventLoop(
         }
       }
     } catch (err) {
-      queryError = extractErrorMessage(err);
-      log("QUERY_ERROR", `${logPrefix} stopping=${!!session.stopping} reason=${session.stopReason ?? "none"} ${queryError}`);
+      queryError = reportError("QUERY_ERROR", err, { engine: "claude", sessionId });
+      log("QUERY_ERROR", `${logPrefix} stopping=${!!session.stopping} reason=${session.stopReason ?? "none"}`);
     } finally {
       if (!session.restarting) {
         // Requested stop: treat teardown errors as clean exit
@@ -233,7 +233,7 @@ function startEventLoop(
         log("EXIT_RESTART", `${logPrefix} old loop ended (restarting)`);
       }
     }
-  })().catch((err) => log("EVENT_LOOP_FATAL", extractErrorMessage(err)));
+  })().catch((err) => reportError("EVENT_LOOP_FATAL", err, { engine: "claude", sessionId }));
 }
 
 function parseStopRequest(
@@ -293,50 +293,105 @@ async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Arra
 
   modelsRevalidationPromise = (async () => {
     const existing = getClaudeModelsCache();
-    let queryHandle: QueryHandle | null = null;
-    const channel = new AsyncChannel<unknown>();
+    const query = await getSDK();
+    const binary = getClaudeBinaryMetadata({ installIfMissing: false, allowSdkFallback: true });
+    const sdkCliPath = getCliPath();
+    const selectedCliPath = binary?.path;
 
-    try {
-      const query = await getSDK();
-      const cliPath = await getClaudeBinaryPath({ installIfMissing: false, allowSdkFallback: true }).catch(() => undefined);
-      logSdkCliPath("models-revalidate", cliPath);
-      const queryOptions: Record<string, unknown> = {
-        cwd: cwd?.trim() || os.homedir(),
-        includePartialMessages: true,
-        thinking: buildThinkingConfig(),
-        settingSources: ["user", "project"],
-        pathToClaudeCodeExecutable: cliPath,
-        ...fileCheckpointOptions(),
-      };
+    type RevalidationAttempt = {
+      cliPath?: string;
+      label: string;
+    };
 
-      queryHandle = query({ prompt: channel, options: queryOptions });
-      if (!queryHandle.supportedModels) {
+    const attempts: RevalidationAttempt[] = [{
+      cliPath: selectedCliPath,
+      label: binary ? `strategy=${binary.strategy}` : "strategy=unresolved",
+    }];
+
+    const shouldRetryWithBundledCli =
+      !!sdkCliPath &&
+      sdkCliPath !== selectedCliPath &&
+      binary?.source === "auto" &&
+      binary.strategy !== "custom" &&
+      binary.strategy !== "sdk-fallback";
+
+    if (shouldRetryWithBundledCli) {
+      attempts.push({
+        cliPath: sdkCliPath,
+        label: "strategy=bundled-retry",
+      });
+    }
+
+    let lastError = "";
+    for (const [index, attempt] of attempts.entries()) {
+      let queryHandle: QueryHandle | null = null;
+      const channel = new AsyncChannel<unknown>();
+
+      try {
+        logSdkCliPath(`models-revalidate attempt=${index + 1} ${attempt.label}`, attempt.cliPath);
+        const version = attempt.cliPath ? await getClaudeVersion(attempt.cliPath) : null;
+        if (version) {
+          log("CLAUDE_VERSION", `models-revalidate attempt=${index + 1} ${attempt.label} version=${version}`);
+        }
+
+        const queryOptions: Record<string, unknown> = {
+          cwd: cwd?.trim() || os.homedir(),
+          includePartialMessages: true,
+          thinking: buildThinkingConfig(),
+          settingSources: ["user", "project"],
+          pathToClaudeCodeExecutable: attempt.cliPath,
+          ...fileCheckpointOptions(),
+          stderr: (data: string) => {
+            const trimmed = data.trim();
+            if (!trimmed) return;
+            log("MODELS_CACHE_STDERR", `attempt=${index + 1} ${attempt.label} ${trimmed}`);
+          },
+        };
+
+        queryHandle = query({ prompt: channel, options: queryOptions });
+        if (!queryHandle.supportedModels) {
+          return { models: existing.models, updatedAt: existing.updatedAt };
+        }
+
+        const models = await queryHandle.supportedModels();
+        if (Array.isArray(models) && models.length > 0) {
+          const next = setClaudeModelsCache(models);
+          if (index > 0) {
+            log("MODELS_CACHE_REVALIDATE_FALLBACK", `Recovered via ${attempt.label}`);
+          }
+          return { models: next.models, updatedAt: next.updatedAt };
+        }
+
         return { models: existing.models, updatedAt: existing.updatedAt };
-      }
-
-      const models = await queryHandle.supportedModels();
-      if (Array.isArray(models) && models.length > 0) {
-        const next = setClaudeModelsCache(models);
-        return { models: next.models, updatedAt: next.updatedAt };
-      }
-
-      return { models: existing.models, updatedAt: existing.updatedAt };
-    } catch (err) {
-      const message = extractErrorMessage(err);
-      log("MODELS_CACHE_REVALIDATE_ERR", message);
-      return { models: existing.models, updatedAt: existing.updatedAt, error: message };
-    } finally {
-      channel.close();
-      if (queryHandle) {
-        try {
-          queryHandle.close();
-        } catch {
-          // Ignore cleanup errors
+      } catch (err) {
+        lastError = reportError("MODELS_CACHE_REVALIDATE_ERR", err, {
+          engine: "claude",
+          attempt: index + 1,
+          cliStrategy: attempt.label,
+        });
+        if (index === attempts.length - 1) {
+          return { models: existing.models, updatedAt: existing.updatedAt, error: lastError };
+        }
+      } finally {
+        channel.close();
+        if (queryHandle) {
+          try {
+            queryHandle.close();
+          } catch {
+            // Ignore cleanup errors
+          }
         }
       }
-      modelsRevalidationPromise = null;
     }
-  })();
+
+    return { models: existing.models, updatedAt: existing.updatedAt, error: lastError || "Failed to load Claude models" };
+  })().catch((err) => {
+    const message = reportError("MODELS_CACHE_REVALIDATE_ERR", err, { engine: "claude" });
+    const existing = getClaudeModelsCache();
+    return { models: existing.models, updatedAt: existing.updatedAt, error: message };
+  }).finally(() => {
+    modelsRevalidationPromise = null;
+  });
 
   return modelsRevalidationPromise;
 }
@@ -471,10 +526,11 @@ async function restartSession(
   } catch (err) {
     // Restart failed — clean up and notify renderer
     sessions.delete(sessionId);
+    const errMsg = reportError("SESSION_RESTART_ERR", err, { engine: "claude", sessionId });
     safeSend(getMainWindow,"claude:exit", {
-      code: 1, _sessionId: sessionId, error: extractErrorMessage(err),
+      code: 1, _sessionId: sessionId, error: errMsg,
     });
-    return { error: `Restart failed: ${extractErrorMessage(err)}` };
+    return { error: `Restart failed: ${errMsg}` };
   }
 
   startEventLoop(sessionId, q, newSession, getMainWindow);
@@ -591,8 +647,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     } catch (err) {
       // getSDK() or query() threw — clean up and return error
       sessions.delete(sessionId);
-      const errMsg = extractErrorMessage(err);
-      log("START_ERROR", `session=${sessionId.slice(0, 8)} ${errMsg}`);
+      const errMsg = reportError("START_ERROR", err, { engine: "claude", sessionId });
       safeSend(getMainWindow,"claude:exit", {
         code: 1, _sessionId: sessionId, error: errMsg,
       });
@@ -645,7 +700,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         await session.queryHandle.setPermissionMode(newPermissionMode);
         log("PERMISSION_MODE_CHANGED", `session=${sessionId.slice(0, 8)} mode=${newPermissionMode}`);
       } catch (err) {
-        log("PERMISSION_MODE_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
+        reportError("PERMISSION_MODE_ERR", err, { engine: "claude", sessionId });
       }
     }
 
@@ -676,8 +731,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("SET_PERM_MODE", `session=${sessionId.slice(0, 8)} mode=${permissionMode}`);
       return { ok: true };
     } catch (err) {
-      log("SET_PERM_MODE_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("SET_PERM_MODE_ERR", err, { engine: "claude", sessionId });
+      return { error: errMsg };
     }
   });
 
@@ -700,8 +755,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       void captureEvent("model_changed", { engine: "claude", model });
       return { ok: true };
     } catch (err) {
-      log("SET_MODEL_ERR", "session=" + sessionId.slice(0, 8) + " model=" + model + " " + extractErrorMessage(err));
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("SET_MODEL_ERR", err, { engine: "claude", sessionId, model });
+      return { error: errMsg };
     }
   });
 
@@ -723,8 +778,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("SET_THINKING", `session=${sessionId.slice(0, 8)} requested=${thinkingEnabled} applied=true`);
       return { ok: true };
     } catch (err) {
-      log("SET_THINKING_ERR", `session=${sessionId.slice(0, 8)} requested=${thinkingEnabled} ${extractErrorMessage(err)}`);
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("SET_THINKING_ERR", err, { engine: "claude", sessionId });
+      return { error: errMsg };
     }
   });
 
@@ -772,8 +827,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       await session.queryHandle!.interrupt();
       log("INTERRUPT", `session=${sessionId.slice(0, 8)} acknowledged`);
     } catch (err) {
-      log("INTERRUPT_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("INTERRUPT_ERR", err, { engine: "claude", sessionId });
+      return { error: errMsg };
     }
 
     return { ok: true };
@@ -789,8 +844,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("REVERT_FILES", `session=${sessionId.slice(0, 8)} checkpoint=${checkpointId.slice(0, 12)}`);
       return { ok: true };
     } catch (err) {
-      log("REVERT_FILES_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("REVERT_FILES_ERR", err, { engine: "claude", sessionId });
+      return { error: errMsg };
     }
   });
 
@@ -801,8 +856,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const servers = await session.queryHandle.mcpServerStatus();
       return { servers };
     } catch (err) {
-      log("MCP_STATUS_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
-      return { servers: [], error: extractErrorMessage(err) };
+      const errMsg = reportError("MCP_STATUS_ERR", err, { engine: "claude", sessionId });
+      return { servers: [], error: errMsg };
     }
   });
 
@@ -816,8 +871,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
       return { models };
     } catch (err) {
-      log("SUPPORTED_MODELS_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
-      return { models: [], error: extractErrorMessage(err) };
+      const errMsg = reportError("SUPPORTED_MODELS_ERR", err, { engine: "claude", sessionId });
+      return { models: [], error: errMsg };
     }
   });
 
@@ -828,8 +883,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const commands = await session.queryHandle.supportedCommands();
       return { commands: commands ?? [] };
     } catch (err) {
-      log("SLASH_COMMANDS_ERR", `session=${sessionId.slice(0, 8)} ${extractErrorMessage(err)}`);
-      return { commands: [], error: extractErrorMessage(err) };
+      const errMsg = reportError("SLASH_COMMANDS_ERR", err, { engine: "claude", sessionId });
+      return { commands: [], error: errMsg };
     }
   });
 
@@ -846,7 +901,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     try {
       return { version: await getClaudeVersion() };
     } catch (err) {
-      return { error: extractErrorMessage(err) };
+      return { error: reportError("CLAUDE_VERSION_ERR", err, { engine: "claude" }) };
     }
   });
 
@@ -875,8 +930,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("MCP_RECONNECT", `session=${sessionId.slice(0, 8)} server=${serverName}`);
       return { ok: true };
     } catch (err) {
-      log("MCP_RECONNECT_ERR", `session=${sessionId.slice(0, 8)} server=${serverName} ${extractErrorMessage(err)}`);
-      return { error: extractErrorMessage(err) };
+      const errMsg = reportError("MCP_RECONNECT_ERR", err, { engine: "claude", sessionId, serverName });
+      return { error: errMsg };
     }
   });
 

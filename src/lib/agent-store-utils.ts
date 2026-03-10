@@ -1,6 +1,6 @@
 import type { RegistryAgent } from "@/types/registry";
 import type { InstalledAgent } from "@/types/ui";
-import type { BinaryCheckResult } from "@/hooks/useAgentStore";
+import type { BinaryCheckResult } from "@/lib/acp-agent-registry";
 
 /**
  * Convert a registry agent to a local InstalledAgent.

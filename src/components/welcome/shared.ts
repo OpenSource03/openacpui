@@ -125,7 +125,6 @@ export const SHOWCASE_TOOLS: ToolShowcase[] = [
   { id: "git", label: "Source Control", icon: "GitBranch", description: "Commits, branches, diffs" },
   { id: "browser", label: "Browser", icon: "Globe", description: "Preview and inspect" },
   { id: "files", label: "Open Files", icon: "FileText", description: "Track accessed files" },
-  { id: "changes", label: "Changes", icon: "FileDiff", description: "View code diffs" },
   { id: "project-files", label: "Project", icon: "FolderTree", description: "Browse file tree" },
 ];
 

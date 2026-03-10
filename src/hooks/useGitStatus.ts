@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GitRepoInfo, GitStatus, GitBranch, GitLogEntry } from "@/types";
 
+export interface DiffStat {
+  additions: number;
+  deletions: number;
+}
+
 export interface RepoState {
   repo: GitRepoInfo;
   status: GitStatus | null;
   branches: GitBranch[];
   log: GitLogEntry[];
+  diffStat: DiffStat;
 }
 
 interface UseGitStatusOptions {
@@ -26,7 +32,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
     }
     (async () => {
       const discovered = await window.claude.git.discoverRepos(projectPath);
-      setRepoStates(discovered.map((repo) => ({ repo, status: null, branches: [], log: [] })));
+      setRepoStates(discovered.map((repo) => ({ repo, status: null, branches: [], log: [], diffStat: { additions: 0, deletions: 0 } })));
     })();
   }, [projectPath]);
 
@@ -37,16 +43,18 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
     try {
       const updated = await Promise.all(
         states.map(async (rs) => {
-          const [statusResult, branchesResult, logResult] = await Promise.all([
+          const [statusResult, branchesResult, logResult, diffStatResult] = await Promise.all([
             window.claude.git.status(rs.repo.path),
             window.claude.git.branches(rs.repo.path),
             window.claude.git.log(rs.repo.path, 30),
+            window.claude.git.diffStat(rs.repo.path),
           ]);
           return {
             repo: rs.repo,
             status: (!("error" in statusResult) || !statusResult.error) ? statusResult as GitStatus : rs.status,
             branches: Array.isArray(branchesResult) ? branchesResult : rs.branches,
             log: Array.isArray(logResult) ? logResult : rs.log,
+            diffStat: diffStatResult ?? rs.diffStat,
           };
         }),
       );
@@ -61,10 +69,11 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
     const idx = states.findIndex((rs) => rs.repo.path === repoPath);
     if (idx === -1) return;
     const rs = states[idx];
-    const [statusResult, branchesResult, logResult] = await Promise.all([
+    const [statusResult, branchesResult, logResult, diffStatResult] = await Promise.all([
       window.claude.git.status(rs.repo.path),
       window.claude.git.branches(rs.repo.path),
       window.claude.git.log(rs.repo.path, 30),
+      window.claude.git.diffStat(rs.repo.path),
     ]);
     setRepoStates((prev) => {
       const next = [...prev];
@@ -73,6 +82,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
         status: (!("error" in statusResult) || !statusResult.error) ? statusResult as GitStatus : rs.status,
         branches: Array.isArray(branchesResult) ? branchesResult : rs.branches,
         log: Array.isArray(logResult) ? logResult : rs.log,
+        diffStat: diffStatResult ?? rs.diffStat,
       };
       return next;
     });

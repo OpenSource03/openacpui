@@ -1,4 +1,5 @@
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 import { acpSessions } from "../ipc/acp-sessions";
 
 /**
@@ -58,8 +59,7 @@ export async function acpUtilityPrompt(
     return result;
   } catch (err) {
     clearTimeout(timeoutHandle);
-    const msg = err instanceof Error ? err.message : String(err);
-    log("ACP_UTILITY", `ERROR: ${msg}`);
+    reportError("ACP_UTILITY_ERR", err, { internalId });
     throw err;
   } finally {
     // Clean up this utility session — don't null the collections since another

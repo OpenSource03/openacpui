@@ -20,8 +20,8 @@ const THEME_OPTIONS: {
 
 function ThemeMockup({ theme }: { theme: ThemeOption }) {
   const isDark = theme === "dark" || theme === "system";
-  const bg = isDark ? "oklch(0.20 0 0)" : "oklch(0.97 0 0)";
-  const side = isDark ? "oklch(0.16 0 0)" : "oklch(0.93 0 0)";
+  const bg = isDark ? "oklch(0.214 0 0)" : "oklch(0.97 0 0)";
+  const side = isDark ? "oklch(0.165 0 0)" : "oklch(0.93 0 0)";
   const fg = isDark ? "oklch(0.80 0 0)" : "oklch(0.30 0 0)";
   const muted = isDark ? "oklch(0.32 0 0)" : "oklch(0.82 0 0)";
 
@@ -49,10 +49,10 @@ function ThemeMockup({ theme }: { theme: ThemeOption }) {
 // ── Layout mockup — Islands (rounded, separated cards with gaps) ──
 
 function IslandsMockup() {
-  const shell = "oklch(0.16 0 0)";
-  const card = "oklch(0.22 0 0)";
+  const shell = "oklch(0.165 0 0)";
+  const card = "oklch(0.24 0 0)";
   const border = "oklch(0.32 0 0 / 0.5)";
-  const line = "oklch(0.38 0 0)";
+  const line = "oklch(0.37 0 0)";
   const accent = "oklch(0.50 0.12 260)";
 
   return (
@@ -77,7 +77,7 @@ function IslandsMockup() {
         >
           <div className="h-[2px] w-3/4 rounded-full" style={{ background: line }} />
           <div className="h-[2px] w-1/2 rounded-full" style={{ background: line }} />
-          <div className="mt-auto h-[6px] w-full rounded-[2px]" style={{ background: `oklch(0.28 0 0)` }} />
+          <div className="mt-auto h-[6px] w-full rounded-[2px]" style={{ background: `oklch(0.29 0 0)` }} />
         </div>
         {/* Right panel island */}
         <div
@@ -95,10 +95,10 @@ function IslandsMockup() {
 // ── Layout mockup — Flat (edge-to-edge, no gaps, thin dividers) ──
 
 function FlatMockup() {
-  const bg = "oklch(0.20 0 0)";
-  const side = "oklch(0.18 0 0)";
+  const bg = "oklch(0.214 0 0)";
+  const side = "oklch(0.19 0 0)";
   const divider = "oklch(0.32 0 0)";
-  const line = "oklch(0.38 0 0)";
+  const line = "oklch(0.37 0 0)";
   const accent = "oklch(0.50 0.12 260)";
 
   return (
@@ -120,7 +120,7 @@ function FlatMockup() {
         <div className="flex flex-1 flex-col gap-[2px] p-[3px]">
           <div className="h-[2px] w-3/4 rounded-full" style={{ background: line }} />
           <div className="h-[2px] w-1/2 rounded-full" style={{ background: line }} />
-          <div className="mt-auto h-[6px] w-full rounded-[2px]" style={{ background: `oklch(0.28 0 0)` }} />
+          <div className="mt-auto h-[6px] w-full rounded-[2px]" style={{ background: `oklch(0.29 0 0)` }} />
         </div>
         {/* Right panel — divider line */}
         <div

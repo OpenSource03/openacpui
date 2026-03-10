@@ -11,6 +11,7 @@
 
 import type { ChildProcess } from "child_process";
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 import type { RequestId } from "@shared/types/codex-protocol/RequestId";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -71,7 +72,7 @@ export class CodexRpcClient {
       this.onExit?.(code, signal);
     });
     proc.on("error", (err) => {
-      log("codex-rpc", `Process error: ${err.message}`);
+      reportError("codex-rpc", err, { context: "process-error" });
     });
   }
 

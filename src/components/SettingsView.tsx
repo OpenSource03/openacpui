@@ -67,6 +67,8 @@ interface SettingsViewProps {
   onIslandLayoutChange: (enabled: boolean) => void;
   autoGroupTools: boolean;
   onAutoGroupToolsChange: (enabled: boolean) => void;
+  avoidGroupingEdits: boolean;
+  onAvoidGroupingEditsChange: (enabled: boolean) => void;
   autoExpandTools: boolean;
   onAutoExpandToolsChange: (enabled: boolean) => void;
   transparency: boolean;
@@ -91,6 +93,8 @@ export const SettingsView = memo(function SettingsView({
   onIslandLayoutChange,
   autoGroupTools,
   onAutoGroupToolsChange,
+  avoidGroupingEdits,
+  onAvoidGroupingEditsChange,
   autoExpandTools,
   onAutoExpandToolsChange,
   transparency,
@@ -101,6 +105,7 @@ export const SettingsView = memo(function SettingsView({
   onReplayWelcome,
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
+  const macIslandTitlebarOffsetClass = "";
 
   // ── Main-process app settings (loaded once, updated optimistically) ──
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -144,6 +149,8 @@ export const SettingsView = memo(function SettingsView({
             onIslandLayoutChange={onIslandLayoutChange}
             autoGroupTools={autoGroupTools}
             onAutoGroupToolsChange={onAutoGroupToolsChange}
+            avoidGroupingEdits={avoidGroupingEdits}
+            onAvoidGroupingEditsChange={onAvoidGroupingEditsChange}
             autoExpandTools={autoExpandTools}
             onAutoExpandToolsChange={onAutoExpandToolsChange}
             transparency={transparency}
@@ -216,13 +223,13 @@ export const SettingsView = memo(function SettingsView({
       default:
         return null;
     }
-  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, autoGroupTools, onAutoGroupToolsChange, autoExpandTools, onAutoExpandToolsChange, transparency, onTransparencyChange, glassSupported, onReplayWelcome]);
+  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, autoGroupTools, onAutoGroupToolsChange, avoidGroupingEdits, onAvoidGroupingEditsChange, autoExpandTools, onAutoExpandToolsChange, transparency, onTransparencyChange, glassSupported, onReplayWelcome]);
 
   return (
-    <div className={`island flex flex-1 flex-col overflow-hidden bg-background ${islandLayout ? "rounded-lg" : "rounded-none"}`}>
+    <div className={`island flex flex-1 flex-col overflow-hidden bg-background ${islandLayout ? "rounded-[var(--island-radius)]" : "rounded-none"}`}>
       <div
         className={`drag-region flex shrink-0 items-center border-b border-foreground/[0.06] ${
-          islandLayout ? "h-9 px-4" : "h-[3.25rem] px-4"
+          islandLayout ? "h-[2.375rem] px-4" : "h-[3.25rem] px-4"
         } ${
           !sidebarOpen && isMac ? (islandLayout ? "ps-[78px]" : "ps-[84px]") : ""
         }`}
@@ -231,13 +238,13 @@ export const SettingsView = memo(function SettingsView({
           <Button
             variant="ghost"
             size="icon"
-            className="no-drag me-2 h-7 w-7 text-muted-foreground/60 hover:text-foreground"
+            className={`no-drag me-2 h-7 w-7 text-muted-foreground/60 hover:text-foreground ${macIslandTitlebarOffsetClass}`}
             onClick={onToggleSidebar}
           >
             <PanelLeft className="h-4 w-4" />
           </Button>
         )}
-        <span className="leading-none text-sm font-semibold text-foreground">Settings</span>
+        <span className={`leading-none text-sm font-semibold text-foreground ${macIslandTitlebarOffsetClass}`}>Settings</span>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

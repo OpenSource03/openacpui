@@ -44,6 +44,7 @@ interface ChatViewProps {
   isProcessing: boolean;
   showThinking: boolean;
   autoGroupTools: boolean;
+  avoidGroupingEdits: boolean;
   autoExpandTools: boolean;
   extraBottomPadding?: boolean;
   scrollToMessageId?: string;
@@ -54,8 +55,6 @@ interface ChatViewProps {
   onRevert?: (checkpointId: string) => void;
   /** Called when user clicks "Revert files + chat" on a user message */
   onFullRevert?: (checkpointId: string) => void;
-  /** Called when user clicks "View changes" on an inline turn summary */
-  onViewTurnChanges?: (turnIndex: number) => void;
   /** Reports whether the chat is scrolled away from the top (scrollTop > 4px) */
   onScrolledFromTop?: (scrolled: boolean) => void;
   /** Reports smooth top-scroll transition progress [0..1] for header/fade blending */
@@ -72,7 +71,7 @@ interface ChatViewProps {
   onAgentChange?: (agent: InstalledAgent | null) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onViewTurnChanges, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits, autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const bottomLockedRef = useRef(true);
@@ -426,9 +425,9 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   // assistant text messages, also absorbing any in-between thinking-only rows.
   const { groups: toolGroups, groupedIndices } = useMemo(
     () => autoGroupTools
-      ? computeToolGroups(nonQueuedMessages, isProcessing)
+      ? computeToolGroups(nonQueuedMessages, isProcessing, avoidGroupingEdits)
       : EMPTY_TOOL_GROUP_INFO,
-    [autoGroupTools, nonQueuedMessages, isProcessing],
+    [autoGroupTools, avoidGroupingEdits, nonQueuedMessages, isProcessing],
   );
 
   // Finalized group keys (first tool message ID), used to detect newly formed groups.
@@ -604,7 +603,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
                     animate={isNewGroup}
                   />
                   {groupTurnSummary && (
-                    <TurnChangesSummary summary={groupTurnSummary} onViewInPanel={onViewTurnChanges} />
+                    <TurnChangesSummary summary={groupTurnSummary} />
                   )}
                 </Fragment>
               );
@@ -618,7 +617,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
               <Fragment key={msg.id}>
                 <div data-message-id={msg.id} className="message-item"><ToolCall message={msg} autoExpandTools={autoExpandTools} /></div>
                 {turnSummary && (
-                  <TurnChangesSummary summary={turnSummary} onViewInPanel={onViewTurnChanges} />
+                  <TurnChangesSummary summary={turnSummary} />
                 )}
               </Fragment>
             );
@@ -630,7 +629,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
               <Fragment key={msg.id}>
                 <div data-message-id={msg.id} className="message-item"><SummaryBlock message={msg} /></div>
                 {turnSummary && (
-                  <TurnChangesSummary summary={turnSummary} onViewInPanel={onViewTurnChanges} />
+                  <TurnChangesSummary summary={turnSummary} />
                 )}
               </Fragment>
             );
@@ -649,7 +648,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
                 />
               </div>
               {turnSummary && (
-                <TurnChangesSummary summary={turnSummary} onViewInPanel={onViewTurnChanges} />
+                <TurnChangesSummary summary={turnSummary} />
               )}
             </Fragment>
           );

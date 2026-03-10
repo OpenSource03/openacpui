@@ -199,8 +199,11 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
 
   if (!projectId) {
     return (
-      <div className="flex h-full items-center justify-center p-4">
-        <p className="text-xs text-muted-foreground">Open a project to manage MCP servers</p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/[0.03]">
+          <Plug className="h-5 w-5 text-foreground/15" />
+        </div>
+        <p className="text-[11px] text-muted-foreground/45">Open a project to manage MCP servers</p>
       </div>
     );
   }
@@ -209,13 +212,15 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-3 pb-2">
-        <div className="flex items-center gap-1.5">
-          <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-foreground/[0.04]">
+            <Plug className="h-3 w-3 text-muted-foreground" />
+          </div>
+          <span className="text-[11px] font-semibold tracking-wide text-muted-foreground/80 uppercase">
             MCP Servers
           </span>
           {servers.length > 0 && (
-            <Badge variant="outline" className="h-4 px-1 text-[10px]">
+            <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px] font-semibold tabular-nums">
               {servers.length}
             </Badge>
           )}
@@ -227,7 +232,7 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6"
+                  className="h-6 w-6 text-muted-foreground/50 hover:text-muted-foreground"
                   onClick={onRefreshStatus}
                 >
                   <RefreshCw className="h-3 w-3" />
@@ -241,12 +246,16 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6"
+            className="h-6 w-6 text-muted-foreground/50 hover:text-muted-foreground"
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>
+      </div>
+      {/* Header separator */}
+      <div className="mx-2">
+        <div className="h-px bg-gradient-to-r from-foreground/[0.04] via-foreground/[0.08] to-foreground/[0.04]" />
       </div>
 
       {/* Preliminary status note */}
@@ -261,12 +270,16 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
         {loading ? (
           <p className="px-2 py-4 text-xs text-muted-foreground text-center">Loading...</p>
         ) : servers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center px-4">
-            <Plug className="h-8 w-8 text-muted-foreground/30 mb-2" />
-            <p className="text-xs text-muted-foreground mb-1">No MCP servers</p>
-            <p className="text-[10px] text-muted-foreground/60">
-              Add servers to extend agent capabilities
-            </p>
+          <div className="flex flex-col items-center justify-center py-8 text-center px-4 gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/[0.03]">
+              <Plug className="h-5 w-5 text-foreground/15" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground/60">No MCP servers</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground/40">
+                Add servers to extend agent capabilities
+              </p>
+            </div>
           </div>
         ) : (
           <div className="space-y-1 pb-2">

@@ -6,6 +6,7 @@ import { promisify } from "util";
 import * as path from "path";
 import * as fs from "fs";
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 import { getAppSetting } from "./app-settings";
 import { onSettingsChanged } from "../ipc/settings";
 
@@ -51,7 +52,7 @@ export async function checkForUpdates(reason: string): Promise<void> {
     log("UPDATER_DEBUG", `Running update check (${reason})`);
     await autoUpdater.checkForUpdates();
   } catch (err) {
-    log("UPDATER_ERR", `${reason} check failed: ${getErrorMessage(err)}`);
+    reportError("UPDATER_ERR", err, { reason });
   } finally {
     updateCheckInFlight = false;
   }
@@ -120,7 +121,7 @@ export function initAutoUpdater(
   });
 
   autoUpdater.on("error", (err: Error) => {
-    log("UPDATER_ERR", `Update error: ${err.message}`);
+    reportError("UPDATER_ERR", err);
   });
 
   // IPC handlers for renderer
@@ -139,8 +140,7 @@ export function initAutoUpdater(
         try {
           await manualMacInstall();
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          log("UPDATER_ERR", `Manual install failed: ${msg}`);
+          reportError("UPDATER_ERR", err, { context: "manual-mac-install" });
           // Last resort: open the GitHub release page for manual download
           const releaseUrl = lastDownloadedVersion
             ? `https://github.com/OpenSource03/harnss/releases/tag/v${lastDownloadedVersion}`

@@ -8,6 +8,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useSpaceTerminals } from "@/hooks/useSpaceTerminals";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
+import { useAcpAgentAutoUpdate } from "@/hooks/useAcpAgentAutoUpdate";
 import { useNotifications } from "@/hooks/useNotifications";
 import {
   APP_SIDEBAR_WIDTH,
@@ -48,6 +49,7 @@ export function useAppOrchestrator() {
   const showThinking = true;
   const activeProjectPath = settings.gitCwd ?? activeProject?.path;
   const { agents, refresh: refreshAgents, saveAgent, deleteAgent } = useAgentRegistry();
+  useAcpAgentAutoUpdate({ installedAgents: agents, refreshInstalledAgents: refreshAgents });
   const getClaudeEffortForModel = useCallback((model: string | undefined): ClaudeEffort | undefined => {
     if (!model) return undefined;
     const meta = manager.supportedModels.find((entry) => entry.value === model);
@@ -58,18 +60,26 @@ export function useAppOrchestrator() {
     return levels[0];
   }, [manager.supportedModels, settings.claudeEffort]);
 
-  const handleAgentWorktreeChange = useCallback(async (nextPath: string | null) => {
-    const previousPath = settings.gitCwd;
+  const handleAgentWorktreeChange = useCallback((nextPath: string | null) => {
     settings.setGitCwd(nextPath);
-    if (!manager.activeSessionId || manager.isDraft) return { ok: true };
 
-    const result = await manager.restartActiveSessionInCurrentWorktree();
-    if (result?.error) {
-      settings.setGitCwd(previousPath);
-      return result;
+    // If there's an active non-draft session, open a new chat so the agent
+    // starts fresh in the selected worktree (instead of restarting in-place).
+    if (manager.activeSessionId && !manager.isDraft && manager.activeSession) {
+      const engine = manager.activeSession.engine ?? "claude";
+      manager.createSession(manager.activeSession.projectId, {
+        model: settings.getModelForEngine(engine) || undefined,
+        permissionMode: settings.permissionMode,
+        planMode: settings.planMode,
+        thinkingEnabled: settings.thinking,
+        effort: engine === "claude"
+          ? getClaudeEffortForModel(settings.getModelForEngine("claude") || undefined)
+          : undefined,
+        engine,
+        agentId: manager.activeSession.agentId,
+      });
     }
-    return { ok: true };
-  }, [manager.activeSessionId, manager.isDraft, manager.restartActiveSessionInCurrentWorktree, settings]);
+  }, [manager.activeSessionId, manager.isDraft, manager.activeSession, manager.createSession, settings]);
 
   const handleAgentChange = useCallback((agent: InstalledAgent | null) => {
     setSelectedAgent(agent);
@@ -180,8 +190,6 @@ export function useAppOrchestrator() {
   const [spaceCreatorOpen, setSpaceCreatorOpen] = useState(false);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
   const [scrollToMessageId, setScrollToMessageId] = useState<string | undefined>();
-  // Focus turn index for the Changes panel (set by inline turn summary "View changes" click)
-  const [changesPanelFocusTurn, setChangesPanelFocusTurn] = useState<number | undefined>();
   // In-chat Ctrl+F / Cmd+F search overlay
   const [chatSearchOpen, setChatSearchOpen] = useState(false);
   const spaceTerminals = useSpaceTerminals();
@@ -377,20 +385,6 @@ export function useAppOrchestrator() {
       setTimeout(() => setScrollToMessageId(messageId), 200);
     },
     [manager.switchSession],
-  );
-
-  // Opens the Changes panel and focuses on a specific turn (from inline summary click)
-  const handleViewTurnChanges = useCallback(
-    (turnIndex: number) => {
-      settings.setActiveTools((prev) => {
-        if (prev.has("changes")) return prev;
-        const next = new Set(prev);
-        next.add("changes");
-        return next;
-      });
-      setChangesPanelFocusTurn(turnIndex);
-    },
-    [settings],
   );
 
   const handleCreateSpace = useCallback(() => {
@@ -678,7 +672,10 @@ export function useAppOrchestrator() {
 
   // Panel visibility flags
   const hasRightPanel = ((hasTodos && settings.activeTools.has("tasks")) || (hasAgents && settings.activeTools.has("agents"))) && !!manager.activeSessionId;
-  const hasToolsColumn = [...settings.activeTools].some((id) => COLUMN_TOOL_IDS.has(id)) && !!manager.activeSessionId;
+  // Side column only includes active COLUMN tools that are NOT placed in the bottom row
+  const hasToolsColumn = [...settings.activeTools].some((id) => COLUMN_TOOL_IDS.has(id) && !settings.bottomTools.has(id)) && !!manager.activeSessionId;
+  // Bottom tools row: active COLUMN tools that ARE placed in the bottom row
+  const hasBottomTools = [...settings.activeTools].some((id) => COLUMN_TOOL_IDS.has(id) && settings.bottomTools.has(id)) && !!manager.activeSessionId;
 
   // ── Dynamic Electron minimum window width ──
   const isIsland = settings.islandLayout;
@@ -702,10 +699,10 @@ export function useAppOrchestrator() {
     window.claude.setMinWidth(Math.max(minW, 600));
   }, [sidebar.isOpen, hasRightPanel, hasToolsColumn, manager.activeSessionId, minChatWidth, margins, pickerW, handleW]);
 
-  // When tools column becomes visible, fire resize so xterm terminals re-fit
+  // When tools column or bottom row becomes visible, fire resize so xterm terminals re-fit
   useEffect(() => {
-    if (hasToolsColumn) window.dispatchEvent(new Event("resize"));
-  }, [hasToolsColumn]);
+    if (hasToolsColumn || hasBottomTools) window.dispatchEvent(new Event("resize"));
+  }, [hasToolsColumn, hasBottomTools]);
 
   const activeSpaceTerminals = spaceTerminals.getSpaceState(spaceManager.activeSpaceId);
 
@@ -736,6 +733,7 @@ export function useAppOrchestrator() {
     hasProjects,
     hasRightPanel,
     hasToolsColumn,
+    hasBottomTools,
     activeTodos,
     bgAgents,
     hasTodos,
@@ -762,10 +760,6 @@ export function useAppOrchestrator() {
     chatSearchOpen,
     setChatSearchOpen,
 
-    // Changes panel
-    changesPanelFocusTurn,
-    setChangesPanelFocusTurn,
-
     // Terminals
     spaceTerminals,
     activeSpaceTerminals,
@@ -788,7 +782,6 @@ export function useAppOrchestrator() {
     handleImportCCSession,
     handleSeedDevExampleSpaceData,
     handleNavigateToMessage,
-    handleViewTurnChanges,
     handleCreateSpace,
     handleEditSpace,
     handleDeleteSpace,

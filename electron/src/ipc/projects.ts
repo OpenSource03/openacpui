@@ -12,6 +12,8 @@ interface Project {
   path: string;
   createdAt: number;
   spaceId?: string;
+  icon?: string;
+  iconType?: "emoji" | "lucide";
 }
 
 function getProjectsFilePath(): string {
@@ -152,6 +154,25 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { ok: true };
     } catch (err) {
       log("PROJECTS:REORDER_ERR", (err as Error).message);
+      return { error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle("projects:update-icon", (_event, projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => {
+    try {
+      const projects = readProjects().map((p) => {
+        if (p.id !== projectId) return p;
+        if (icon === null || iconType === null) {
+          // Remove icon — strip both fields
+          const { icon: _i, iconType: _t, ...rest } = p;
+          return rest;
+        }
+        return { ...p, icon, iconType };
+      });
+      writeProjects(projects);
+      return { ok: true };
+    } catch (err) {
+      log("PROJECTS:UPDATE_ICON_ERR", (err as Error).message);
       return { error: (err as Error).message };
     }
   });

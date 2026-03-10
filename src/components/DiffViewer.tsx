@@ -16,7 +16,7 @@ interface DiffViewerProps {
   newString: string;
   filePath: string;
   unifiedDiff?: string;
-  /** Fill parent height instead of capping at max-h (used in ChangesPanel) */
+  /** Fill parent height instead of capping at max-h */
   fillHeight?: boolean;
 }
 

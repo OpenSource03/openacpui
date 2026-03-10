@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import type { CCSessionInfo } from "@/types";
+import { captureException } from "@/lib/analytics";
 
 function formatRelativeDate(isoString: string): string {
   const date = new Date(isoString);
@@ -36,7 +37,8 @@ export function CCSessionList({
         setSessions(result);
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        captureException(err instanceof Error ? err : new Error(String(err)), { label: "CC_SESSION_LIST_ERR" });
         setLoading(false);
       });
   }, [projectPath]);

@@ -3,11 +3,12 @@ import os from "os";
 import path from "path";
 import { execFileSync, spawn } from "child_process";
 import { getAppSetting } from "./app-settings";
-import { extractErrorMessage } from "./error-utils";
+import { extractErrorMessage, reportError } from "./error-utils";
 import { log } from "./logger";
 import { getCliPath } from "./sdk";
 
 export type ClaudeBinarySource = "auto" | "managed" | "custom";
+export type ClaudeBinaryResolutionStrategy = "custom" | "env" | "known" | "path" | "sdk-fallback";
 
 interface ResolveClaudeBinaryOptions {
   installIfMissing?: boolean;
@@ -15,7 +16,7 @@ interface ResolveClaudeBinaryOptions {
 }
 
 interface ClaudeBinaryResolution {
-  strategy: "custom" | "env" | "known" | "path" | "sdk-fallback";
+  strategy: ClaudeBinaryResolutionStrategy;
   path: string;
 }
 
@@ -181,7 +182,7 @@ async function installClaudeBinary(): Promise<string> {
           "powershell",
         );
       } catch (err) {
-        log("CLAUDE_BINARY_INSTALL_ERR", `powershell ${extractErrorMessage(err)}`);
+        reportError("CLAUDE_BINARY_INSTALL_ERR", err, { installer: "powershell" });
         await runInstaller(
           "cmd",
           ["/c", `curl -fsSL ${CLAUDE_INSTALL_CMD} -o install.cmd && install.cmd && del install.cmd`],
@@ -203,7 +204,7 @@ async function installClaudeBinary(): Promise<string> {
     log("CLAUDE_BINARY_SELECTED", `strategy=${resolution.strategy} path=${resolution.path}`);
     return resolution.path;
   } catch (err) {
-    log("CLAUDE_BINARY_INSTALL_ERR", extractErrorMessage(err));
+    reportError("CLAUDE_BINARY_INSTALL_ERR", err);
     throw err;
   }
 }
@@ -285,17 +286,37 @@ export function getClaudeBinaryStatus(): { installed: boolean; installing: boole
   };
 }
 
-export async function getClaudeVersion(): Promise<string | null> {
+function readClaudeVersion(binaryPath: string): string | null {
+  const command = isScriptExecutable(binaryPath) ? process.execPath : binaryPath;
+  const args = isScriptExecutable(binaryPath) ? [binaryPath, "--version"] : ["--version"];
+  const output = execFileSync(command, args, {
+    encoding: "utf-8",
+    timeout: 10000,
+  }).trim();
+  return output || null;
+}
+
+export function getClaudeBinaryMetadata(options?: ResolveClaudeBinaryOptions): {
+  path: string;
+  strategy: ClaudeBinaryResolutionStrategy;
+  source: ClaudeBinarySource;
+} | null {
+  const source = getSource();
+  const resolution = resolveClaudeBinarySync(options);
+  if (!resolution) return null;
+  return {
+    path: resolution.path,
+    strategy: resolution.strategy,
+    source,
+  };
+}
+
+export async function getClaudeVersion(binaryPath?: string): Promise<string | null> {
   try {
+    if (binaryPath) return readClaudeVersion(binaryPath);
     const resolution = resolveClaudeBinarySync({ installIfMissing: false, allowSdkFallback: true });
     if (!resolution) return null;
-    const command = isScriptExecutable(resolution.path) ? process.execPath : resolution.path;
-    const args = isScriptExecutable(resolution.path) ? [resolution.path, "--version"] : ["--version"];
-    const output = execFileSync(command, args, {
-      encoding: "utf-8",
-      timeout: 10000,
-    }).trim();
-    return output || null;
+    return readClaudeVersion(resolution.path);
   } catch {
     return null;
   }

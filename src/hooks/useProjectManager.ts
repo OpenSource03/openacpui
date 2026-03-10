@@ -47,6 +47,20 @@ export function useProjectManager() {
     );
   }, []);
 
+  const updateProjectIcon = useCallback(async (id: string, icon: string | null, iconType: "emoji" | "lucide" | null) => {
+    await window.claude.projects.updateIcon(id, icon, iconType);
+    setProjects((prev) =>
+      prev.map((p) => {
+        if (p.id !== id) return p;
+        if (icon === null || iconType === null) {
+          const { icon: _i, iconType: _t, ...rest } = p;
+          return rest;
+        }
+        return { ...p, icon, iconType };
+      }),
+    );
+  }, []);
+
   const reorderProject = useCallback(async (projectId: string, targetProjectId: string) => {
     await window.claude.projects.reorder(projectId, targetProjectId);
     setProjects((prev) => {
@@ -67,6 +81,7 @@ export function useProjectManager() {
     deleteProject,
     renameProject,
     updateProjectSpace,
+    updateProjectIcon,
     reorderProject,
   };
 }

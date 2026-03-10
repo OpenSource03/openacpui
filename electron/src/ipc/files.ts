@@ -1,4 +1,5 @@
 import { ipcMain, shell } from "electron";
+import type { BrowserWindow } from "electron";
 import { execFile } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -6,6 +7,8 @@ import { log } from "../lib/logger";
 import { ALWAYS_SKIP } from "../lib/git-exec";
 import { getAppSetting } from "../lib/app-settings";
 import { captureEvent } from "../lib/posthog";
+import { reportError } from "../lib/error-utils";
+import { safeSend } from "../lib/safe-send";
 
 function listFilesGit(cwd: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
@@ -91,6 +94,141 @@ async function listProjectFiles(cwd: string): Promise<string[]> {
 
 /** Dirs to skip in the full filesystem walk (VCS internals + massive dependency dirs). */
 const EXPLORER_SKIP = new Set([".git", ".hg", ".svn", "node_modules"]);
+
+interface ProjectWatchState {
+  refCount: number;
+  watchers: Map<string, fs.FSWatcher>;
+  notifyTimer?: ReturnType<typeof setTimeout>;
+  syncTimer?: ReturnType<typeof setTimeout>;
+}
+
+const projectWatchers = new Map<string, ProjectWatchState>();
+
+function collectWatchDirs(cwd: string, maxDirs = 5000): string[] {
+  const dirs = [cwd];
+  const queue = [cwd];
+
+  while (queue.length > 0 && dirs.length < maxDirs) {
+    const dir = queue.shift()!;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || EXPLORER_SKIP.has(entry.name)) continue;
+      const childDir = path.join(dir, entry.name);
+      dirs.push(childDir);
+      queue.push(childDir);
+      if (dirs.length >= maxDirs) break;
+    }
+  }
+
+  return dirs;
+}
+
+function closeProjectWatchers(state: ProjectWatchState): void {
+  if (state.notifyTimer) clearTimeout(state.notifyTimer);
+  if (state.syncTimer) clearTimeout(state.syncTimer);
+  for (const watcher of state.watchers.values()) {
+    watcher.close();
+  }
+  state.watchers.clear();
+}
+
+function scheduleWatcherNotify(
+  cwd: string,
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  const state = projectWatchers.get(cwd);
+  if (!state || state.notifyTimer) return;
+
+  state.notifyTimer = setTimeout(() => {
+    const current = projectWatchers.get(cwd);
+    if (!current) return;
+    current.notifyTimer = undefined;
+    safeSend(getMainWindow, "files:changed", { cwd });
+  }, 150);
+}
+
+function syncProjectWatchers(
+  cwd: string,
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  const state = projectWatchers.get(cwd);
+  if (!state) return;
+
+  const nextDirs = new Set(collectWatchDirs(cwd));
+
+  for (const [dir, watcher] of state.watchers) {
+    if (nextDirs.has(dir)) continue;
+    watcher.close();
+    state.watchers.delete(dir);
+  }
+
+  for (const dir of nextDirs) {
+    if (state.watchers.has(dir)) continue;
+    try {
+      const watcher = fs.watch(dir, { persistent: false }, () => {
+        scheduleWatcherNotify(cwd, getMainWindow);
+        scheduleWatcherSync(cwd, getMainWindow);
+      });
+      watcher.on("error", () => {
+        scheduleWatcherSync(cwd, getMainWindow);
+      });
+      state.watchers.set(dir, watcher);
+    } catch {
+      // Ignore transient watch failures; the next sync will retry.
+    }
+  }
+}
+
+function scheduleWatcherSync(
+  cwd: string,
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  const state = projectWatchers.get(cwd);
+  if (!state || state.syncTimer) return;
+
+  state.syncTimer = setTimeout(() => {
+    const current = projectWatchers.get(cwd);
+    if (!current) return;
+    current.syncTimer = undefined;
+    syncProjectWatchers(cwd, getMainWindow);
+  }, 250);
+}
+
+function startProjectWatcher(
+  cwd: string,
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  const existing = projectWatchers.get(cwd);
+  if (existing) {
+    existing.refCount += 1;
+    return;
+  }
+
+  const state: ProjectWatchState = {
+    refCount: 1,
+    watchers: new Map(),
+  };
+  projectWatchers.set(cwd, state);
+  syncProjectWatchers(cwd, getMainWindow);
+}
+
+function stopProjectWatcher(cwd: string): void {
+  const state = projectWatchers.get(cwd);
+  if (!state) return;
+
+  state.refCount = Math.max(0, state.refCount - 1);
+  if (state.refCount > 0) return;
+
+  closeProjectWatchers(state);
+  projectWatchers.delete(cwd);
+}
 
 /**
  * Walk the filesystem including gitignored files.
@@ -179,14 +317,13 @@ function buildFolderTree(dirPrefix: string, filePaths: string[]): string {
   return dirPrefix + "\n" + lines.join("\n");
 }
 
-export function register(): void {
+export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("shell:open-external", async (_event, url: string) => {
     try {
       await shell.openExternal(url);
       return { ok: true };
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log("SHELL:OPEN_EXTERNAL_ERR", `${url}: ${errMsg}`);
+      const errMsg = reportError("SHELL:OPEN_EXTERNAL_ERR", err, { url });
       return { error: errMsg };
     }
   });
@@ -204,7 +341,7 @@ export function register(): void {
       const dirs = Array.from(dirSet).sort();
       return { files, dirs };
     } catch (err) {
-      log("FILES:LIST_ERR", err instanceof Error ? err.message : String(err));
+      reportError("FILES:LIST_ERR", err);
       return { files: [], dirs: [] };
     }
   });
@@ -222,8 +359,28 @@ export function register(): void {
       const dirs = Array.from(dirSet).sort();
       return { files, dirs };
     } catch (err) {
-      log("FILES:LIST_ALL_ERR", err instanceof Error ? err.message : String(err));
+      reportError("FILES:LIST_ALL_ERR", err);
       return { files: [], dirs: [] };
+    }
+  });
+
+  ipcMain.handle("files:watch", async (_event, cwd: string) => {
+    try {
+      startProjectWatcher(cwd, getMainWindow);
+      return { ok: true };
+    } catch (err) {
+      const errMsg = reportError("FILES:WATCH_ERR", err, { cwd });
+      return { error: errMsg };
+    }
+  });
+
+  ipcMain.handle("files:unwatch", async (_event, cwd: string) => {
+    try {
+      stopProjectWatcher(cwd);
+      return { ok: true };
+    } catch (err) {
+      const errMsg = reportError("FILES:UNWATCH_ERR", err, { cwd });
+      return { error: errMsg };
     }
   });
 
@@ -268,8 +425,7 @@ export function register(): void {
       const content = fs.readFileSync(absPath, "utf-8");
       return { content };
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log("FILE:READ_ERR", `${filePath}: ${errMsg}`);
+      const errMsg = reportError("FILE:READ_ERR", err, { filePath });
       return { error: errMsg };
     }
   });
@@ -316,8 +472,7 @@ export function register(): void {
       void captureEvent("file_opened_in_editor", { editor: "default" });
       return { ok: true, editor: "default" };
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log("FILE:OPEN_EDITOR_ERR", errMsg);
+      const errMsg = reportError("FILE:OPEN_EDITOR_ERR", err, { filePath });
       return { error: errMsg };
     }
   });

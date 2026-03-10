@@ -1,6 +1,7 @@
 import path from "path";
 import os from "os";
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 
 interface LiquidGlass {
   addView: (handle: Buffer, opts?: object) => number;
@@ -37,7 +38,7 @@ if (process.platform === "darwin") {
       log("GLASS", "Native addon loaded but addView not found");
     }
   } catch (err) {
-    log("GLASS", `Failed to load native addon: ${(err as Error).message}`);
+    reportError("GLASS", err, { context: "native-addon-load" });
   }
 }
 

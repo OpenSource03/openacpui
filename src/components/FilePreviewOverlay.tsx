@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { OpenInEditorButton } from "./OpenInEditorButton";
 import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
 import { getLanguageFromPath } from "@/lib/languages";
+import { captureException } from "@/lib/analytics";
 
 // ── Monaco language mapping ──
 
@@ -148,6 +149,7 @@ const OverlayContent = memo(function OverlayContent({
       })
       .catch((err) => {
         if (cancelled) return;
+        captureException(err instanceof Error ? err : new Error(String(err)), { label: "FILE_READ_ERR" });
         setError(err instanceof Error ? err.message : "Failed to read file");
       })
       .finally(() => {

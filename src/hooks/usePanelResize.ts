@@ -3,6 +3,8 @@ import { normalizeRatios, type Settings } from "@/hooks/useSettings";
 import {
   MIN_RIGHT_PANEL_WIDTH,
   MIN_TOOLS_PANEL_WIDTH,
+  MIN_BOTTOM_TOOLS_HEIGHT,
+  MAX_BOTTOM_TOOLS_HEIGHT,
   getMinChatWidth,
   getResizeHandleWidth,
   getToolPickerWidth,
@@ -41,6 +43,7 @@ export function usePanelResize({
   const contentRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
   const toolsColumnRef = useRef<HTMLDivElement>(null);
+  const bottomToolsRowRef = useRef<HTMLDivElement>(null);
 
   // ── Right panel resize ──
 
@@ -171,10 +174,13 @@ export function usePanelResize({
   // (raw settings.toolsSplitRatios can be empty or wrong length when tools are toggled)
   const normalizedToolRatiosRef = useRef<number[]>([]);
 
-  // Count of active panel tools (used to sync stored ratios when tools are toggled)
+  // Count of active SIDE tools (exclude bottom-placed tools)
+  const columnToolIds = ["terminal", "git", "browser", "files", "project-files", "mcp"];
   const activeToolCount = useMemo(
-    () => settings.toolOrder.filter((id) => settings.activeTools.has(id) && ["terminal", "git", "browser", "files", "project-files", "mcp", "changes"].includes(id)).length,
-    [settings.toolOrder, settings.activeTools],
+    () => settings.toolOrder.filter((id) =>
+      settings.activeTools.has(id) && columnToolIds.includes(id) && !settings.bottomTools.has(id),
+    ).length,
+    [settings.toolOrder, settings.activeTools, settings.bottomTools],
   );
 
   // Sync stored ratios to the actual tool count whenever tools are toggled on/off.
@@ -226,6 +232,93 @@ export function usePanelResize({
     [settings],
   );
 
+  // ── Bottom tools row resize (vertical drag between top area and bottom tools) ──
+
+  const bottomToolsHeightRef = useRef(settings.bottomToolsHeight);
+  bottomToolsHeightRef.current = settings.bottomToolsHeight;
+
+  const handleBottomResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+      const startY = e.clientY;
+      const startHeight = bottomToolsHeightRef.current;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        const delta = startY - ev.clientY;
+        const next = Math.max(MIN_BOTTOM_TOOLS_HEIGHT, Math.min(MAX_BOTTOM_TOOLS_HEIGHT, startHeight + delta));
+        settings.setBottomToolsHeight(next);
+      };
+
+      const onMouseUp = () => {
+        setIsResizing(false);
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        settings.saveBottomToolsHeight();
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    },
+    [settings],
+  );
+
+  // ── Bottom tools horizontal split ratios ──
+
+  const normalizedBottomRatiosRef = useRef<number[]>([]);
+
+  const activeBottomToolCount = useMemo(
+    () => settings.toolOrder.filter((id) =>
+      settings.activeTools.has(id) && settings.bottomTools.has(id) && columnToolIds.includes(id),
+    ).length,
+    [settings.toolOrder, settings.activeTools, settings.bottomTools],
+  );
+
+  useEffect(() => {
+    if (activeBottomToolCount <= 0) return;
+    if (settings.bottomToolsSplitRatios.length !== activeBottomToolCount) {
+      const synced = normalizeRatios(settings.bottomToolsSplitRatios, activeBottomToolCount);
+      settings.setBottomToolsSplitRatios(synced);
+    }
+  }, [activeBottomToolCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleBottomSplitStart = useCallback(
+    (e: React.MouseEvent, dividerIndex: number) => {
+      e.preventDefault();
+      setIsResizing(true);
+      const startX = e.clientX;
+      const rowEl = bottomToolsRowRef.current;
+      if (!rowEl) return;
+      const rowWidth = rowEl.getBoundingClientRect().width;
+      const startRatios = [...normalizedBottomRatiosRef.current];
+      if (dividerIndex + 1 >= startRatios.length) return;
+      const minRatio = 0.1;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        const delta = (ev.clientX - startX) / rowWidth;
+        const next = [...startRatios];
+        let left = startRatios[dividerIndex] + delta;
+        let right = startRatios[dividerIndex + 1] - delta;
+        if (left < minRatio) { right += left - minRatio; left = minRatio; }
+        if (right < minRatio) { left += right - minRatio; right = minRatio; }
+        next[dividerIndex] = left;
+        next[dividerIndex + 1] = right;
+        settings.setBottomToolsSplitRatios(next);
+      };
+
+      const onMouseUp = () => {
+        setIsResizing(false);
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        settings.saveBottomToolsSplitRatios();
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    },
+    [settings],
+  );
+
   // ── Right panel vertical split (Tasks / Agents) ──
 
   const handleRightSplitStart = useCallback(
@@ -262,11 +355,15 @@ export function usePanelResize({
     contentRef,
     rightPanelRef,
     toolsColumnRef,
+    bottomToolsRowRef,
     normalizedToolRatiosRef,
+    normalizedBottomRatiosRef,
     handleResizeStart,
     handleToolsResizeStart,
     handleToolsSplitStart,
     handleRightSplitStart,
+    handleBottomResizeStart,
+    handleBottomSplitStart,
     // Expose constants for JSX layout
     MIN_CHAT_WIDTH: minChatWidth,
     MIN_PANEL_WIDTH,

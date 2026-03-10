@@ -133,6 +133,7 @@ declare global {
         delete: (projectId: string) => Promise<{ ok?: boolean; error?: string }>;
         rename: (projectId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
         updateSpace: (projectId: string, spaceId: string) => Promise<{ ok?: boolean; error?: string }>;
+        updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => Promise<{ ok?: boolean; error?: string }>;
         reorder: (projectId: string, targetProjectId: string) => Promise<{ ok?: boolean; error?: string }>;
       };
       sessions: {
@@ -160,6 +161,8 @@ declare global {
       files: {
         list: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
         listAll: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
+        watch: (cwd: string) => Promise<{ ok?: boolean; error?: string }>;
+        unwatch: (cwd: string) => Promise<{ ok?: boolean; error?: string }>;
         readMultiple: (
           cwd: string,
           paths: string[],
@@ -170,6 +173,7 @@ declare global {
             | { path: string; error: string; content?: undefined; isDir?: undefined }
           >
         >;
+        onChanged: (callback: (data: { cwd: string }) => void) => () => void;
       };
       git: {
         discoverRepos: (projectPath: string) => Promise<GitRepoInfo[]>;
@@ -190,6 +194,7 @@ declare global {
         pull: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
         fetch: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
         diffFile: (cwd: string, file: string, staged: boolean) => Promise<{ diff?: string; error?: string }>;
+        diffStat: (cwd: string) => Promise<{ additions: number; deletions: number }>;
         log: (cwd: string, count?: number) => Promise<GitLogEntry[] | { error: string }>;
         generateCommitMessage: (
           cwd: string,

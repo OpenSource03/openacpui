@@ -5,7 +5,15 @@ import { normalizeRatios } from "@/hooks/useSettings";
 import { useAppOrchestrator } from "@/hooks/useAppOrchestrator";
 import { useSpaceTheme } from "@/hooks/useSpaceTheme";
 import { usePanelResize } from "@/hooks/usePanelResize";
-import { getMinChatWidth } from "@/lib/layout-constants";
+import {
+  ISLAND_CONTROL_RADIUS,
+  ISLAND_GAP,
+  ISLAND_PANEL_GAP,
+  ISLAND_RADIUS,
+  RESIZE_HANDLE_WIDTH_ISLAND,
+  TOOL_PICKER_WIDTH_ISLAND,
+  getMinChatWidth,
+} from "@/lib/layout-constants";
 import type { GrabbedElement } from "@/types/ui";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
@@ -25,7 +33,6 @@ import { BrowserPanel } from "./BrowserPanel";
 import { GitPanel } from "./GitPanel";
 import { FilesPanel } from "./FilesPanel";
 import { McpPanel } from "./McpPanel";
-import { ChangesPanel } from "./ChangesPanel";
 import { ProjectFilesPanel } from "./ProjectFilesPanel";
 import { FilePreviewOverlay } from "./FilePreviewOverlay";
 import { SettingsView } from "./SettingsView";
@@ -53,27 +60,30 @@ export function AppLayout() {
     sidebar, projectManager, spaceManager, manager, settings, resolvedTheme,
     agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange,
     lockedEngine, lockedAgentId,
-    activeProjectId, activeProjectPath, showThinking,
-    hasProjects, hasRightPanel, hasToolsColumn,
+    activeProjectId, activeProject, activeProjectPath, showThinking,
+    hasProjects, hasRightPanel, hasToolsColumn, hasBottomTools,
     activeTodos, bgAgents, hasTodos, hasAgents, availableContextual,
     glassSupported, devFillEnabled, jiraBoardEnabled,
     showSettings, setShowSettings,
     spaceCreatorOpen, setSpaceCreatorOpen, editingSpace,
     scrollToMessageId, setScrollToMessageId,
     chatSearchOpen, setChatSearchOpen,
-    changesPanelFocusTurn, setChangesPanelFocusTurn,
     spaceTerminals, activeSpaceTerminals,
     handleToggleTool, handleToolReorder, handleNewChat, handleSend,
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
     handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
     handleSendQueuedNow,
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
-    handleViewTurnChanges, handleCreateSpace, handleEditSpace,
+    handleCreateSpace, handleEditSpace,
     handleDeleteSpace, handleSaveSpace, handleMoveProjectToSpace,
     handleSeedDevExampleSpaceData,
   } = o;
 
-  const glassOverlayStyle = useSpaceTheme(spaceManager.activeSpace, resolvedTheme);
+  const glassOverlayStyle = useSpaceTheme(
+    spaceManager.activeSpace,
+    resolvedTheme,
+    glassSupported && settings.transparency,
+  );
 
   // ── Welcome wizard (first-run onboarding) ──
 
@@ -256,7 +266,16 @@ Link: ${issue.url}`;
 
   const isIsland = settings.islandLayout;
   const minChatWidth = getMinChatWidth(isIsland);
-  const splitGap = isIsland ? 4 : 0.5;
+  const splitGap = isIsland ? RESIZE_HANDLE_WIDTH_ISLAND / 2 : 0.5;
+  const islandLayoutVars = isIsland
+    ? {
+        "--island-gap": `${ISLAND_GAP}px`,
+        "--island-panel-gap": `${ISLAND_PANEL_GAP}px`,
+        "--island-radius": `${ISLAND_RADIUS}px`,
+        "--island-control-radius": `${ISLAND_CONTROL_RADIUS}px`,
+        "--tool-picker-strip-width": `${TOOL_PICKER_WIDTH_ISLAND - ISLAND_PANEL_GAP}px`,
+      } as React.CSSProperties
+    : undefined;
 
   const resize = usePanelResize({
     settings,
@@ -267,8 +286,10 @@ Link: ${issue.url}`;
     activeProjectId,
   });
   const {
-    isResizing, contentRef, rightPanelRef, toolsColumnRef, normalizedToolRatiosRef,
+    isResizing, contentRef, rightPanelRef, toolsColumnRef, bottomToolsRowRef,
+    normalizedToolRatiosRef, normalizedBottomRatiosRef,
     handleResizeStart, handleToolsResizeStart, handleToolsSplitStart, handleRightSplitStart,
+    handleBottomResizeStart, handleBottomSplitStart,
   } = resize;
 
   // ── Chat scroll fade & titlebar tinting ──
@@ -312,7 +333,10 @@ Link: ${issue.url}`;
     manager.codexAuthRequired;
 
   return (
-    <div className={`relative flex h-screen overflow-hidden bg-sidebar text-foreground${settings.islandLayout ? "" : " no-islands"}`}>
+    <div
+      className={`relative flex h-screen overflow-hidden bg-sidebar text-foreground${settings.islandLayout ? "" : " no-islands"}`}
+      style={islandLayoutVars}
+    >
       {/* Glass tint overlay — sits behind content, tints the native transparency */}
       {glassOverlayStyle && (
         <div
@@ -342,6 +366,7 @@ Link: ${issue.url}`;
         onCreateProject={handleCreateProject}
         onDeleteProject={projectManager.deleteProject}
         onRenameProject={projectManager.renameProject}
+        onUpdateProjectIcon={projectManager.updateProjectIcon}
         onImportCCSession={handleImportCCSession}
         onToggleSidebar={sidebar.toggle}
         onNavigateToMessage={handleNavigateToMessage}
@@ -356,7 +381,7 @@ Link: ${issue.url}`;
         onOpenSettings={() => setShowSettings(true)}
       />
 
-      <div ref={contentRef} className={`flex min-w-0 flex-1 ${settings.islandLayout ? "ms-2 me-2 my-2" : sidebar.isOpen ? "flat-divider-s" : ""} ${isResizing ? "select-none" : ""}`}>
+      <div ref={contentRef} className={`flex min-w-0 flex-1 flex-col ${settings.islandLayout ? "m-[var(--island-gap)]" : sidebar.isOpen ? "flat-divider-s" : ""} ${isResizing ? "select-none" : ""}`}>
         {showSettings && (
           <SettingsView
             onClose={() => setShowSettings(false)}
@@ -369,6 +394,8 @@ Link: ${issue.url}`;
             onIslandLayoutChange={settings.setIslandLayout}
             autoGroupTools={settings.autoGroupTools}
             onAutoGroupToolsChange={settings.setAutoGroupTools}
+            avoidGroupingEdits={settings.avoidGroupingEdits}
+            onAvoidGroupingEditsChange={settings.setAvoidGroupingEdits}
             autoExpandTools={settings.autoExpandTools}
             onAutoExpandToolsChange={settings.setAutoExpandTools}
             transparency={settings.transparency}
@@ -381,24 +408,26 @@ Link: ${issue.url}`;
         )}
         {/* Keep chat area mounted (hidden) when settings is open to avoid
             destroying/recreating the entire ChatView DOM tree on toggle */}
-        <div className={showSettings ? "hidden" : "contents"}>
-        <div
-          ref={chatIslandRef}
-          className="chat-island island relative flex flex-1 flex-col overflow-hidden rounded-lg bg-background"
-          style={{ minWidth: minChatWidth, "--chat-fade-strength": String(chatFadeStrength) } as React.CSSProperties}
-        >
-          {jiraBoardProject ? (
-            <JiraBoardPanel
-              projectId={jiraBoardProject.id}
-              projectName={jiraBoardProject.name}
-              variant="main"
-              onClose={() => setJiraBoardProjectForSpace(spaceManager.activeSpaceId, null)}
-              sidebarOpen={sidebar.isOpen}
-              onToggleSidebar={sidebar.toggle}
-              onCreateTask={handleCreateTaskFromJiraIssue}
-            />
-          ) : manager.activeSessionId ? (
-            <>
+        <div className={showSettings ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+        {/* ── Top row: Chat | Right Panel | Tools Column | ToolPicker ── */}
+        <div className="flex min-h-0 flex-1">
+          <div
+            ref={chatIslandRef}
+            className="chat-island island relative flex flex-1 flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
+            style={{ minWidth: minChatWidth, "--chat-fade-strength": String(chatFadeStrength) } as React.CSSProperties}
+          >
+            {jiraBoardProject ? (
+              <JiraBoardPanel
+                projectId={jiraBoardProject.id}
+                projectName={jiraBoardProject.name}
+                variant="main"
+                onClose={() => setJiraBoardProjectForSpace(spaceManager.activeSpaceId, null)}
+                sidebarOpen={sidebar.isOpen}
+                onToggleSidebar={sidebar.toggle}
+                onCreateTask={handleCreateTaskFromJiraIssue}
+              />
+            ) : manager.activeSessionId ? (
+              <>
               {/* Top fade: only visible when chat is scrolled down. Island mode uses dark shadow; flat mode fades content into bg */}
               {/* Island: gradient starts at top-0 (behind header, subtle bleed). Flat: starts at top-10 (right below header) so full gradient is visible and strong. */}
               <div
@@ -444,6 +473,7 @@ Link: ${issue.url}`;
                 isProcessing={manager.isProcessing}
                 showThinking={showThinking}
                 autoGroupTools={settings.autoGroupTools}
+                avoidGroupingEdits={settings.avoidGroupingEdits}
                 autoExpandTools={settings.autoExpandTools}
                 extraBottomPadding={!!manager.pendingPermission}
                 scrollToMessageId={scrollToMessageId}
@@ -451,7 +481,6 @@ Link: ${issue.url}`;
                 sessionId={manager.activeSessionId}
                 onRevert={manager.isConnected && manager.revertFiles ? manager.revertFiles : undefined}
                 onFullRevert={manager.isConnected && manager.fullRevert ? manager.fullRevert : undefined}
-                onViewTurnChanges={handleViewTurnChanges}
                 onTopScrollProgress={handleTopScrollProgress}
                 onSendQueuedNow={handleSendQueuedNow}
                 sendNextId={manager.sendNextId}
@@ -496,6 +525,7 @@ Link: ${issue.url}`;
                     onAgentChange={handleAgentChange}
                     slashCommands={manager.slashCommands}
                     acpConfigOptions={manager.acpConfigOptions}
+                    acpConfigOptionsLoading={manager.acpConfigOptionsLoading}
                     onACPConfigChange={manager.setACPConfig}
                     acpPermissionBehavior={settings.acpPermissionBehavior}
                     onAcpPermissionBehaviorChange={settings.setAcpPermissionBehavior}
@@ -512,9 +542,9 @@ Link: ${issue.url}`;
                   />
                 )}
               </div>
-            </>
-          ) : (
-            <>
+              </>
+            ) : (
+              <>
               <div
                 className={`chat-titlebar-bg drag-region flex items-center ${
                   isIsland ? "h-12 px-3" : "h-[3.25rem] px-4"
@@ -528,7 +558,7 @@ Link: ${issue.url}`;
                     variant="ghost"
                     size="icon"
                     className={`no-drag h-7 w-7 text-muted-foreground/60 hover:text-foreground ${
-                      isIsland ? "mt-0.5" : ""
+                      isIsland ? "relative -top-[5px]" : ""
                     }`}
                     onClick={sidebar.toggle}
                   >
@@ -540,15 +570,16 @@ Link: ${issue.url}`;
                 hasProjects={hasProjects}
                 onCreateProject={handleCreateProject}
               />
-            </>
-          )}
-        </div>
+              </>
+            )}
+          </div>
 
-        {hasRightPanel && (
-          <>
+          {hasRightPanel && (
+            <>
             {/* Resize handle — between chat and right panel */}
             <div
               className="resize-col group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+              style={isIsland ? { width: "var(--island-panel-gap)" } : undefined}
               onMouseDown={handleResizeStart}
             >
               <div
@@ -575,7 +606,7 @@ Link: ${issue.url}`;
                   <>
                     {showTodos && (
                       <div
-                        className="island flex flex-col overflow-hidden rounded-lg bg-background"
+                        className="island flex flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
                         style={
                           bothVisible
                             ? { height: `calc(${settings.rightSplitRatio * 100}% - ${splitGap}px)`, flexShrink: 0 }
@@ -588,6 +619,7 @@ Link: ${issue.url}`;
                     {bothVisible && (
                       <div
                         className="resize-row group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+                        style={isIsland ? { height: "var(--island-panel-gap)" } : undefined}
                         onMouseDown={handleRightSplitStart}
                       >
                         <div
@@ -601,7 +633,7 @@ Link: ${issue.url}`;
                     )}
                     {showAgents && (
                       <div
-                        className="island flex flex-col overflow-hidden rounded-lg bg-background"
+                        className="island flex flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
                         style={
                           bothVisible
                             ? { height: `calc(${(1 - settings.rightSplitRatio) * 100}% - ${splitGap}px)`, flexShrink: 0 }
@@ -615,127 +647,116 @@ Link: ${issue.url}`;
                 );
               })()}
             </div>
-          </>
-        )}
+            </>
+          )}
 
-        {/* Tools panels — always mounted when session active to preserve terminal/browser state.
-            Column is hidden (display: none) when no panel tools are active, keeping processes alive. */}
-        {manager.activeSessionId && (
-          <>
-            {/* Resize handle — only visible when tools column is showing */}
-            {hasToolsColumn && (
-              <div
-                className="resize-col group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
-                onMouseDown={handleToolsResizeStart}
-              >
-                <div
-                  className={`h-10 w-0.5 rounded-full transition-colors duration-150 ${
-                    isResizing
-                      ? "bg-foreground/40"
-                      : "bg-transparent group-hover:bg-foreground/25"
-                  }`}
+          {/* Tools panels — always mounted when session active to preserve terminal/browser state.
+            Each tool is mounted in exactly one location (side column or bottom row) based on bottomTools.
+            Hidden (display: none) when inactive, keeping processes alive. */}
+          {manager.activeSessionId && (() => {
+            // Shared tool component map — each tool rendered once
+            const toolComponents: Record<string, React.ReactNode> = {
+              terminal: (
+                <ToolsPanel
+                  spaceId={spaceManager.activeSpaceId}
+                  tabs={activeSpaceTerminals.tabs}
+                  activeTabId={activeSpaceTerminals.activeTabId}
+                  terminalsReady={spaceTerminals.isReady}
+                  onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
+                  onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeProjectPath)}
+                  onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeProjectPath)}
+                  onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
+                  resolvedTheme={resolvedTheme}
                 />
-              </div>
-            )}
+              ),
+              git: (
+                <GitPanel
+                  cwd={activeProject?.path}
+                  collapsedRepos={settings.collapsedRepos}
+                  onToggleRepoCollapsed={settings.toggleRepoCollapsed}
+                  selectedWorktreePath={activeProjectPath}
+                  onSelectWorktreePath={handleAgentWorktreeChange}
+                  activeEngine={manager.activeSession?.engine}
+                  activeSessionId={manager.activeSessionId}
+                />
+              ),
+              browser: <BrowserPanel onElementGrab={handleElementGrab} />,
+              files: (
+                <FilesPanel
+                  sessionId={manager.activeSessionId}
+                  messages={manager.messages}
+                  cwd={activeProjectPath}
+                  activeEngine={manager.activeSession?.engine}
+                  onScrollToToolCall={setScrollToMessageId}
+                  enabled={activeTools.has("files")}
+                />
+              ),
+              "project-files": (
+                <ProjectFilesPanel
+                  cwd={activeProjectPath}
+                  onPreviewFile={handlePreviewFile}
+                />
+              ),
+              mcp: (
+                <McpPanel
+                  projectId={activeProjectId ?? null}
+                  runtimeStatuses={manager.mcpServerStatuses}
+                  isPreliminary={manager.mcpStatusPreliminary}
+                  hasLiveSession={!manager.isDraft}
+                  onRefreshStatus={manager.refreshMcpStatus}
+                  onReconnect={manager.reconnectMcpServer}
+                  onRestartWithServers={manager.restartWithMcpServers}
+                />
+              ),
+            };
 
-            <div
-              ref={hasToolsColumn ? toolsColumnRef : null}
-              className={`flex shrink-0 flex-col gap-0 overflow-hidden ${!hasToolsColumn ? "hidden" : ""}`}
-              style={{ width: settings.toolsPanelWidth }}
-            >
-              {(() => {
-                const toolComponents: Record<string, React.ReactNode> = {
-                  terminal: (
-                    <ToolsPanel
-                      spaceId={spaceManager.activeSpaceId}
-                      tabs={activeSpaceTerminals.tabs}
-                      activeTabId={activeSpaceTerminals.activeTabId}
-                      terminalsReady={spaceTerminals.isReady}
-                      onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
-                      onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeProjectPath)}
-                      onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeProjectPath)}
-                      onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
-                      resolvedTheme={resolvedTheme}
-                    />
-                  ),
-                  git: (
-                    <GitPanel
-                      cwd={activeProjectPath}
-                      collapsedRepos={settings.collapsedRepos}
-                      onToggleRepoCollapsed={settings.toggleRepoCollapsed}
-                      selectedWorktreePath={activeProjectPath}
-                      onSelectWorktreePath={handleAgentWorktreeChange}
-                      confirmWorktreeRestart={!!manager.activeSessionId && !manager.isDraft}
-                      activeEngine={manager.activeSession?.engine}
-                      activeSessionId={manager.activeSessionId}
-                    />
-                  ),
-                  browser: <BrowserPanel onElementGrab={handleElementGrab} />,
-                  files: (
-                    <FilesPanel
-                      sessionId={manager.activeSessionId}
-                      messages={manager.messages}
-                      cwd={activeProjectPath}
-                      activeEngine={manager.activeSession?.engine}
-                      onScrollToToolCall={setScrollToMessageId}
-                      enabled={activeTools.has("files")}
-                    />
-                  ),
-                  "project-files": (
-                    <ProjectFilesPanel
-                      cwd={activeProjectPath}
-                      onPreviewFile={handlePreviewFile}
-                    />
-                  ),
-                  mcp: (
-                    <McpPanel
-                      projectId={activeProjectId ?? null}
-                      runtimeStatuses={manager.mcpServerStatuses}
-                      isPreliminary={manager.mcpStatusPreliminary}
-                      hasLiveSession={!manager.isDraft}
-                      onRefreshStatus={manager.refreshMcpStatus}
-                      onReconnect={manager.reconnectMcpServer}
-                      onRestartWithServers={manager.restartWithMcpServers}
-                    />
-                  ),
-                  changes: (
-                    <ChangesPanel
-                      sessionId={manager.activeSessionId}
-                      messages={manager.messages}
-                      isProcessing={manager.isProcessing}
-                      focusTurnIndex={changesPanelFocusTurn}
-                      onFocusTurnHandled={() => setChangesPanelFocusTurn(undefined)}
-                      enabled={activeTools.has("changes")}
-                    />
-                  ),
-                };
+            // ── Side column: tools NOT in bottomTools ──
+            const sideToolIds = settings.toolOrder.filter((id) => id in toolComponents && !settings.bottomTools.has(id));
+            const activeSideIds = sideToolIds.filter((id) => activeTools.has(id));
+            const sideCount = activeSideIds.length;
+            const sideRatios = normalizeRatios(settings.toolsSplitRatios, sideCount);
+            normalizedToolRatiosRef.current = sideRatios;
 
-                // All panel tool IDs in display order
-                const allToolIds = settings.toolOrder.filter((id) => id in toolComponents);
-                // Active subset for flex layout sizing
-                const activeToolIds = allToolIds.filter((id) => activeTools.has(id));
-                const count = activeToolIds.length;
-                const ratios = normalizeRatios(settings.toolsSplitRatios, count);
-                normalizedToolRatiosRef.current = ratios;
+            return (
+              <>
+              {/* Resize handle — only visible when side tools column is showing */}
+              {hasToolsColumn && (
+                <div
+                  className="resize-col group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+                  style={isIsland ? { width: "var(--island-panel-gap)" } : undefined}
+                  onMouseDown={handleToolsResizeStart}
+                >
+                  <div
+                    className={`h-10 w-0.5 rounded-full transition-colors duration-150 ${
+                      isResizing
+                        ? "bg-foreground/40"
+                        : "bg-transparent group-hover:bg-foreground/25"
+                    }`}
+                  />
+                </div>
+              )}
 
-                // Render ALL tools: active ones get flex layout, inactive ones stay
-                // hidden (display: none) but mounted — preserves terminal processes,
-                // browser sessions, and all internal state across toggles.
-                return allToolIds.map((id) => {
+              <div
+                ref={hasToolsColumn ? toolsColumnRef : null}
+                className={`flex shrink-0 flex-col gap-0 overflow-hidden ${!hasToolsColumn ? "hidden" : ""}`}
+                style={{ width: settings.toolsPanelWidth }}
+              >
+                {sideToolIds.map((id) => {
                   const isActive = activeTools.has(id);
-                  const activeIdx = isActive ? activeToolIds.indexOf(id) : -1;
+                  const activeIdx = isActive ? activeSideIds.indexOf(id) : -1;
 
                   return (
                     <div key={id} className={isActive ? "contents" : "hidden"}>
                       <div
-                        className="island flex flex-col overflow-hidden rounded-lg bg-background"
-                        style={isActive ? { flex: `${ratios[activeIdx]} 1 0%`, minHeight: 0 } : undefined}
+                        className="island flex flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
+                        style={isActive ? { flex: `${sideRatios[activeIdx]} 1 0%`, minHeight: 0 } : undefined}
                       >
                         {toolComponents[id]}
                       </div>
-                      {isActive && activeIdx < count - 1 && (
+                      {isActive && activeIdx < sideCount - 1 && (
                         <div
                           className="resize-row group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+                          style={isIsland ? { height: "var(--island-panel-gap)" } : undefined}
                           onMouseDown={(e) => handleToolsSplitStart(e, activeIdx)}
                         >
                           <div
@@ -749,19 +770,164 @@ Link: ${issue.url}`;
                       )}
                     </div>
                   );
-                });
-              })()}
-            </div>
-          </>
-        )}
+                })}
+              </div>
+              </>
+            );
+          })()}
 
-        {/* Tool picker — always visible */}
-        {manager.activeSessionId && (
-          <div className={isIsland ? "ms-2 shrink-0" : "shrink-0 tool-picker-shell"}>
-            <ToolPicker activeTools={activeTools} onToggle={handleToggleTool} availableContextual={availableContextual} toolOrder={settings.toolOrder} onReorder={handleToolReorder} projectPath={activeProjectPath} />
-          </div>
-        )}
-        </div>
+          {/* Tool picker — always visible */}
+          {manager.activeSessionId && (
+            <div className={isIsland ? "ms-[var(--island-panel-gap)] shrink-0" : "shrink-0 tool-picker-shell"}>
+              <ToolPicker
+                islandLayout={isIsland}
+                activeTools={activeTools}
+                onToggle={handleToggleTool}
+                availableContextual={availableContextual}
+                toolOrder={settings.toolOrder}
+                onReorder={handleToolReorder}
+                projectPath={activeProjectPath}
+                bottomTools={settings.bottomTools}
+                onMoveToBottom={settings.moveToolToBottom}
+                onMoveToSide={settings.moveToolToSide}
+                taskProgress={activeTodos.length > 0 ? {
+                  completed: activeTodos.filter((t) => t.status === "completed").length,
+                  total: activeTodos.length,
+                } : undefined}
+              />
+            </div>
+          )}
+        </div>{/* end top row */}
+
+        {/* ── Bottom tools row — tools placed in the bottom row via right-click menu ── */}
+        {manager.activeSessionId && (() => {
+          // Build tool components for bottom-placed tools only.
+          // Note: moving a tool between side↔bottom is an explicit user action,
+          // so the unmount/remount is acceptable.
+          const bottomToolComponents: Record<string, React.ReactNode> = {
+            terminal: (
+              <ToolsPanel
+                spaceId={spaceManager.activeSpaceId}
+                tabs={activeSpaceTerminals.tabs}
+                activeTabId={activeSpaceTerminals.activeTabId}
+                terminalsReady={spaceTerminals.isReady}
+                onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
+                onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeProjectPath)}
+                onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeProjectPath)}
+                onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
+                resolvedTheme={resolvedTheme}
+              />
+            ),
+            git: (
+              <GitPanel
+                cwd={activeProject?.path}
+                collapsedRepos={settings.collapsedRepos}
+                onToggleRepoCollapsed={settings.toggleRepoCollapsed}
+                selectedWorktreePath={activeProjectPath}
+                onSelectWorktreePath={handleAgentWorktreeChange}
+                activeEngine={manager.activeSession?.engine}
+                activeSessionId={manager.activeSessionId}
+              />
+            ),
+            browser: <BrowserPanel onElementGrab={handleElementGrab} />,
+            files: (
+              <FilesPanel
+                sessionId={manager.activeSessionId}
+                messages={manager.messages}
+                cwd={activeProjectPath}
+                activeEngine={manager.activeSession?.engine}
+                onScrollToToolCall={setScrollToMessageId}
+                enabled={activeTools.has("files")}
+              />
+            ),
+            "project-files": (
+              <ProjectFilesPanel
+                cwd={activeProjectPath}
+                onPreviewFile={handlePreviewFile}
+              />
+            ),
+            mcp: (
+              <McpPanel
+                projectId={activeProjectId ?? null}
+                runtimeStatuses={manager.mcpServerStatuses}
+                isPreliminary={manager.mcpStatusPreliminary}
+                hasLiveSession={!manager.isDraft}
+                onRefreshStatus={manager.refreshMcpStatus}
+                onReconnect={manager.reconnectMcpServer}
+                onRestartWithServers={manager.restartWithMcpServers}
+              />
+            ),
+          };
+
+          // All bottom-placed tool IDs (in display order) — mount ALL, hide inactive
+          const allBottomToolIds = settings.toolOrder.filter((id) => id in bottomToolComponents && settings.bottomTools.has(id));
+          const activeBottomIds = allBottomToolIds.filter((id) => activeTools.has(id));
+          const bottomCount = activeBottomIds.length;
+          const bottomRatios = normalizeRatios(settings.bottomToolsSplitRatios, bottomCount);
+          normalizedBottomRatiosRef.current = bottomRatios;
+
+          // Always mount the bottom row when there are bottom-placed tools,
+          // hidden when none are active — preserves terminal/browser state.
+          const anyBottomPlaced = allBottomToolIds.length > 0;
+          if (!anyBottomPlaced) return null;
+
+          return (
+            <>
+            {/* Resize handle — between top area and bottom tools row */}
+            <div
+              className={`resize-row group flex h-2 shrink-0 cursor-row-resize items-center justify-center ${!hasBottomTools ? "hidden" : ""}`}
+              style={isIsland ? { height: "var(--island-panel-gap)" } : undefined}
+              onMouseDown={handleBottomResizeStart}
+            >
+              <div
+                className={`w-10 h-0.5 rounded-full transition-colors duration-150 ${
+                  isResizing
+                    ? "bg-foreground/40"
+                    : "bg-transparent group-hover:bg-foreground/25"
+                }`}
+              />
+            </div>
+
+            <div
+              ref={hasBottomTools ? bottomToolsRowRef : null}
+              className={`flex shrink-0 overflow-hidden ${!hasBottomTools ? "hidden" : ""}`}
+              style={{ height: settings.bottomToolsHeight }}
+            >
+              {allBottomToolIds.map((id) => {
+                const isActive = activeTools.has(id);
+                const activeIdx = isActive ? activeBottomIds.indexOf(id) : -1;
+
+                return (
+                  <div key={id} className={isActive ? "contents" : "hidden"}>
+                    <div
+                      className="island flex flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
+                      style={isActive ? { flex: `${bottomRatios[activeIdx]} 1 0%`, minWidth: 0 } : undefined}
+                    >
+                      {bottomToolComponents[id]}
+                    </div>
+                    {isActive && activeIdx < bottomCount - 1 && (
+                      <div
+                        className="resize-col group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+                        style={isIsland ? { width: "var(--island-panel-gap)" } : undefined}
+                        onMouseDown={(e) => handleBottomSplitStart(e, activeIdx)}
+                      >
+                        <div
+                          className={`h-10 w-0.5 rounded-full transition-colors duration-150 ${
+                            isResizing
+                              ? "bg-foreground/40"
+                              : "bg-transparent group-hover:bg-foreground/25"
+                          }`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            </>
+          );
+        })()}
+        </div>{/* end showSettings wrapper */}
       </div>
       {showCodexAuthDialog && (
         <CodexAuthDialog

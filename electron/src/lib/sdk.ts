@@ -3,6 +3,7 @@ import fs from "fs";
 import { app } from "electron";
 import { getAppSetting } from "./app-settings";
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 
 // Import the SDK's own types — Query is the return type of sdk.query()
 import type { Query, query as sdkQueryFn } from "@anthropic-ai/claude-agent-sdk";
@@ -19,7 +20,7 @@ export async function getSDK(): Promise<SDKQueryFn> {
       const sdk = await import("@anthropic-ai/claude-agent-sdk");
       _sdkQuery = sdk.query;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = reportError("SDK_IMPORT_ERR", err);
       // Most common cause: Claude Code CLI is not installed
       if (msg.includes("Cannot find module") || msg.includes("MODULE_NOT_FOUND")) {
         throw new Error(

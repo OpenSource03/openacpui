@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld("claude", {
     delete: (projectId: string) => ipcRenderer.invoke("projects:delete", projectId),
     rename: (projectId: string, name: string) => ipcRenderer.invoke("projects:rename", projectId, name),
     updateSpace: (projectId: string, spaceId: string) => ipcRenderer.invoke("projects:update-space", projectId, spaceId),
+    updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => ipcRenderer.invoke("projects:update-icon", projectId, icon, iconType),
     reorder: (projectId: string, targetProjectId: string) => ipcRenderer.invoke("projects:reorder", projectId, targetProjectId),
   },
   sessions: {
@@ -97,7 +98,14 @@ contextBridge.exposeInMainWorld("claude", {
   files: {
     list: (cwd: string) => ipcRenderer.invoke("files:list", cwd),
     listAll: (cwd: string) => ipcRenderer.invoke("files:list-all", cwd),
+    watch: (cwd: string) => ipcRenderer.invoke("files:watch", cwd),
+    unwatch: (cwd: string) => ipcRenderer.invoke("files:unwatch", cwd),
     readMultiple: (cwd: string, paths: string[]) => ipcRenderer.invoke("files:read-multiple", { cwd, paths }),
+    onChanged: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("files:changed", listener);
+      return () => ipcRenderer.removeListener("files:changed", listener);
+    },
   },
   git: {
     discoverRepos: (projectPath: string) => ipcRenderer.invoke("git:discover-repos", projectPath),
@@ -118,6 +126,7 @@ contextBridge.exposeInMainWorld("claude", {
     pull: (cwd: string) => ipcRenderer.invoke("git:pull", cwd),
     fetch: (cwd: string) => ipcRenderer.invoke("git:fetch", cwd),
     diffFile: (cwd: string, file: string, staged: boolean) => ipcRenderer.invoke("git:diff-file", { cwd, file, staged }),
+    diffStat: (cwd: string) => ipcRenderer.invoke("git:diff-stat", cwd) as Promise<{ additions: number; deletions: number }>,
     log: (cwd: string, count?: number) => ipcRenderer.invoke("git:log", { cwd, count }),
     generateCommitMessage: (cwd: string, engine?: string, sessionId?: string) =>
       ipcRenderer.invoke("git:generate-commit-message", { cwd, engine, sessionId }),

@@ -302,11 +302,13 @@ export const MessageBubble = memo(function MessageBubble({
         <TooltipTrigger asChild>
           <div className="min-w-0 max-w-[85%] wrap-break-word">
             {showThinking && message.thinking && (
-              <ThinkingBlock
-                thinking={message.thinking}
-                isStreaming={message.isStreaming}
-                thinkingComplete={message.thinkingComplete}
-              />
+              <div className={message.content ? "mb-2" : undefined}>
+                <ThinkingBlock
+                  thinking={message.thinking}
+                  isStreaming={message.isStreaming}
+                  thinkingComplete={message.thinkingComplete}
+                />
+              </div>
             )}
             {message.content ? (
               <div

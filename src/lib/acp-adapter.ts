@@ -145,6 +145,28 @@ function extractShellCommand(command: unknown): string | null {
   return null;
 }
 
+export function mergeToolInput(
+  existingInput: Record<string, unknown> | undefined,
+  rawInput: unknown,
+  kind?: string,
+  locations?: Array<{ path: string; line?: number }>,
+): Record<string, unknown> | undefined {
+  const normalized = normalizeToolInput(rawInput, kind, locations);
+  if (Object.keys(normalized).length === 0) {
+    return existingInput;
+  }
+  if (!existingInput || Object.keys(existingInput).length === 0) {
+    return normalized;
+  }
+
+  // ACP tool_call events are often partial and tool_call_update later adds the
+  // actual file path, pattern, or command. Merge so renderers keep both.
+  return {
+    ...existingInput,
+    ...normalized,
+  };
+}
+
 /** Resolve a relative path against cwd. Returns as-is if already absolute or cwd missing. */
 function resolveRelativePath(path: string, cwd?: string | null): string {
   if (path.startsWith("/") || !cwd) return path;
@@ -283,6 +305,15 @@ export function deriveToolName(
     }
     if (kind === "read" && typeof input?.pattern === "string") {
       return "Glob";
+    }
+    if (kind === "search") {
+      const titleLower = title.toLowerCase();
+      if (titleLower === "glob" || titleLower === "find" || titleLower === "fd" || titleLower === "file_search") {
+        return "Glob";
+      }
+      if (titleLower === "grep" || titleLower === "rg" || titleLower === "ripgrep" || titleLower === "codebase_search") {
+        return "Grep";
+      }
     }
     // ACP "other" kind — route based on title (rg → Grep, find/fd → Glob)
     if (kind === "other") {

@@ -14,6 +14,8 @@ interface AppearanceSettingsProps {
   onIslandLayoutChange: (enabled: boolean) => void;
   autoGroupTools: boolean;
   onAutoGroupToolsChange: (enabled: boolean) => void;
+  avoidGroupingEdits: boolean;
+  onAvoidGroupingEditsChange: (enabled: boolean) => void;
   autoExpandTools: boolean;
   onAutoExpandToolsChange: (enabled: boolean) => void;
   transparency: boolean;
@@ -31,6 +33,8 @@ export const AppearanceSettings = memo(function AppearanceSettings({
   onIslandLayoutChange,
   autoGroupTools,
   onAutoGroupToolsChange,
+  avoidGroupingEdits,
+  onAvoidGroupingEditsChange,
   autoExpandTools,
   onAutoExpandToolsChange,
   transparency,
@@ -100,6 +104,17 @@ export const AppearanceSettings = memo(function AppearanceSettings({
               <Switch
                 checked={autoGroupTools}
                 onCheckedChange={onAutoGroupToolsChange}
+              />
+            </SettingRow>
+
+            <SettingRow
+              label="Avoid grouping edits"
+              description="Treat Edit and Write tool calls as standalone rows, even when auto-grouping is enabled. Reads before and after an edit will form separate groups."
+            >
+              <Switch
+                checked={avoidGroupingEdits}
+                onCheckedChange={onAvoidGroupingEditsChange}
+                disabled={!autoGroupTools}
               />
             </SettingRow>
 

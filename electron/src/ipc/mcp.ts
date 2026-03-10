@@ -5,6 +5,7 @@ import { authenticateMcpServer } from "../lib/mcp-oauth-flow";
 import { loadOAuthData, deleteOAuthData } from "../lib/mcp-oauth-store";
 import { log } from "../lib/logger";
 import { captureEvent } from "../lib/posthog";
+import { reportError } from "../lib/error-utils";
 import type { McpServerConfig } from "../lib/mcp-store";
 
 interface ProbeResult {
@@ -128,7 +129,7 @@ export function register(): void {
       void captureEvent("mcp_server_added", { transport: server.transport });
       return { ok: true };
     } catch (err) {
-      return { error: String(err) };
+      return { error: reportError("MCP_ADD_ERR", err) };
     }
   });
 
@@ -139,7 +140,7 @@ export function register(): void {
       deleteOAuthData(name);
       return { ok: true };
     } catch (err) {
-      return { error: String(err) };
+      return { error: reportError("MCP_REMOVE_ERR", err) };
     }
   });
 
@@ -154,8 +155,7 @@ export function register(): void {
       log("MCP_AUTH", `Success for "${serverName}"`);
       return { ok: true };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log("MCP_AUTH", `Error for "${serverName}": ${msg}`);
+      const msg = reportError("MCP_AUTH_ERR", err, { serverName });
       return { error: msg };
     }
   });

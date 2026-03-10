@@ -15,7 +15,7 @@ export interface StartOptions {
   effort?: ClaudeEffort;
   engine?: EngineId;
   agentId?: string;
-  /** Cached config options from previous sessions — shown before session starts */
+  /** Cached config options from previous sessions */
   cachedConfigOptions?: ACPConfigOption[];
 }
 
@@ -63,6 +63,7 @@ export interface SharedSessionRefs {
   liveSessionIdsRef: React.MutableRefObject<Set<string>>;
   backgroundStoreRef: React.MutableRefObject<BackgroundSessionStore>;
   preStartedSessionIdRef: React.MutableRefObject<string | null>;
+  draftAcpSessionIdRef: React.MutableRefObject<string | null>;
   draftMcpStatusesRef: React.MutableRefObject<McpServerStatus[]>;
   materializingRef: React.MutableRefObject<boolean>;
   saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
@@ -91,6 +92,8 @@ export interface SharedSessionSetters {
   setStartOptions: React.Dispatch<React.SetStateAction<StartOptions>>;
   setDraftProjectId: React.Dispatch<React.SetStateAction<string | null>>;
   setPreStartedSessionId: React.Dispatch<React.SetStateAction<string | null>>;
+  setDraftAcpSessionId: React.Dispatch<React.SetStateAction<string | null>>;
+  setAcpConfigOptionsLoading: React.Dispatch<React.SetStateAction<boolean>>;
   setDraftMcpStatuses: React.Dispatch<React.SetStateAction<McpServerStatus[]>>;
   setAcpMcpStatuses: React.Dispatch<React.SetStateAction<McpServerStatus[]>>;
   setQueuedCount: React.Dispatch<React.SetStateAction<number>>;

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, SessionMeta, SlashCommand } from "@/types";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption, ACPAvailableCommandsUpdate } from "@/types/acp";
-import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, pickAutoResponseOption } from "@/lib/acp-adapter";
+import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, mergeToolInput, pickAutoResponseOption } from "@/lib/acp-adapter";
 import { extractTaskSubagentSteps, getTaskStatus, isTaskToolName } from "@/lib/acp-task-adapter";
 import { suppressNextSessionCompletion } from "@/lib/notification-utils";
+import { captureException } from "@/lib/analytics";
 import { useEngineBase } from "./useEngineBase";
 
 interface UseACPOptions {
@@ -49,16 +50,12 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
 
   // Sync initialConfigOptions prop → state (useState ignores prop changes after mount)
   useEffect(() => {
-    if (initialConfigOptions && initialConfigOptions.length > 0) {
-      setConfigOptions(initialConfigOptions);
-    }
+    setConfigOptions(initialConfigOptions ?? []);
   }, [initialConfigOptions]);
 
   // Sync initialSlashCommands prop → state
   useEffect(() => {
-    if (initialSlashCommands && initialSlashCommands.length > 0) {
-      setSlashCommands(initialSlashCommands);
-    }
+    setSlashCommands(initialSlashCommands ?? []);
   }, [initialSlashCommands]);
 
   const buffer = useRef(new ACPStreamingBuffer());
@@ -279,19 +276,12 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
             };
           }));
         } else {
-          // In-progress update — update toolInput from rawInput if richer data arrived
-          const rawInput = tcu.rawInput as Record<string, unknown> | undefined;
-          if (rawInput && Object.keys(rawInput).length > 0) {
-            const updatedInput = normalizeToolInput(rawInput, tcu.kind);
-            setMessages(prev => prev.map(m => {
-              if (m.id !== taskMsgId) return m;
-              // Only update if the new input has more fields (richer data)
-              const existingKeys = Object.keys(m.toolInput ?? {}).length;
-              const newKeys = Object.keys(updatedInput).length;
-              if (newKeys <= existingKeys) return m;
-              return { ...m, toolInput: updatedInput };
-            }));
-          }
+          setMessages(prev => prev.map(m => {
+            if (m.id !== taskMsgId) return m;
+            const updatedInput = mergeToolInput(m.toolInput, tcu.rawInput, tcu.kind, tcu.locations);
+            if (!updatedInput || updatedInput === m.toolInput) return m;
+            return { ...m, toolInput: updatedInput };
+          }));
         }
         return;
       }
@@ -306,7 +296,12 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
             ...m,
             subagentSteps: (m.subagentSteps ?? []).map(step =>
               step.toolUseId === tcu.toolCallId
-                ? { ...step, toolResult: result ?? step.toolResult ?? { status: "completed" }, toolError: tcu.status === "failed" }
+                ? {
+                    ...step,
+                    toolInput: mergeToolInput(step.toolInput, tcu.rawInput, tcu.kind, tcu.locations) ?? step.toolInput,
+                    toolResult: result ?? step.toolResult ?? { status: "completed" },
+                    toolError: tcu.status === "failed",
+                  }
                 : step
             ),
           };
@@ -323,6 +318,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
         const nextTaskSteps = isTask ? extractTaskSubagentSteps(result) : undefined;
         return {
           ...m,
+          toolInput: mergeToolInput(m.toolInput, tcu.rawInput, tcu.kind, tcu.locations) ?? m.toolInput,
           toolResult: result ?? m.toolResult,
           toolError: tcu.status === "failed",
           ...(nextTaskStatus ? { subagentStatus: nextTaskStatus } : {}),
@@ -491,6 +487,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       acpLog("SEND_ERROR", { session: sessionId.slice(0, 8), error: msg });
+      captureException(err instanceof Error ? err : new Error(msg), { label: "ACP_SEND_ERR" });
       pushSystemError(`ACP prompt error: ${msg}`);
       setIsProcessing(false);
     }
@@ -511,6 +508,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       acpLog("SEND_RAW_ERROR", { session: sessionId.slice(0, 8), error: msg });
+      captureException(err instanceof Error ? err : new Error(msg), { label: "ACP_SEND_RAW_ERR" });
       pushSystemError(`ACP prompt error: ${msg}`);
       setIsProcessing(false);
     }
@@ -540,6 +538,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       acpLog("INTERRUPT_ERROR", { session: sessionId.slice(0, 8), error: msg });
+      captureException(err instanceof Error ? err : new Error(msg), { label: "ACP_INTERRUPT_ERR" });
       pushSystemError(`ACP cancel error: ${msg}`);
     }
   }, [sessionId, finalizeStreamingMessage, closePendingTools, pushSystemError]);

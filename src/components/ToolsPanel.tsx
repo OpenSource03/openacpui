@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Terminal as TerminalIcon, Plus, ChevronDown } from "lucide-react";
-import { TabBar } from "@/components/TabBar";
+import { Terminal as TerminalIcon, Plus, X, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TerminalTab } from "@/hooks/useSpaceTerminals";
 import type { ResolvedTheme } from "@/hooks/useTheme";
 
@@ -99,25 +99,12 @@ export function ToolsPanel({
     }
   }, [spaceId, terminalsReady, tabs.length, onEnsureTerminal]);
 
+  const hasTabs = tabs.length > 0;
+
   return (
-    <div className="flex h-full flex-col">
-      {/* Header with tabs */}
-      <TabBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelectTab={(id) => onSetActiveTab(id)}
-        onCloseTab={onCloseTerminal}
-        onNewTab={handleCreateTerminal}
-        headerIcon={TerminalIcon}
-        headerLabel=""
-        renderTabIcon={() => <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
-      />
-
-      {/* Separator */}
-      <div className="border-t border-foreground/[0.08]" />
-
-      {/* Terminal content */}
-      <div className="relative min-h-0 flex-1">
+    <div className="flex h-full">
+      {/* ── Terminal viewport ── */}
+      <div className="relative min-h-0 min-w-0 flex-1">
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -126,26 +113,103 @@ export function ToolsPanel({
             <TerminalInstance terminalId={tab.terminalId} isVisible={tab.id === activeTabId} resolvedTheme={resolvedTheme} />
           </div>
         ))}
-        {tabs.length === 0 && terminalsReady && (
-          <div className="flex h-full items-center justify-center">
+
+        {/* Empty states */}
+        {!hasTabs && terminalsReady && (
+          <div className="flex h-full flex-col items-center justify-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/[0.03]">
+              <TerminalIcon className="h-5 w-5 text-foreground/20" />
+            </div>
             <button
               type="button"
-              onClick={() => {
-                void handleCreateTerminal();
-              }}
-              className="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-foreground/40 transition-colors hover:bg-foreground/[0.04] hover:text-foreground/60 cursor-pointer"
+              onClick={() => { void handleCreateTerminal(); }}
+              className="group flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium text-foreground/35 transition-all duration-200 hover:bg-foreground/[0.05] hover:text-foreground/60 cursor-pointer"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110" />
               New Terminal
             </button>
           </div>
         )}
-        {tabs.length === 0 && !terminalsReady && (
-          <div className="flex h-full items-center justify-center text-xs text-foreground/35">
-            Restoring terminals...
+        {!hasTabs && !terminalsReady && (
+          <div className="flex h-full flex-col items-center justify-center gap-2.5">
+            <Loader2 className="h-4 w-4 animate-spin text-foreground/20" />
+            <span className="text-xs text-foreground/30">Restoring terminals...</span>
           </div>
         )}
       </div>
+
+      {/* ── Side panel — terminal list ── */}
+      {hasTabs && (
+        <>
+          {/* Vertical divider */}
+          <div className="my-2 w-px bg-foreground/[0.06]" />
+
+          <div className="flex w-[38px] shrink-0 flex-col items-center py-1.5">
+            {/* Terminal entries */}
+            <div className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto scrollbar-none">
+              {tabs.map((tab, index) => {
+                const isActive = tab.id === activeTabId;
+                return (
+                  <Tooltip key={tab.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => onSetActiveTab(tab.id)}
+                        className={`group/term relative flex h-7 w-7 items-center justify-center rounded-md transition-all duration-150 cursor-pointer ${
+                          isActive
+                            ? "bg-foreground/[0.08] text-foreground"
+                            : "text-foreground/30 hover:text-foreground/60 hover:bg-foreground/[0.04]"
+                        }`}
+                      >
+                        <span className="text-[10px] font-semibold tabular-nums leading-none">
+                          {index + 1}
+                        </span>
+                        {/* Close button — top-right corner on hover */}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void onCloseTerminal(tab.id);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.stopPropagation();
+                              void onCloseTerminal(tab.id);
+                            }
+                          }}
+                          className="absolute -top-0.5 -end-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-foreground/10 text-foreground/50 opacity-0 transition-opacity hover:bg-foreground/20 hover:text-foreground group-hover/term:opacity-100"
+                        >
+                          <X className="h-2 w-2" />
+                        </span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" sideOffset={6}>
+                      <p className="text-xs font-medium">{tab.label}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+
+            {/* New terminal button — at bottom of side panel */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => { void handleCreateTerminal(); }}
+                  className="mt-1 flex h-7 w-7 items-center justify-center rounded-md text-foreground/25 transition-all duration-150 hover:bg-foreground/[0.05] hover:text-foreground/50 cursor-pointer active:scale-90"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left" sideOffset={6}>
+                <p className="text-xs font-medium">New Terminal</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -315,7 +379,7 @@ function TerminalInstance({
   return (
     <div
       ref={containerRef}
-      className="h-full w-full px-2 py-1 [&_.xterm]:h-full [&_.xterm]:!bg-transparent [&_.xterm-viewport]:!bg-transparent [&_.xterm-screen]:!bg-transparent"
+      className="terminal-container h-full w-full px-2 py-1 [&_.xterm]:h-full [&_.xterm]:!bg-transparent [&_.xterm-viewport]:!bg-transparent [&_.xterm-screen]:!bg-transparent"
     />
   );
 }

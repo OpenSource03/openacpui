@@ -131,11 +131,11 @@ export function WelcomeWizard({
   // The outer container uses an inline opaque background to prevent glass
   // transparency from bleeding through (--sidebar is transparent in glass mode).
   const outerClass = islandLayout
-    ? "fixed inset-0 z-50 flex p-2"
+    ? "fixed inset-0 z-50 flex p-[var(--island-gap)]"
     : "fixed inset-0 z-50 flex";
 
   const innerClass = islandLayout
-    ? "island relative flex flex-1 flex-col overflow-hidden rounded-lg bg-background"
+    ? "island relative flex flex-1 flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
     : "relative flex flex-1 flex-col overflow-hidden bg-background";
 
   return (

@@ -11,24 +11,9 @@ import {
 import type { UIMessage } from "@/types";
 import { getToolIcon, getToolLabel } from "@/components/lib/tool-metadata";
 import { formatCompactSummary } from "@/components/lib/tool-formatting";
-import { McpToolContent, hasMcpRenderer } from "./McpToolContent";
 import { TextShimmer } from "@/components/ui/text-shimmer";
-
-// ── Tool renderers (extracted) ──
-import { BashContent } from "./tool-renderers/BashContent";
-import { WriteContent } from "./tool-renderers/WriteContent";
-import { EditContent } from "./tool-renderers/EditContent";
-import { ReadContent } from "./tool-renderers/ReadContent";
-import { SearchContent } from "./tool-renderers/SearchContent";
-import { WebSearchContent } from "./tool-renderers/WebSearchContent";
-import { WebFetchContent } from "./tool-renderers/WebFetchContent";
 import { TaskTool } from "./tool-renderers/TaskTool";
-import { TodoWriteContent } from "./tool-renderers/TodoWriteContent";
-import { EnterPlanModeContent, ExitPlanModeContent } from "./tool-renderers/PlanContent";
-import { AskUserQuestionContent } from "./tool-renderers/AskUserQuestion";
-import { GenericContent } from "./tool-renderers/GenericContent";
-import { ToolSearchContent } from "./tool-renderers/ToolSearchContent";
-import { SkillContent } from "./tool-renderers/SkillContent";
+import { ExpandedToolContent } from "./tool-renderers/ExpandedToolContent";
 
 // ── Main entry ──
 
@@ -38,7 +23,7 @@ interface ToolCallProps {
   autoExpandTools?: boolean;
 }
 
-export const ToolCall = memo(function ToolCall({ message, compact, autoExpandTools = true }: ToolCallProps) {
+export const ToolCall = memo(function ToolCall({ message, compact, autoExpandTools = false }: ToolCallProps) {
   const normalizedToolName = (message.toolName ?? "").toLowerCase();
   const isTask = normalizedToolName === "task" || normalizedToolName === "agent";
   const content = isTask
@@ -140,45 +125,4 @@ function RegularTool({ message, autoExpandTools }: { message: UIMessage; autoExp
       </CollapsibleContent>
     </Collapsible>
   );
-}
-
-// ── Expanded content router ──
-
-function ExpandedToolContent({ message }: { message: UIMessage }) {
-  switch (message.toolName) {
-    case "Bash":
-      return <BashContent message={message} />;
-    case "Write":
-      return <WriteContent message={message} />;
-    case "Edit":
-      return <EditContent message={message} />;
-    case "Read":
-      return <ReadContent message={message} />;
-    case "Grep":
-    case "Glob":
-      return <SearchContent message={message} />;
-    case "TodoWrite":
-      return <TodoWriteContent message={message} />;
-    case "EnterPlanMode":
-      return <EnterPlanModeContent message={message} />;
-    case "ExitPlanMode":
-      return <ExitPlanModeContent message={message} />;
-    case "WebSearch":
-      return <WebSearchContent message={message} />;
-    case "WebFetch":
-      return <WebFetchContent message={message} />;
-    case "AskUserQuestion":
-      return <AskUserQuestionContent message={message} />;
-    case "ToolSearch":
-      return <ToolSearchContent message={message} />;
-    case "Skill":
-      return <SkillContent message={message} />;
-    default:
-      // Check for specialized MCP tool renderers
-      if (message.toolName && hasMcpRenderer(message.toolName)) {
-        const mcpResult = <McpToolContent message={message} />;
-        if (mcpResult) return mcpResult;
-      }
-      return <GenericContent message={message} />;
-  }
 }

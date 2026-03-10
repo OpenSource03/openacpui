@@ -55,6 +55,9 @@ export async function initPostHog(): Promise<void> {
       // Flush events every 10 seconds or 20 events, whichever comes first
       flushAt: 20,
       flushInterval: 10000,
+      // Automatically capture uncaught exceptions and unhandled promise rejections
+      // via process.on('uncaughtException') and process.on('unhandledRejection')
+      enableExceptionAutocapture: true,
     });
 
     log("POSTHOG", `Initialized (userId=${userId})`);
@@ -139,6 +142,26 @@ export async function captureEvent(
   } catch (err) {
     // Non-fatal - analytics should never break the app
     log("POSTHOG", `Failed to capture event: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Capture an exception to PostHog error tracking.
+ *
+ * Use this for errors caught in IPC handlers, SDK event loops, child process
+ * failures, etc. — anywhere you have an Error object and want a tracked
+ * $exception event with stack trace.
+ */
+export function captureException(
+  error: Error,
+  additionalProperties?: Record<string, unknown>,
+): void {
+  if (!client || !userId) return;
+
+  try {
+    client.captureException(error, userId, additionalProperties);
+  } catch (err) {
+    log("POSTHOG", `Failed to capture exception: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

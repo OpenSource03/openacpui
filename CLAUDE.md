@@ -299,7 +299,36 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 - **`src/lib/file-access.ts`** — pure data transformation for file access tracking (extracted from FilesPanel)
 - **`src/lib/mcp-utils.ts`** — `toMcpStatusState()` (moved from types/ui.ts)
 - **`src/lib/acp-utils.ts`** — `flattenConfigOptions()` (moved from types/acp.ts)
-- **`electron/src/lib/error-utils.ts`** — `extractErrorMessage()` (replaces 3 duplicated implementations)
+- **`electron/src/lib/error-utils.ts`** — `extractErrorMessage()`, `reportError()` — shared error extraction and PostHog exception capture
+- **`src/lib/analytics.ts`** — `capture()`, `captureException()`, `reportError()` — renderer-side analytics and error tracking
+- **`src/lib/posthog.ts`** — `initPostHog()`, `syncAnalyticsSettings()` — renderer-side PostHog client (posthog-js) initialization
+
+### Error Tracking (PostHog)
+
+Two PostHog clients run in parallel, one per process:
+
+1. **Main process** (`posthog-node` in `electron/src/lib/posthog.ts`):
+   - `enableExceptionAutocapture: true` — auto-captures `process.on('uncaughtException')` and `process.on('unhandledRejection')`
+   - `captureException(error, additionalProperties?)` — manual exception capture with stack trace
+   - `captureEvent(event, properties?)` — custom analytics events
+   - Respects `analyticsEnabled` setting, uses anonymous `analyticsUserId`
+
+2. **Renderer process** (`posthog-js` + `@posthog/react` in `src/lib/posthog.ts`):
+   - Exception autocapture via `defaults: "2026-01-30"` — auto-hooks `window.onerror` and `window.onunhandledrejection`
+   - `PostHogProvider` wraps the app in `main.tsx`
+   - `ErrorBoundary.componentDidCatch` → `posthog.captureException()` for React rendering errors
+   - Starts opted-out (`opt_out_capturing_by_default: true`), syncs to main process settings via `syncAnalyticsSettings()`
+   - Uses same anonymous user ID as main process for cross-process correlation
+
+**Error reporting helpers:**
+
+- **Main process**: `reportError(label, err, context?)` from `electron/src/lib/error-utils.ts` — combines `log()` + `captureException()` in one call, returns the error message string. Use in all IPC handler catch blocks.
+- **Renderer**: `reportError(label, err, context?)` from `src/lib/analytics.ts` — combines `console.error()` + `captureException()`, returns the message string. Use in hook/component catch blocks.
+- **Renderer**: `captureException(error, properties?)` from `src/lib/analytics.ts` — PostHog-only capture (when console logging already exists).
+
+**When to use `reportError` vs leave a catch alone:**
+- **DO use `reportError`**: session start/stop failures, IPC handler errors, SDK/process spawn errors, OAuth failures, updater errors, file operation errors, user-visible errors
+- **DO NOT use `reportError`**: process kill cleanup (`/* already dead */`), JSON parse fallbacks, audio autoplay blocked, cache parse defaults, cancellation guards, analytics-internal catches (infinite recursion)
 
 ### Electron Session Handler Patterns
 
@@ -324,3 +353,4 @@ The three session IPC handlers share extracted utilities:
 - **Component decomposition** — large components are split into focused sub-components in subdirectories (git/, tool-renderers/, mcp-renderers/, sidebar/)
 - **Hook decomposition** — large hooks are split into focused sub-hooks (session/, useEngineBase)
 - **Shared components** — reusable UI patterns extracted to shared components (`TabBar`, `PanelHeader`, `SettingRow`)
+- **Error tracking** — all caught errors in IPC handlers and hooks must use `reportError(label, err)` (not bare `log()`). Benign/expected catches (cleanup, parse fallbacks, cancellation guards) are exempt. See "Error Tracking (PostHog)" section for details.

@@ -17,6 +17,7 @@ import os from "os";
 import { execFileSync } from "child_process";
 import { app } from "electron";
 import { log } from "./logger";
+import { reportError } from "./error-utils";
 import { getAppSetting } from "./app-settings";
 
 // Codex Desktop app bundle is prioritized because it ships a newer binary
@@ -186,7 +187,7 @@ export async function getCodexBinaryPath(): Promise<string> {
         cachedPath = await downloadCodexBinary();
         log("codex-binary", `Refreshed managed codex at: ${cachedPath}`);
       } catch (err) {
-        log("codex-binary", `Managed codex refresh failed: ${String(err)}`);
+        reportError("codex-binary", err, { context: "managed-refresh" });
       }
     }
     return cachedPath;
