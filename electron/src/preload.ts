@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld("claude", {
     diffFile: (cwd: string, file: string, staged: boolean) => ipcRenderer.invoke("git:diff-file", { cwd, file, staged }),
     diffStat: (cwd: string) => ipcRenderer.invoke("git:diff-stat", cwd) as Promise<{ additions: number; deletions: number }>,
     log: (cwd: string, count?: number) => ipcRenderer.invoke("git:log", { cwd, count }),
+    getGitDirSize: (cwd: string) => ipcRenderer.invoke("git:get-git-dir-size", cwd) as Promise<{ sizeBytes: number; error?: string }>,
     generateCommitMessage: (cwd: string, engine?: string, sessionId?: string) =>
       ipcRenderer.invoke("git:generate-commit-message", { cwd, engine, sessionId }),
   },

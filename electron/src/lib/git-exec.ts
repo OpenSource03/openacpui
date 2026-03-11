@@ -8,9 +8,12 @@ export const ALWAYS_SKIP = new Set([
   ".gradle", ".idea", ".vs", ".vscode", "target", "out", "bin", "obj",
 ]);
 
-export function gitExec(args: string[], cwd: string): Promise<string> {
+export function gitExec(args: string[], cwd: string, options?: { timeout?: number; maxBuffer?: number }): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const timeout = options?.timeout ?? 30000; // 30s default timeout
+    const maxBuffer = options?.maxBuffer ?? 50 * 1024 * 1024; // 50MB default buffer (up from 5MB)
+
+    execFile("git", args, { cwd, maxBuffer, timeout }, (err, stdout, stderr) => {
       if (err) return reject(new Error(stderr?.trim() || err.message));
       resolve(stdout);
     });

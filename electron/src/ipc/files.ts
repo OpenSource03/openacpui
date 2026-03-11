@@ -15,7 +15,7 @@ function listFilesGit(cwd: string): Promise<string[]> {
     execFile(
       "git",
       ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd, maxBuffer: 10 * 1024 * 1024 },
+      { cwd, maxBuffer: 50 * 1024 * 1024, timeout: 30000 }, // 50MB buffer, 30s timeout
       (err, stdout) => {
         if (err) return reject(err);
         resolve(stdout.split("\n").filter((f) => f.trim()).sort());

@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
+import { execFile } from "child_process";
 import { gitExec, ALWAYS_SKIP } from "../lib/git-exec";
 import { captureEvent } from "../lib/posthog";
 import { reportError } from "../lib/error-utils";
@@ -66,6 +67,34 @@ async function readRepoMetadata(cwd: string): Promise<RepoMetadata | null> {
 function validateRef(ref: string): void {
   if (ref.startsWith("-")) {
     throw new Error(`Invalid ref: "${ref}" — must not start with a dash`);
+  }
+}
+
+/**
+ * Get approximate size of .git directory in bytes.
+ * Returns -1 if unable to determine size.
+ */
+async function getGitDirSize(repoPath: string): Promise<number> {
+  try {
+    const gitDir = path.join(repoPath, ".git");
+    const stat = await fs.promises.stat(gitDir);
+    if (!stat.isDirectory()) return -1;
+
+    // Use du command for faster size estimation (sampling approach)
+    // For very large repos, we just need an order of magnitude, not exact size
+    return new Promise<number>((resolve) => {
+      execFile("du", ["-sk", gitDir], { timeout: 5000 }, (err, stdout) => {
+        if (err) {
+          resolve(-1);
+          return;
+        }
+        // du -sk returns size in KB as first token
+        const sizeKB = parseInt(stdout.split(/\s+/)[0], 10);
+        resolve(sizeKB * 1024); // Convert to bytes
+      });
+    });
+  } catch {
+    return -1;
   }
 }
 
@@ -468,6 +497,15 @@ export function register(): void {
       return entries;
     } catch (err) {
       return { error: reportError("GIT_LOG_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:get-git-dir-size", async (_event, cwd: string) => {
+    try {
+      const sizeBytes = await getGitDirSize(cwd);
+      return { sizeBytes };
+    } catch (err) {
+      return { error: reportError("GIT_GET_GIT_DIR_SIZE_ERR", err), sizeBytes: -1 };
     }
   });
 }
