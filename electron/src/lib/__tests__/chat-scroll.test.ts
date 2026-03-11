@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   BOTTOM_LOCK_THRESHOLD_PX,
+  TOP_SCROLL_FADE_RANGE_PX,
   getDistanceFromBottom,
+  getTopScrollProgress,
   isWithinBottomLockThreshold,
   shouldUnlockBottomLock,
 } from "../../../../src/lib/chat-scroll";
@@ -47,5 +49,14 @@ describe("chat scroll helpers", () => {
       scrollHeight: 1000,
       clientHeight: 300,
     })).toBe(true);
+  });
+
+  it("keeps the top shadow hidden at the top and fully visible at the fade range", () => {
+    expect(getTopScrollProgress(0)).toBe(0);
+    expect(getTopScrollProgress(TOP_SCROLL_FADE_RANGE_PX)).toBe(1);
+  });
+
+  it("eases the top shadow progress through the fade ramp", () => {
+    expect(getTopScrollProgress(TOP_SCROLL_FADE_RANGE_PX / 2)).toBe(0.5);
   });
 });

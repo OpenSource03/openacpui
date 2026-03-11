@@ -43,11 +43,15 @@ export type AppPermissionBehavior = "allow" | "deny" | "allowForSession";
 /**
  * Canonical signature for responding to a tool permission prompt.
  * All engines must implement this — unused params can be ignored.
+ *
+ * `updatedPermissions` is forwarded to the SDK to persist allow rules
+ * to the chosen settings file (session / local / project / user).
  */
 export type RespondPermissionFn = (
   behavior: AppPermissionBehavior,
   updatedInput?: Record<string, unknown>,
   newPermissionMode?: string,
+  updatedPermissions?: unknown[],
 ) => Promise<void>;
 
 /**

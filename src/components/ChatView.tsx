@@ -17,6 +17,7 @@ import { TextShimmer } from "@/components/ui/text-shimmer";
 import {
   BOTTOM_LOCK_THRESHOLD_PX,
   USER_SCROLL_INTENT_WINDOW_MS,
+  getTopScrollProgress,
   isWithinBottomLockThreshold,
   shouldUnlockBottomLock,
 } from "@/lib/chat-scroll";
@@ -82,8 +83,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   onScrolledFromTopRef.current = onScrolledFromTop;
   const onTopScrollProgressRef = useRef(onTopScrollProgress);
   onTopScrollProgressRef.current = onTopScrollProgress;
-  const topProgressRafRef = useRef<number | null>(null);
-  const pendingTopProgressRef = useRef(0);
   const lastTopProgressRef = useRef(-1);
   const prependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const lastSessionIdRef = useRef<string | undefined | null>(sessionId);
@@ -94,6 +93,9 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   );
 
   const getViewport = useCallback(() => {
+    if (viewportRef.current && !viewportRef.current.isConnected) {
+      viewportRef.current = null;
+    }
     if (!viewportRef.current) {
       viewportRef.current = scrollAreaRef.current?.querySelector<HTMLElement>(
         "[data-radix-scroll-area-viewport]",
@@ -167,6 +169,22 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     };
   }, [expandRenderedHistory, messages.length, visibleStartIndex]);
 
+  const publishTopProgress = useCallback((progress: number) => {
+    const clamped = Math.max(0, Math.min(1, progress));
+    const last = lastTopProgressRef.current;
+    if (last < 0 || Math.abs(clamped - last) >= 0.01 || clamped === 0 || clamped === 1) {
+      lastTopProgressRef.current = clamped;
+      onTopScrollProgressRef.current?.(clamped);
+    }
+  }, []);
+
+  const syncViewportState = useCallback((viewport: HTMLElement) => {
+    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    onScrolledFromTopRef.current?.(scrollTop > 4);
+    publishTopProgress(getTopScrollProgress(scrollTop));
+    return { scrollTop, scrollHeight, clientHeight };
+  }, [publishTopProgress]);
+
   useLayoutEffect(() => {
     const anchor = prependAnchorRef.current;
     if (!anchor) return;
@@ -176,8 +194,9 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
 
     const delta = viewport.scrollHeight - anchor.scrollHeight;
     viewport.scrollTop = anchor.scrollTop + delta;
+    syncViewportState(viewport);
     prependAnchorRef.current = null;
-  }, [getViewport, visibleStartIndex]);
+  }, [getViewport, syncViewportState, visibleStartIndex]);
 
   const visibleMessages = useMemo(
     () => visibleStartIndex === 0 ? messages : messages.slice(visibleStartIndex),
@@ -196,6 +215,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       if (shouldForce || Math.abs(targetViewport.scrollTop - targetScrollTop) > 1) {
         targetViewport.scrollTop = targetScrollTop;
       }
+      syncViewportState(targetViewport);
     };
 
     suppressScrollTrackingRef.current += 1;
@@ -205,7 +225,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       if (nextViewport) applyBottom(nextViewport);
       suppressScrollTrackingRef.current = Math.max(0, suppressScrollTrackingRef.current - 1);
     });
-  }, [getViewport]);
+  }, [getViewport, syncViewportState]);
 
   const clearSettleTimers = useCallback(() => {
     if (settleRafRef.current !== null) {
@@ -229,32 +249,21 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     scheduleSettleToBottom();
   }, [messages.length, isProcessing, scheduleSettleToBottom]);
 
+  useLayoutEffect(() => {
+    if (!sessionId) return;
+    bottomLockedRef.current = true;
+    userScrollIntentUntilRef.current = 0;
+    lastTopProgressRef.current = -1;
+    jumpToBottom({ force: true });
+  }, [jumpToBottom, sessionId]);
+
   // Track whether user is near the bottom; this drives sticky auto-follow behavior.
   useEffect(() => {
     const viewport = getViewport();
     if (!viewport) return;
 
-    const flushTopProgress = () => {
-      topProgressRafRef.current = null;
-      const progress = pendingTopProgressRef.current;
-      const last = lastTopProgressRef.current;
-      if (last < 0 || Math.abs(progress - last) >= 0.01 || progress === 0 || progress === 1) {
-        lastTopProgressRef.current = progress;
-        onTopScrollProgressRef.current?.(progress);
-      }
-    };
-
     const updateAutoFollow = () => {
-      const { scrollTop, scrollHeight, clientHeight } = viewport;
-      // Always report scroll-from-top state (controls header shadow visibility)
-      onScrolledFromTopRef.current?.(scrollTop > 4);
-      // Smooth top ramp: slower range + smoothstep easing to avoid abrupt header/fade jumps.
-      const normalized = Math.max(0, Math.min(1, scrollTop / 96));
-      const easedProgress = normalized * normalized * (3 - 2 * normalized);
-      pendingTopProgressRef.current = easedProgress;
-      if (topProgressRafRef.current === null) {
-        topProgressRafRef.current = window.requestAnimationFrame(flushTopProgress);
-      }
+      const { scrollTop, scrollHeight, clientHeight } = syncViewportState(viewport);
       // Auto-follow tracking is suppressed during programmatic scrolls to
       // prevent them from unlocking sticky follow mode
       if (suppressScrollTrackingRef.current > 0) {
@@ -322,14 +331,11 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       viewport.removeEventListener("pointerdown", markUserScrollIntent);
       viewport.removeEventListener("keydown", handleKeydown);
       viewport.removeEventListener("scroll", throttledUpdateAutoFollow);
-      if (topProgressRafRef.current !== null) {
-        window.cancelAnimationFrame(topProgressRafRef.current);
-        topProgressRafRef.current = null;
-      }
     };
-  }, [messages.length, clearSettleTimers, expandRenderedHistory, getViewport, visibleStartIndex]);
+  }, [messages.length, clearSettleTimers, expandRenderedHistory, getViewport, syncViewportState, visibleStartIndex]);
 
-  // Force-scroll to bottom on session switch, bypassing the proximity guard
+  // Force-scroll to bottom again after session changes so late layout shifts
+  // still settle at the bottom even after the immediate layout pass above.
   useEffect(() => {
     if (!sessionId) return;
     bottomLockedRef.current = true;

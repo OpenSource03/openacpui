@@ -100,7 +100,7 @@ declare global {
           toolName: string;
           toolInput: Record<string, unknown>;
           toolUseId: string;
-          suggestions?: string[];
+          suggestions?: unknown[];
           decisionReason?: string;
         }) => void,
       ) => () => void;
@@ -111,6 +111,7 @@ declare global {
         toolUseId: string,
         toolInput: Record<string, unknown>,
         newPermissionMode?: string,
+        updatedPermissions?: unknown[],
       ) => Promise<{ ok?: boolean; error?: string }>;
       setPermissionMode: (
         sessionId: string,

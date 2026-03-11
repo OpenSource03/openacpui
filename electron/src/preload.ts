@@ -69,8 +69,8 @@ contextBridge.exposeInMainWorld("claude", {
     ipcRenderer.on("claude:permission_request", listener);
     return () => ipcRenderer.removeListener("claude:permission_request", listener);
   },
-  respondPermission: (sessionId: string, requestId: string, behavior: string, toolUseId: string, toolInput: unknown, newPermissionMode?: string) =>
-    ipcRenderer.invoke("claude:permission_response", { sessionId, requestId, behavior, toolUseId, toolInput, newPermissionMode }),
+  respondPermission: (sessionId: string, requestId: string, behavior: string, toolUseId: string, toolInput: unknown, newPermissionMode?: string, updatedPermissions?: unknown[]) =>
+    ipcRenderer.invoke("claude:permission_response", { sessionId, requestId, behavior, toolUseId, toolInput, newPermissionMode, updatedPermissions }),
   setPermissionMode: (sessionId: string, permissionMode: string) =>
     ipcRenderer.invoke("claude:set-permission-mode", { sessionId, permissionMode }),
   setModel: (sessionId: string, model: string) =>

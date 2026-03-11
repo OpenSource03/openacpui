@@ -820,7 +820,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   }, [flushNow, resetStreaming]);
 
   const respondPermission = useCallback(
-    async (behavior: PermissionBehavior, updatedInput?: Record<string, unknown>, newPermissionMode?: string) => {
+    async (behavior: PermissionBehavior, updatedInput?: Record<string, unknown>, newPermissionMode?: string, updatedPermissions?: unknown[]) => {
       const currentPermission = pendingPermission;
       const sid = sessionIdRef.current;
       if (!currentPermission || !sid || permissionResponseInFlight.current) return;
@@ -838,6 +838,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           currentPermission.toolUseId,
           updatedInput ?? currentPermission.toolInput,
           newPermissionMode,
+          updatedPermissions,
         );
       } finally {
         permissionResponseInFlight.current = false;

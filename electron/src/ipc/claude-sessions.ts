@@ -22,7 +22,7 @@ function fileCheckpointOptions(): Record<string, unknown> {
 }
 
 type PermissionResult =
-  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | { behavior: "allow"; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] }
   | { behavior: "deny"; message: string };
 
 interface PendingPermission {
@@ -338,7 +338,7 @@ async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Arra
           cwd: cwd?.trim() || os.homedir(),
           includePartialMessages: true,
           thinking: buildThinkingConfig(),
-          settingSources: ["user", "project"],
+          settingSources: ["user", "project", "local"],
           pathToClaudeCodeExecutable: attempt.cliPath,
           ...fileCheckpointOptions(),
           stderr: (data: string) => {
@@ -490,7 +490,7 @@ async function restartSession(
     includePartialMessages: true,
     thinking: buildThinkingConfig(),
     canUseTool,
-    settingSources: ["user", "project"],
+    settingSources: ["user", "project", "local"],
     pathToClaudeCodeExecutable: cliPath,
     ...fileCheckpointOptions(),
     resume: sessionId,
@@ -571,6 +571,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             requestId,
             toolUseId: context.toolUseID,
             reason: context.decisionReason,
+            hasSuggestions: Array.isArray(context.suggestions) && context.suggestions.length > 0,
           });
           safeSend(getMainWindow,"claude:permission_request", {
             _sessionId: sessionId,
@@ -591,7 +592,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         includePartialMessages: true,
         thinking: buildThinkingConfig(),
         canUseTool,
-        settingSources: ["user", "project"],
+        settingSources: ["user", "project", "local"],
         pathToClaudeCodeExecutable: cliPath,
         ...fileCheckpointOptions(),
         stderr: (data: string) => {
@@ -673,7 +674,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle("claude:permission_response", async (_event, {
-    sessionId, requestId, behavior, toolInput, newPermissionMode,
+    sessionId, requestId, behavior, toolInput, newPermissionMode, updatedPermissions,
   }: {
     sessionId: string;
     requestId: string;
@@ -681,6 +682,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     toolUseId: string;
     toolInput: Record<string, unknown> | undefined;
     newPermissionMode?: string;
+    updatedPermissions?: unknown[];
   }) => {
     const session = sessions.get(sessionId);
     if (!session) {
@@ -693,7 +695,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { error: "No pending permission request" };
     }
     session.pendingPermissions.delete(requestId);
-    log("PERMISSION_RESPONSE", `session=${sessionId.slice(0, 8)} behavior=${behavior} requestId=${requestId} newMode=${newPermissionMode ?? "none"}`);
+    log("PERMISSION_RESPONSE", `session=${sessionId.slice(0, 8)} behavior=${behavior} requestId=${requestId} newMode=${newPermissionMode ?? "none"} hasUpdatedPermissions=${!!updatedPermissions?.length}`);
 
     if (newPermissionMode && session.queryHandle) {
       try {
@@ -705,7 +707,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
 
     if (behavior === "allow") {
-      pending.resolve({ behavior: "allow", updatedInput: toolInput });
+      pending.resolve({ behavior: "allow", updatedInput: toolInput, updatedPermissions });
     } else {
       // Pass user-provided rejection reason (from plan feedback) to the SDK so the model can adjust
       const denyMsg = toolInput?.denyMessage;

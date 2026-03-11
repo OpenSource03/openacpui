@@ -7,17 +7,29 @@ import {
   Play,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
   MessageCircleQuestion,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
 import {
   buildAskUserQuestionResult,
   getAskUserQuestionKey,
 } from "@/lib/ask-user-question";
-import type { PermissionRequest, RespondPermissionFn } from "@/types";
+import type {
+  PermissionRequest,
+  PermissionUpdate,
+  PermissionUpdateDestination,
+  RespondPermissionFn,
+} from "@/types";
 
 const TOOL_LABELS: Record<string, string> = {
   Read: "Read a file",
@@ -26,6 +38,91 @@ const TOOL_LABELS: Record<string, string> = {
   Bash: "Run a command",
   NotebookEdit: "Edit a notebook",
 };
+
+// ── Scoped "always allow" options ──
+
+const SCOPE_LABELS: Record<PermissionUpdateDestination, string> = {
+  session: "this session",
+  localSettings: "this project (just you)",
+  projectSettings: "this project (shared)",
+  userSettings: "all projects",
+};
+
+const SCOPE_DESCRIPTIONS: Record<PermissionUpdateDestination, string> = {
+  session: "Only for this session (not saved)",
+  localSettings: "Saves to .claude/settings.local.json (gitignored)",
+  projectSettings: "Saves to .claude/settings.json (shared with team)",
+  userSettings: "Saves to ~/.claude/settings.json",
+};
+
+/** Display order for scope destinations (matches Cursor extension). */
+const SCOPE_ORDER: PermissionUpdateDestination[] = [
+  "localSettings",
+  "userSettings",
+  "projectSettings",
+  "session",
+];
+
+/** localStorage key for persisting the last-selected permission destination (same key as Cursor). */
+const DESTINATION_STORAGE_KEY = "claude-vscode-permission-destination";
+
+function getSavedDestination(): PermissionUpdateDestination | null {
+  try {
+    const v = localStorage.getItem(DESTINATION_STORAGE_KEY);
+    if (v && (SCOPE_ORDER as string[]).includes(v))
+      return v as PermissionUpdateDestination;
+  } catch {
+    /* SSR / restricted */
+  }
+  return null;
+}
+
+function saveDestination(d: PermissionUpdateDestination) {
+  try {
+    localStorage.setItem(DESTINATION_STORAGE_KEY, d);
+  } catch {
+    /* SSR / restricted */
+  }
+}
+
+interface ScopeOption {
+  destination: PermissionUpdateDestination;
+  label: string;
+  description: string;
+}
+
+/** Check whether the suggestions contain any addRules/allow entries worth offering scopes for. */
+function hasScopeableSuggestions(suggestions?: PermissionUpdate[]): boolean {
+  if (!suggestions?.length) return false;
+  return suggestions.some(
+    (s) => s.type === "addRules" && s.behavior === "allow" && s.rules?.length,
+  );
+}
+
+/** Build all 4 scope options (labels + descriptions). */
+function buildScopeOptions(suggestions?: PermissionUpdate[]): ScopeOption[] {
+  if (!hasScopeableSuggestions(suggestions)) return [];
+  return SCOPE_ORDER.map((d) => ({
+    destination: d,
+    label: SCOPE_LABELS[d],
+    description: SCOPE_DESCRIPTIONS[d],
+  }));
+}
+
+/**
+ * Remap all suggestions to the chosen destination.
+ * Mirrors the Cursor extension: setMode suggestions keep their original destination,
+ * while addRules/addDirectories/etc. get the user-selected destination.
+ */
+function remapSuggestions(
+  suggestions: PermissionUpdate[],
+  destination: PermissionUpdateDestination,
+): PermissionUpdate[] {
+  return suggestions.map((s) => ({
+    ...s,
+    destination: s.type === "setMode" ? s.destination : destination,
+  }));
+}
 
 interface ToolDetail {
   label: string;
@@ -477,6 +574,7 @@ export function PermissionPrompt({
     TOOL_LABELS[request.toolName] ?? `Use tool: ${request.toolName}`;
   const detail = formatToolDetail(request);
   const isSubmitting = submittingAction !== null;
+  const scopeOptions = buildScopeOptions(request.suggestions);
 
   const submit = async (behavior: "allow" | "deny" | "allowForSession") => {
     if (isSubmitting) return;
@@ -486,6 +584,24 @@ export function PermissionPrompt({
     setSubmittingAction(behavior);
     try {
       await onRespond(behavior);
+    } catch {
+      if (submittingRequestIdRef.current === submittedRequestId) {
+        submittingRequestIdRef.current = null;
+        setSubmittingAction(null);
+      }
+    }
+  };
+
+  const submitWithScope = async (dest: PermissionUpdateDestination) => {
+    if (isSubmitting || !request.suggestions?.length) return;
+    if (submittingRequestIdRef.current === request.requestId) return;
+    submittingRequestIdRef.current = request.requestId;
+    const submittedRequestId = request.requestId;
+    setSubmittingAction("allow");
+    saveDestination(dest);
+    try {
+      const remapped = remapSuggestions(request.suggestions, dest);
+      await onRespond("allow", undefined, undefined, remapped);
     } catch {
       if (submittingRequestIdRef.current === submittedRequestId) {
         submittingRequestIdRef.current = null;
@@ -548,15 +664,48 @@ export function PermissionPrompt({
                 : "Allow for Session"}
             </Button>
           )}
-          <Button
-            size="sm"
-            disabled={isSubmitting}
-            onClick={() => void submit("allow")}
-            className="h-8 gap-1.5 text-xs"
-          >
-            <Check className="h-3.5 w-3.5" />
-            {submittingAction === "allow" ? "Allowing..." : "Allow"}
-          </Button>
+
+          {/* Split button: Allow (once) + chevron dropdown for scoped "always allow" */}
+          <div className="flex items-center">
+            <Button
+              size="sm"
+              disabled={isSubmitting}
+              onClick={() => void submit("allow")}
+              className={`h-8 gap-1.5 text-xs ${scopeOptions.length > 0 ? "rounded-e-none" : ""}`}
+            >
+              <Check className="h-3.5 w-3.5" />
+              {submittingAction === "allow" ? "Allowing..." : "Allow"}
+            </Button>
+            {scopeOptions.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    disabled={isSubmitting}
+                    className="h-8 rounded-s-none border-s border-s-primary-foreground/20 px-1.5"
+                  >
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top" className="w-72">
+                  {scopeOptions.map((opt) => (
+                    <DropdownMenuItem
+                      key={opt.destination}
+                      onClick={() => void submitWithScope(opt.destination)}
+                      className="flex flex-col items-start gap-0.5 py-2"
+                    >
+                      <span className="text-xs font-medium">
+                        Always allow for {opt.label}
+                      </span>
+                      <span className="text-[10px] leading-snug text-muted-foreground">
+                        {opt.description}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </div>
       </div>
     </div>

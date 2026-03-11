@@ -213,12 +213,28 @@ export interface PersistedSession extends SessionBase {
   contextUsage?: ContextUsage | null;
 }
 
+// ── Permission rule types (mirrors SDK PermissionUpdate) ──
+
+export type PermissionUpdateDestination = "userSettings" | "projectSettings" | "localSettings" | "session";
+
+export interface PermissionRuleValue {
+  toolName: string;
+  ruleContent?: string;
+}
+
+export interface PermissionUpdate {
+  type: string;
+  rules?: PermissionRuleValue[];
+  behavior?: string;
+  destination: PermissionUpdateDestination;
+}
+
 export interface PermissionRequest {
   requestId: string;
   toolName: string;
   toolInput: Record<string, unknown>;
   toolUseId: string;
-  suggestions?: string[];
+  suggestions?: PermissionUpdate[];
   decisionReason?: string;
 }
 

@@ -304,7 +304,7 @@ export function register(): void {
         model: "haiku",
         extraOptions: {
           systemPrompt: { type: "preset", preset: "claude_code" },
-          settingSources: ["project", "user"],
+          settingSources: ["project", "user", "local"],
         },
       });
       return { message: result, error };

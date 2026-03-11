@@ -27,11 +27,16 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   const repoStatesRef = useRef(repoStates);
   const projectPathRef = useRef(projectPath);
   const requestIdRef = useRef(0);
+  const loadingRequestIdRef = useRef(0);
   repoStatesRef.current = repoStates;
   projectPathRef.current = projectPath;
 
   const isRequestCurrent = useCallback((requestId: number, scopePath?: string) => {
     return requestIdRef.current === requestId && projectPathRef.current === scopePath;
+  }, []);
+
+  const isLoadingRequestCurrent = useCallback((requestId: number, scopePath?: string) => {
+    return loadingRequestIdRef.current === requestId && projectPathRef.current === scopePath;
   }, []);
 
   const applyRepoStates = useCallback((nextStates: RepoState[], scopePath?: string) => {
@@ -79,6 +84,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   const refreshAll = useCallback(async () => {
     const scopePath = projectPath?.trim() || undefined;
     const requestId = ++requestIdRef.current;
+    const loadingRequestId = ++loadingRequestIdRef.current;
 
     if (!scopePath) {
       applyRepoStates([]);
@@ -96,15 +102,16 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
         reportError("GIT_DISCOVER_REPOS_ERR", err, { projectPath: scopePath });
       }
     } finally {
-      if (isRequestCurrent(requestId, scopePath)) {
+      if (isLoadingRequestCurrent(loadingRequestId, scopePath)) {
         setIsLoading(false);
       }
     }
-  }, [applyRepoStates, isRequestCurrent, loadRepoStates, projectPath]);
+  }, [applyRepoStates, isLoadingRequestCurrent, isRequestCurrent, loadRepoStates, projectPath]);
 
   // Discover repos when projectPath changes
   useEffect(() => {
     requestIdRef.current += 1;
+    loadingRequestIdRef.current += 1;
     const scopePath = projectPath?.trim() || undefined;
     if (!scopePath) {
       applyRepoStates([]);
