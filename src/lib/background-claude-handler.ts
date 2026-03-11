@@ -20,6 +20,7 @@ import {
 } from "./protocol";
 import { formatResultError } from "./message-factory";
 import { bgAgentStore } from "./background-agent-store";
+import { mergeStreamingChunk } from "./streaming-buffer";
 import { normalizeTodoToolInput } from "./todo-utils";
 import type { InternalState } from "./background-session-store";
 
@@ -60,10 +61,12 @@ function handleStreamEvent(state: InternalState, event: StreamEvent): void {
         if (target.thinking && !target.thinkingComplete) {
           target.thinkingComplete = true;
         }
-        target.content += streamEvt.delta.text;
+        target.content = mergeStreamingChunk(target.content, streamEvt.delta.text);
       } else if (streamEvt.delta.type === "thinking_delta") {
-        target.thinking =
-          (target.thinking ?? "") + streamEvt.delta.thinking;
+        target.thinking = mergeStreamingChunk(
+          target.thinking ?? "",
+          streamEvt.delta.thinking,
+        );
       }
       break;
     }

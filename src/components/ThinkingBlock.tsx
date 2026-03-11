@@ -6,23 +6,15 @@ import {
 } from "@/components/ui/collapsible";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { TextShimmer } from "@/components/ui/text-shimmer";
+import {
+  advanceThinkingAnimationState,
+  createThinkingAnimationState,
+} from "@/lib/thinking-animation";
 
 interface ThinkingBlockProps {
   thinking: string;
   isStreaming?: boolean;
   thinkingComplete?: boolean;
-}
-
-interface AnimatedChunk {
-  id: number;
-  text: string;
-}
-
-function commonPrefixLength(a: string, b: string): number {
-  const max = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < max && a.charCodeAt(i) === b.charCodeAt(i)) i += 1;
-  return i;
 }
 
 export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: ThinkingBlockProps) {
@@ -32,12 +24,11 @@ export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: Think
   const userScrolledRef = useRef(false);
   const isThinking = isStreaming && !thinkingComplete && thinking.length > 0;
 
-  // Render thinking as stable prefix + appended animated chunks.
-  // This keeps earlier chunk animations running even when new chunks arrive.
-  const prevThinkingRef = useRef(thinking);
-  const nextChunkIdRef = useRef(0);
-  const [baseText, setBaseText] = useState(thinking);
-  const [animatedChunks, setAnimatedChunks] = useState<AnimatedChunk[]>([]);
+  // Keep the animation state simple and append-only. The v0.19.0 coalescing
+  // timer introduced replay/duplication under rapid thinking updates.
+  const [animationState, setAnimationState] = useState(() =>
+    createThinkingAnimationState(thinking),
+  );
 
   const handleScroll = useCallback(() => {
     const el = contentRef.current;
@@ -57,105 +48,10 @@ export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: Think
   }, [thinking, open]);
 
   useEffect(() => {
-    const prev = prevThinkingRef.current;
-    const curr = thinking;
-    prevThinkingRef.current = curr;
-
-    if (!isThinking) {
-      setBaseText(curr);
-      setAnimatedChunks([]);
-      return;
-    }
-
-    if (!prev || !curr) {
-      setBaseText(curr);
-      setAnimatedChunks([]);
-      return;
-    }
-
-    const prefixLen = commonPrefixLength(prev, curr);
-    const appendedLen = curr.length - prefixLen;
-    if (appendedLen <= 0) {
-      setBaseText(curr);
-      setAnimatedChunks([]);
-      return;
-    }
-
-    // If upstream rewrites existing text, reset to avoid animating old regions.
-    const changedInMiddle = prefixLen < prev.length;
-    if (changedInMiddle) {
-      setBaseText(curr);
-      setAnimatedChunks([]);
-      return;
-    }
-
-    const appended = curr.slice(prev.length);
-    if (!appended) return;
-
-    setAnimatedChunks((chunks) => [
-      ...chunks,
-      { id: nextChunkIdRef.current++, text: appended },
-    ]);
+    setAnimationState((prev) =>
+      advanceThinkingAnimationState(prev, thinking, isThinking),
+    );
   }, [thinking, isThinking]);
-
-  // Coalesce completed animation chunks back into baseText every 500ms
-  // to keep the animated <span> count bounded (~20-30 max)
-  useEffect(() => {
-    if (!isThinking) return;
-
-    const COALESCE_INTERVAL = 500;
-    const ANIMATION_DURATION = 400; // chunks older than this are "done"
-
-    // Track when each chunk was added
-    const chunkTimestamps = new Map<number, number>();
-
-    const interval = setInterval(() => {
-      const now = Date.now();
-
-      setAnimatedChunks((chunks) => {
-        if (chunks.length === 0) return chunks;
-
-        // Record timestamps for new chunks
-        for (const chunk of chunks) {
-          if (!chunkTimestamps.has(chunk.id)) {
-            chunkTimestamps.set(chunk.id, now);
-          }
-        }
-
-        // Find the last completed chunk index
-        let lastCompleted = -1;
-        for (let i = 0; i < chunks.length; i++) {
-          const ts = chunkTimestamps.get(chunks[i].id) ?? now;
-          if (now - ts >= ANIMATION_DURATION) {
-            lastCompleted = i;
-          } else {
-            break; // chunks are in order, so stop at first incomplete
-          }
-        }
-
-        if (lastCompleted < 0) return chunks;
-
-        // Merge completed chunks into baseText
-        const completedText = chunks
-          .slice(0, lastCompleted + 1)
-          .map((c) => c.text)
-          .join("");
-
-        // Clean up timestamps for merged chunks
-        for (let i = 0; i <= lastCompleted; i++) {
-          chunkTimestamps.delete(chunks[i].id);
-        }
-
-        setBaseText((prev) => prev + completedText);
-        return chunks.slice(lastCompleted + 1);
-      });
-    }, COALESCE_INTERVAL);
-
-    return () => {
-      clearInterval(interval);
-      chunkTimestamps.clear();
-    };
-  }, [isThinking]);
 
   const handleOpenChange = useCallback((isOpen: boolean) => {
     setOpen(isOpen);
@@ -189,8 +85,8 @@ export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: Think
             onScroll={handleScroll}
             className="mt-1 mb-2 max-h-60 overflow-auto border-s-2 border-foreground/10 ps-3 py-1 text-xs text-foreground/40 whitespace-pre-wrap"
           >
-            {baseText}
-            {animatedChunks.map((chunk) => (
+            {animationState.baseText}
+            {animationState.animatedChunks.map((chunk) => (
               <span key={chunk.id} className="stream-chunk-enter">{chunk.text}</span>
             ))}
           </div>
