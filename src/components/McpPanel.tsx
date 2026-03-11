@@ -214,7 +214,7 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
       <div className="flex items-center justify-between px-3 pt-3 pb-2">
         <div className="flex items-center gap-2">
           <div className="flex h-5 w-5 items-center justify-center rounded-md bg-foreground/[0.04]">
-            <Plug className="h-3 w-3 text-muted-foreground" />
+            <Plug className="h-3 w-3 text-violet-600/70 dark:text-violet-200/50" />
           </div>
           <span className="text-[11px] font-semibold tracking-wide text-muted-foreground/80 uppercase">
             MCP Servers

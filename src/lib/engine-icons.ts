@@ -1,0 +1,30 @@
+import type { InstalledAgent } from "@/types";
+import type { EngineId } from "@shared/types/engine";
+
+/** CDN icons for built-in engines; ACP agents use their own `icon` field */
+export const ENGINE_ICONS: Record<string, string> = {
+  claude: "https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg",
+  codex: "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
+};
+
+/** Resolve the icon source for an agent — engine CDN icons override agent-level icons */
+export function getAgentIcon(agent: InstalledAgent): string | undefined {
+  return ENGINE_ICONS[agent.engine] ?? agent.icon;
+}
+
+/** Resolve the icon URL for a session based on its engine and optional agent ID */
+export function getSessionEngineIcon(
+  engine: EngineId | undefined,
+  agentId: string | undefined,
+  agents?: InstalledAgent[],
+): string | undefined {
+  const effectiveEngine = engine ?? "claude";
+  if (effectiveEngine !== "acp") {
+    return ENGINE_ICONS[effectiveEngine];
+  }
+  if (agentId && agents) {
+    const agent = agents.find((a) => a.id === agentId);
+    if (agent) return getAgentIcon(agent);
+  }
+  return undefined;
+}

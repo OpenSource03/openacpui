@@ -104,7 +104,7 @@ function createWindow(): void {
     // macOS without glass / Linux
     windowOptions.titleBarStyle = "hiddenInset";
     windowOptions.trafficLightPosition = { x: 19, y: 19 };
-    windowOptions.backgroundColor = "#18181b";
+    windowOptions.backgroundColor = "#040404";
   }
 
   mainWindow = new BrowserWindow(windowOptions);
@@ -146,8 +146,8 @@ function createWindow(): void {
   }
 }
 
-// Renderer uses this to set `glass-enabled` CSS class → transparent backgrounds for both platforms
-ipcMain.handle("app:getGlassEnabled", () => {
+// Renderer uses this to decide whether the transparency toggle is available.
+ipcMain.handle("app:getGlassSupported", () => {
   return !!(glassEnabled || process.platform === "win32");
 });
 

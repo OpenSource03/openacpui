@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import { getDataDir, getProjectSessionsDir, getSessionFilePath } from "../lib/data-dir";
-import { log } from "../lib/logger";
+import { reportError } from "../lib/error-utils";
 
 interface SessionMeta {
   id: string;
@@ -44,6 +44,25 @@ function getLastUserMessageTimestamp(messages?: Array<{ role?: string; timestamp
   return undefined;
 }
 
+function getMetaFilePath(projectId: string, sessionId: string): string {
+  return getSessionFilePath(projectId, sessionId).replace(/\.json$/, ".meta.json");
+}
+
+function extractSessionMeta(data: Record<string, unknown>, lastMessageAt: number): SessionMeta {
+  return {
+    id: data.id as string,
+    projectId: data.projectId as string,
+    title: (data.title as string) || "Untitled",
+    createdAt: (data.createdAt as number) || 0,
+    lastMessageAt,
+    model: data.model as string | undefined,
+    planMode: data.planMode as boolean | undefined,
+    totalCost: (data.totalCost as number) || 0,
+    engine: data.engine as SessionMeta["engine"],
+    codexThreadId: data.codexThreadId as string | undefined,
+  };
+}
+
 export function register(): void {
   ipcMain.handle("sessions:save", async (_event, data: { projectId: string; id: string; createdAt?: number; messages?: Array<{ role?: string; timestamp?: number }> }) => {
     try {
@@ -58,21 +77,36 @@ export function register(): void {
         data.createdAt ??
         0;
       const enriched = { ...data, lastMessageAt };
-      await fs.promises.writeFile(filePath, JSON.stringify(enriched, null, 2), "utf-8");
+
+      // Write main session file (no pretty-printing for smaller file size)
+      const writeMain = fs.promises.writeFile(filePath, JSON.stringify(enriched), "utf-8");
+
+      // Write metadata sidecar (fire-and-forget alongside main write)
+      const meta = extractSessionMeta(enriched as unknown as Record<string, unknown>, lastMessageAt);
+      const metaPath = getMetaFilePath(data.projectId, data.id);
+      const writeMeta = fs.promises.writeFile(metaPath, JSON.stringify(meta), "utf-8").catch((err) => {
+        reportError("SESSIONS:META_WRITE_ERR", err, { sessionId: data.id });
+      });
+
+      await Promise.all([writeMain, writeMeta]);
       return { ok: true };
     } catch (err) {
-      log("SESSIONS:SAVE_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      const message = reportError("SESSIONS:SAVE_ERR", err, { sessionId: data.id });
+      return { error: message };
     }
   });
 
   ipcMain.handle("sessions:load", async (_event, projectId: string, sessionId: string) => {
     try {
       const filePath = getSessionFilePath(projectId, sessionId);
-      if (!fs.existsSync(filePath)) return null;
+      try {
+        await fs.promises.access(filePath);
+      } catch {
+        return null;
+      }
       return JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
     } catch (err) {
-      log("SESSIONS:LOAD_ERR", (err as Error).message);
+      reportError("SESSIONS:LOAD_ERR", err, { projectId, sessionId });
       return null;
     }
   });
@@ -80,58 +114,78 @@ export function register(): void {
   ipcMain.handle("sessions:list", async (_event, projectId: string) => {
     try {
       const dir = getProjectSessionsDir(projectId);
-      const files = (await fs.promises.readdir(dir)).filter((f) => f.endsWith(".json"));
-      const items = await Promise.all(files.map(async (file) => {
-        try {
-          const raw = await fs.promises.readFile(path.join(dir, file), "utf-8");
-          const data = JSON.parse(raw);
-          const lastMessageAt: number =
-            getLastUserMessageTimestamp(data.messages) ??
-            (typeof data.lastMessageAt === "number" ? data.lastMessageAt : undefined) ??
-            data.createdAt ??
-            0;
+      const allFiles = await fs.promises.readdir(dir);
 
-          const item: SessionMeta = {
-            id: data.id,
-            projectId: data.projectId,
-            title: data.title || "Untitled",
-            createdAt: data.createdAt || 0,
-            lastMessageAt,
-            model: data.model,
-            planMode: data.planMode,
-            totalCost: data.totalCost || 0,
-            engine: data.engine,
-            codexThreadId: data.codexThreadId,
-          };
-          return item;
-        } catch {
-          return null;
-        }
-      }));
+      // Prefer .meta.json sidecar files for fast listing
+      const metaFiles = allFiles.filter((f) => f.endsWith(".meta.json"));
+      const metaBasenames = new Set(metaFiles.map((f) => f.replace(/\.meta\.json$/, "")));
+
+      // Find .json files that lack a .meta.json sidecar (migration path)
+      const fullParseFiles = allFiles.filter(
+        (f) => f.endsWith(".json") && !f.endsWith(".meta.json") && !metaBasenames.has(f.replace(/\.json$/, ""))
+      );
+
+      const items = await Promise.all([
+        // Fast path: read small sidecar files
+        ...metaFiles.map(async (file): Promise<SessionMeta | null> => {
+          try {
+            const raw = await fs.promises.readFile(path.join(dir, file), "utf-8");
+            const data = JSON.parse(raw) as SessionMeta;
+            return data;
+          } catch {
+            return null;
+          }
+        }),
+        // Fallback: full-file parse for sessions without sidecar
+        ...fullParseFiles.map(async (file): Promise<SessionMeta | null> => {
+          try {
+            const raw = await fs.promises.readFile(path.join(dir, file), "utf-8");
+            const data = JSON.parse(raw) as Record<string, unknown>;
+            const lastMessageAt: number =
+              getLastUserMessageTimestamp(data.messages as Array<{ role?: string; timestamp?: number }>) ??
+              (typeof data.lastMessageAt === "number" ? data.lastMessageAt : undefined) ??
+              (data.createdAt as number) ??
+              0;
+
+            return extractSessionMeta(data, lastMessageAt);
+          } catch {
+            return null;
+          }
+        }),
+      ]);
+
       const list: SessionMeta[] = items.filter((item): item is SessionMeta => item !== null);
       // Sort by most recent user activity, not creation time.
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       return list;
     } catch (err) {
-      log("SESSIONS:LIST_ERR", (err as Error).message);
+      reportError("SESSIONS:LIST_ERR", err, { projectId });
       return [];
     }
   });
 
-  ipcMain.handle("sessions:delete", (_event, projectId: string, sessionId: string) => {
+  ipcMain.handle("sessions:delete", async (_event, projectId: string, sessionId: string) => {
     try {
       const filePath = getSessionFilePath(projectId, sessionId);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      const metaPath = getMetaFilePath(projectId, sessionId);
+
+      // Delete both main file and sidecar, ignoring ENOENT
+      await Promise.all([
+        fs.promises.unlink(filePath).catch((err: NodeJS.ErrnoException) => {
+          if (err.code !== "ENOENT") throw err;
+        }),
+        fs.promises.unlink(metaPath).catch((err: NodeJS.ErrnoException) => {
+          if (err.code !== "ENOENT") throw err;
+        }),
+      ]);
       return { ok: true };
     } catch (err) {
-      log("SESSIONS:DELETE_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      const message = reportError("SESSIONS:DELETE_ERR", err, { projectId, sessionId });
+      return { error: message };
     }
   });
 
-  ipcMain.handle("sessions:search", (_event, { projectIds, query }: { projectIds: string[]; query: string }): SearchResult => {
+  ipcMain.handle("sessions:search", async (_event, { projectIds, query }: { projectIds: string[]; query: string }): Promise<SearchResult> => {
     try {
       const lowerQuery = query.toLowerCase();
       const messageResults: SearchResult["messageResults"] = [];
@@ -139,16 +193,21 @@ export function register(): void {
 
       for (const projectId of projectIds) {
         const dir = path.join(getDataDir(), "sessions", projectId);
-        if (!fs.existsSync(dir)) continue;
+        try {
+          await fs.promises.access(dir);
+        } catch {
+          continue;
+        }
 
-        const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+        const allFiles = await fs.promises.readdir(dir);
+        const files = allFiles.filter((f) => f.endsWith(".json") && !f.endsWith(".meta.json"));
         for (const file of files) {
           const filePath = path.join(dir, file);
           try {
-            const stat = fs.statSync(filePath);
+            const stat = await fs.promises.stat(filePath);
             if (stat.size > 5 * 1024 * 1024) continue;
 
-            const raw = fs.readFileSync(filePath, "utf-8");
+            const raw = await fs.promises.readFile(filePath, "utf-8");
             const data = JSON.parse(raw);
             const sessionTitle = data.title || "Untitled";
             const sessionId = data.id;
@@ -195,7 +254,7 @@ export function register(): void {
 
       return { messageResults, sessionResults };
     } catch (err) {
-      log("SESSIONS:SEARCH_ERR", (err as Error).message);
+      reportError("SESSIONS:SEARCH_ERR", err, { query });
       return { messageResults: [], sessionResults: [] };
     }
   });

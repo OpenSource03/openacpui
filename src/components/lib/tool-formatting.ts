@@ -125,7 +125,7 @@ export function formatTaskRunningTitle(message: UIMessage): string {
   if (!input) return "Running agent...";
   const agentType = String(input.subagent_type ?? input.subagentType ?? "");
   const desc = String(input.description ?? "");
-  if (agentType) return `Running ${agentType}...`;
+  if (agentType) return `Running ${agentType} agent...`;
   if (desc) return `Running: ${desc}`;
   return "Running agent...";
 }

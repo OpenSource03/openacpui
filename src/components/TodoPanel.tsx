@@ -115,7 +115,7 @@ export function TodoPanel({ todos }: TodoPanelProps) {
           label="Tasks"
           separator={false}
           className=""
-          iconClass="text-foreground/50"
+          iconClass="text-blue-600/70 dark:text-blue-200/50"
         >
           {/* Progress ring in the header right side */}
           <ProgressRing completed={completed} total={total} />

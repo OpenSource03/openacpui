@@ -2,7 +2,7 @@ import { memo, useState, useCallback, useEffect } from "react";
 import { Server } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingRow, selectClass } from "@/components/settings/shared";
+import { SettingRow, SettingsSelect } from "@/components/settings/shared";
 import type { AppSettings } from "@/types/ui";
 
 interface AdvancedSettingsProps {
@@ -134,15 +134,16 @@ export const AdvancedSettings = memo(function AdvancedSettings({
                 label="Claude binary source"
                 description="Choose how Harnss resolves the Claude executable."
               >
-                <select
+                <SettingsSelect
                   value={claudeBinarySource}
-                  onChange={(e) => handleClaudeBinarySourceChange(e.target.value as "auto" | "managed" | "custom")}
-                  className={`${selectClass} w-44`}
-                >
-                  <option value="auto">Auto detect</option>
-                  <option value="managed">Managed install</option>
-                  <option value="custom">Custom path</option>
-                </select>
+                  onValueChange={(v) => handleClaudeBinarySourceChange(v as "auto" | "managed" | "custom")}
+                  options={[
+                    { value: "auto", label: "Auto detect" },
+                    { value: "managed", label: "Managed install" },
+                    { value: "custom", label: "Custom path" },
+                  ]}
+                  className="w-44"
+                />
               </SettingRow>
 
               {claudeBinarySource === "custom" && (
@@ -239,15 +240,16 @@ export const AdvancedSettings = memo(function AdvancedSettings({
                 label="Codex binary source"
                 description="Choose how Harnss resolves the Codex executable."
               >
-                <select
+                <SettingsSelect
                   value={codexBinarySource}
-                  onChange={(e) => handleBinarySourceChange(e.target.value as "auto" | "managed" | "custom")}
-                  className={`${selectClass} w-44`}
-                >
-                  <option value="auto">Auto detect</option>
-                  <option value="managed">Managed download</option>
-                  <option value="custom">Custom path</option>
-                </select>
+                  onValueChange={(v) => handleBinarySourceChange(v as "auto" | "managed" | "custom")}
+                  options={[
+                    { value: "auto", label: "Auto detect" },
+                    { value: "managed", label: "Managed download" },
+                    { value: "custom", label: "Custom path" },
+                  ]}
+                  className="w-44"
+                />
               </SettingRow>
             )}
 

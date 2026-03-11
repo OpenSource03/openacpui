@@ -170,11 +170,17 @@ export class BackgroundSessionStore {
     this.sessions.delete(sessionId);
   }
 
-  /** Seed store with current state when switching away from a live session. */
+  /** Seed store with the current session state when switching away. */
   initFromState(sessionId: string, state: BackgroundSessionState): void {
     const parentToolMap = new Map<string, string>();
-    // Clone messages to prevent external mutation from leaking in
-    const messages = state.messages.map(m => ({ ...m }));
+    // The active view treats message arrays immutably, so we can reuse the
+    // existing objects here and avoid an O(n) clone on every session switch.
+    const messages = state.messages;
+    let codexPlanTurnCounter = 0;
+    let latestPlanStreamTurn = -1;
+    let latestPlanStreamMsg: UIMessage | undefined;
+    let streamingMsg: UIMessage | undefined;
+
     for (const msg of messages) {
       if (msg.role === "tool_call" && msg.subagentSteps !== undefined) {
         const toolUseId = msg.id.replace(/^tool-/, "");
@@ -185,13 +191,6 @@ export class BackgroundSessionStore {
         const itemId = msg.id.replace("codex-tool-", "");
         parentToolMap.set(itemId, msg.id);
       }
-    }
-
-    // Reconstruct plan turn counter and latest plan stream from existing messages
-    let codexPlanTurnCounter = 0;
-    let latestPlanStreamTurn = -1;
-    let latestPlanStreamMsg: UIMessage | undefined;
-    for (const msg of messages) {
       if (msg.id.startsWith("codex-plan-update-")) {
         const num = parseInt(msg.id.replace("codex-plan-update-", ""), 10);
         if (!isNaN(num) && num >= codexPlanTurnCounter) codexPlanTurnCounter = num;
@@ -204,6 +203,9 @@ export class BackgroundSessionStore {
           latestPlanStreamMsg = msg;
         }
       }
+      if (msg.role === "assistant" && msg.isStreaming) {
+        streamingMsg = msg;
+      }
     }
 
     // Backward compatibility with older persisted sessions
@@ -213,11 +215,6 @@ export class BackgroundSessionStore {
 
     const planInput = latestPlanStreamMsg?.toolInput as { plan?: string } | undefined;
     const codexPlanText = planInput?.plan ?? "";
-
-    // Detect a mid-stream message so we can continue accumulating deltas
-    const streamingMsg = messages.findLast(
-      (m) => m.role === "assistant" && m.isStreaming,
-    );
 
     this.sessions.set(sessionId, {
       messages,

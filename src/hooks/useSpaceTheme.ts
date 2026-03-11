@@ -45,7 +45,7 @@ export function useSpaceTheme(
       // Still apply opacity even for colorless (default) space
       const opacity = space?.color.opacity;
       if (opacity !== undefined && opacity < 1) {
-        const bg = isDark ? `oklch(0.214 0 0 / ${opacity})` : `oklch(1 0 0 / ${opacity})`;
+        const bg = isDark ? `oklch(0.107 0 0 / ${opacity})` : `oklch(1 0 0 / ${opacity})`;
         root.style.setProperty("--island-fill", bg);
       } else {
         root.style.removeProperty("--island-fill");
@@ -62,7 +62,7 @@ export function useSpaceTheme(
     const sidebarChroma = (isDark ? 0.024 : 0.03) * tintStrength;
     const lightBgLightness = 0.985 - 0.012 * tintStrength;
     const lightSurfaceLightness = 0.955 - 0.02 * tintStrength;
-    const darkBgLightness = 0.214 - 0.02 * tintStrength;
+    const darkBgLightness = 0.12 - 0.013 * tintStrength;
     const darkSurfaceLightness = 0.355 - 0.04 * tintStrength;
 
     root.style.setProperty("--space-hue", String(hue));

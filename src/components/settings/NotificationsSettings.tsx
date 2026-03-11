@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useEffect } from "react";
 import { Bell, Volume2, MonitorSmartphone } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingRow, selectClass } from "@/components/settings/shared";
+import { SettingRow, SettingsSelect } from "@/components/settings/shared";
 import type {
   NotificationTrigger,
   NotificationEventSettings,
@@ -125,46 +125,26 @@ export const NotificationsSettings = memo(function NotificationsSettings({
                 <SettingRow label="OS Notification">
                   <div className="flex items-center gap-1.5">
                     <MonitorSmartphone className="h-3.5 w-3.5 text-muted-foreground/50" />
-                    <select
+                    <SettingsSelect
                       value={settings[event.key].osNotification}
-                      onChange={(e) =>
-                        updateEventSetting(
-                          event.key,
-                          "osNotification",
-                          e.target.value as NotificationTrigger,
-                        )
+                      onValueChange={(v) =>
+                        updateEventSetting(event.key, "osNotification", v as NotificationTrigger)
                       }
-                      className={selectClass}
-                    >
-                      {TRIGGER_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={TRIGGER_OPTIONS}
+                    />
                   </div>
                 </SettingRow>
 
                 <SettingRow label="Sound">
                   <div className="flex items-center gap-1.5">
                     <Volume2 className="h-3.5 w-3.5 text-muted-foreground/50" />
-                    <select
+                    <SettingsSelect
                       value={settings[event.key].sound}
-                      onChange={(e) =>
-                        updateEventSetting(
-                          event.key,
-                          "sound",
-                          e.target.value as NotificationTrigger,
-                        )
+                      onValueChange={(v) =>
+                        updateEventSetting(event.key, "sound", v as NotificationTrigger)
                       }
-                      className={selectClass}
-                    >
-                      {TRIGGER_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={TRIGGER_OPTIONS}
+                    />
                   </div>
                 </SettingRow>
               </div>

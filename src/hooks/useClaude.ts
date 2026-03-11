@@ -108,33 +108,44 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Claude-specific flush — uses the full StreamingBuffer API
+  // Index of the currently streaming message in the messages array — avoids
+  // O(n) find/map scans on every rAF flush.
+  const streamingIndexRef = useRef(-1);
+
+  // Claude-specific flush — uses the full StreamingBuffer API.
+  // Optimized: replaces only the single streaming element by index instead of
+  // mapping the entire array, turning the per-frame cost from O(n) to O(1).
   const flushStreamingToState = useCallback(() => {
     const allText = buffer.current.getAllText();
     const allThinking = buffer.current.getAllThinking();
     const { thinkingComplete } = buffer.current;
-    // Capture messageId now — message_stop may clear it before React runs the updater
     const capturedMessageId = buffer.current.messageId;
     setMessages((prev) => {
-      const target = capturedMessageId
-        ? prev.find((m) => m.id === capturedMessageId)
-        : prev.findLast((m) => m.role === "assistant" && m.isStreaming);
-      if (!target) return prev;
-      if (!capturedMessageId) buffer.current.messageId = target.id;
+      // Fast path: use cached index if available
+      let idx = streamingIndexRef.current;
+      if (idx < 0 || idx >= prev.length || prev[idx].id !== capturedMessageId) {
+        // Index stale — fall back to lookup and cache for next flush
+        idx = capturedMessageId
+          ? prev.findIndex((m) => m.id === capturedMessageId)
+          : prev.findLastIndex((m) => m.role === "assistant" && m.isStreaming);
+        if (idx < 0) return prev;
+        streamingIndexRef.current = idx;
+        if (!capturedMessageId) buffer.current.messageId = prev[idx].id;
+      }
+      const target = prev[idx];
       const contentChanged = allText !== target.content;
       const thinkingChanged = allThinking && allThinking !== (target.thinking ?? "");
       const thinkingCompleteChanged = thinkingComplete && !target.thinkingComplete;
       if (!contentChanged && !thinkingChanged && !thinkingCompleteChanged) return prev;
-      return prev.map((m) =>
-        m.id === target.id
-          ? {
-              ...m,
-              ...(contentChanged ? { content: allText } : {}),
-              ...(thinkingChanged ? { thinking: allThinking } : {}),
-              ...(thinkingCompleteChanged ? { thinkingComplete: true } : {}),
-            }
-          : m,
-      );
+      const updated = {
+        ...target,
+        ...(contentChanged ? { content: allText } : {}),
+        ...(thinkingChanged ? { thinking: allThinking } : {}),
+        ...(thinkingCompleteChanged ? { thinkingComplete: true } : {}),
+      };
+      const next = prev.slice();
+      next[idx] = updated;
+      return next;
     });
   }, [setMessages]);
 
@@ -149,6 +160,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
   const resetStreaming = useCallback(() => {
     buffer.current.reset();
+    streamingIndexRef.current = -1;
     cancelPendingFlush();
   }, [cancelPendingFlush]);
 
@@ -335,10 +347,14 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               const id = nextId("stream");
               buffer.current.messageId = id;
               uiLog("MSG_START", { id });
-              setMessages((prev) => [
-                ...prev,
-                { id, role: "assistant" as const, content: "", isStreaming: true, timestamp: Date.now() },
-              ]);
+              setMessages((prev) => {
+                // Cache index of the new streaming message for O(1) flush lookups
+                streamingIndexRef.current = prev.length;
+                return [
+                  ...prev,
+                  { id, role: "assistant" as const, content: "", isStreaming: true, timestamp: Date.now() },
+                ];
+              });
               break;
             }
 

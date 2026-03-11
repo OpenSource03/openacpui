@@ -1,6 +1,6 @@
-import { useCallback, useEffect } from "react";
+import { startTransition, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import type { UIMessage, ChatSession, ImageAttachment, McpServerConfig, Project, ClaudeEffort } from "../../types";
+import type { UIMessage, ChatSession, PersistedSession, ImageAttachment, McpServerConfig, Project, ClaudeEffort } from "../../types";
 import type { ACPConfigOption } from "../../types/acp";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
@@ -114,6 +114,73 @@ export function useSessionLifecycle({
     switchSessionRef,
     onSpaceChangeRef,
   } = refs;
+  const sessionPayloadCacheRef = useRef<Map<string, PersistedSession>>(new Map());
+  const inFlightPrefetchRef = useRef<Set<string>>(new Set());
+  const switchRequestIdRef = useRef(0);
+  const MAX_SESSION_PAYLOAD_CACHE = 6;
+
+  const cacheSessionPayload = useCallback((data: PersistedSession) => {
+    const cache = sessionPayloadCacheRef.current;
+    cache.delete(data.id);
+    cache.set(data.id, data);
+    while (cache.size > MAX_SESSION_PAYLOAD_CACHE) {
+      const oldest = cache.keys().next().value;
+      if (!oldest) break;
+      cache.delete(oldest);
+    }
+  }, []);
+
+  const consumeCachedSessionPayload = useCallback((sessionId: string) => {
+    const cache = sessionPayloadCacheRef.current;
+    const cached = cache.get(sessionId);
+    if (!cached) return null;
+    cache.delete(sessionId);
+    return cached;
+  }, []);
+
+  const applyLoadedSession = useCallback((id: string, data: PersistedSession) => {
+    startTransition(() => {
+      setStartOptions((prev) => ({
+        ...prev,
+        planMode: !!data.planMode,
+      }));
+      setInitialMessages(data.messages);
+      setInitialMeta({
+        isProcessing: false,
+        isConnected: false,
+        sessionInfo: null,
+        totalCost: data.totalCost,
+        contextUsage: data.contextUsage ?? null,
+      });
+      setInitialPermission(null);
+      setInitialRawAcpPermission(null);
+      setActiveSessionId(id);
+      setDraftProjectId(null);
+      setSessions((prev) =>
+        prev.filter((s) => s.id !== DRAFT_ID).map((s) => ({
+          ...s,
+          isActive: s.id === id,
+          ...(s.id === id ? {
+            ...(data.engine ? { engine: data.engine } : {}),
+            ...(data.agentId ? { agentId: data.agentId } : {}),
+            ...(data.agentSessionId ? { agentSessionId: data.agentSessionId } : {}),
+            ...(data.codexThreadId ? { codexThreadId: data.codexThreadId } : {}),
+            planMode: !!data.planMode,
+            hasPendingPermission: false,
+          } : {}),
+        })),
+      );
+    });
+  }, [
+    setActiveSessionId,
+    setDraftProjectId,
+    setInitialMessages,
+    setInitialMeta,
+    setInitialPermission,
+    setInitialRawAcpPermission,
+    setSessions,
+    setStartOptions,
+  ]);
 
   // Load sessions for ALL projects
   useEffect(() => {
@@ -189,6 +256,58 @@ export function useSessionLifecycle({
     prefetchCodexModels,
   ]);
 
+  useEffect(() => {
+    const candidates = sessionsRef.current
+      .filter((session) => session.id !== activeSessionIdRef.current)
+      .sort((a, b) => (b.lastMessageAt ?? b.createdAt) - (a.lastMessageAt ?? a.createdAt))
+      .slice(0, MAX_SESSION_PAYLOAD_CACHE);
+
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+    let idleId: number | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const run = async () => {
+      for (const session of candidates) {
+        if (cancelled) return;
+        if (sessionPayloadCacheRef.current.has(session.id)) continue;
+        if (inFlightPrefetchRef.current.has(session.id)) continue;
+        if (backgroundStoreRef.current.has(session.id)) continue;
+
+        inFlightPrefetchRef.current.add(session.id);
+        try {
+          const data = await window.claude.sessions.load(session.projectId, session.id);
+          if (!cancelled && data) {
+            cacheSessionPayload(data);
+          }
+        } finally {
+          inFlightPrefetchRef.current.delete(session.id);
+        }
+      }
+    };
+
+    if (typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(() => {
+        void run();
+      }, { timeout: 1500 });
+    } else {
+      timerId = setTimeout(() => {
+        void run();
+      }, 250);
+    }
+
+    return () => {
+      cancelled = true;
+      if (idleId !== null && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timerId !== null) {
+        clearTimeout(timerId);
+      }
+    };
+  }, [activeSessionId, cacheSessionPayload, projects]);
+
   // createSession now requires a projectId
   const createSession = useCallback(
     async (projectId: string, options?: StartOptions) => {
@@ -197,8 +316,8 @@ export function useSessionLifecycle({
       acpAgentIdRef.current = null;
       acpAgentSessionIdRef.current = null;
       setAcpMcpStatuses([]);
-      await saveCurrentSession();
       seedBackgroundStore();
+      void saveCurrentSession();
       const draftEngine = options?.engine ?? "claude";
       setStartOptions(options ?? {});
       setDraftProjectId(projectId);
@@ -244,13 +363,14 @@ export function useSessionLifecycle({
   const switchSession = useCallback(
     async (id: string) => {
       if (id === activeSessionIdRef.current) return;
+      const requestId = ++switchRequestIdRef.current;
 
       abandonEagerSession("switch_session");
       abandonDraftAcpSession("switch_session");
       acpAgentIdRef.current = null;
       acpAgentSessionIdRef.current = null;
-      await saveCurrentSession();
       seedBackgroundStore();
+      void saveCurrentSession();
 
       const session = sessionsRef.current.find((s) => s.id === id);
       if (!session) return;
@@ -266,76 +386,71 @@ export function useSessionLifecycle({
         onSpaceChangeRef.current?.(sessionProject.spaceId || "default");
       }
 
-      // Restore from background store if available (live session with accumulated events)
+      // Restore from the in-memory session cache if available.
       const bgState = backgroundStoreRef.current.consume(id);
       if (bgState) {
-        setInitialMessages(bgState.messages);
-        setInitialMeta({
-          isProcessing: bgState.isProcessing,
-          isConnected: bgState.isConnected,
-          sessionInfo: bgState.sessionInfo,
-          totalCost: bgState.totalCost,
-          contextUsage: bgState.contextUsage,
-          isCompacting: bgState.isCompacting,
+        startTransition(() => {
+          setInitialMessages(bgState.messages);
+          setInitialMeta({
+            isProcessing: bgState.isProcessing,
+            isConnected: bgState.isConnected,
+            sessionInfo: bgState.sessionInfo,
+            totalCost: bgState.totalCost,
+            contextUsage: bgState.contextUsage,
+            isCompacting: bgState.isCompacting,
+          });
+          setInitialPermission(bgState.pendingPermission);
+          setInitialRawAcpPermission(bgState.rawAcpPermission);
+          setInitialSlashCommands(bgState.slashCommands ?? []);
+          setActiveSessionId(id);
+          setDraftProjectId(null);
+          setSessions((prev) =>
+            prev.filter(s => s.id !== DRAFT_ID).map((s) => ({
+              ...s,
+              isActive: s.id === id,
+              ...(s.id === id ? { hasPendingPermission: false } : {}),
+            })),
+          );
         });
-        // Restore pending permission so the hook picks it up on reset
-        setInitialPermission(bgState.pendingPermission);
-        setInitialRawAcpPermission(bgState.rawAcpPermission);
-        // Restore available slash commands from background store (ACP agents send these dynamically)
-        setInitialSlashCommands(bgState.slashCommands ?? []);
-        setActiveSessionId(id);
-        setDraftProjectId(null);
-        // Clear sidebar badge + mark active, remove any leftover DRAFT_ID placeholder
-        setSessions((prev) =>
-          prev.filter(s => s.id !== DRAFT_ID).map((s) => ({
-            ...s,
-            isActive: s.id === id,
-            ...(s.id === id ? { hasPendingPermission: false } : {}),
-          })),
-        );
-        // Dismiss the toast for this session since the user is now viewing it
         toast.dismiss(`permission-${id}`);
+        return;
+      }
+
+      const cachedData = consumeCachedSessionPayload(id);
+      if (cachedData) {
+        applyLoadedSession(id, cachedData);
         return;
       }
 
       // Fall back to loading from disk (non-live session)
       const data = await window.claude.sessions.load(session.projectId, id);
+      if (requestId !== switchRequestIdRef.current) return;
       if (data) {
-        setStartOptions((prev) => ({
-          ...prev,
-          planMode: !!data.planMode,
-        }));
-        setInitialMessages(data.messages);
-        setInitialMeta({
-          isProcessing: false,
-          isConnected: false,
-          sessionInfo: null,
-          totalCost: data.totalCost,
-          contextUsage: data.contextUsage ?? null,
-        });
-        // No live process = no pending permission
-        setInitialPermission(null);
-        setInitialRawAcpPermission(null);
-        setActiveSessionId(id);
-        setDraftProjectId(null);
-        // Remove any leftover DRAFT_ID placeholder from a pending ACP start
-        setSessions((prev) =>
-          prev.filter(s => s.id !== DRAFT_ID).map((s) => ({
-            ...s,
-            isActive: s.id === id,
-            // Restore fields from persisted data (may be missing from sessions:list metadata)
-            ...(s.id === id ? {
-              ...(data.engine ? { engine: data.engine } : {}),
-              ...(data.agentId ? { agentId: data.agentId } : {}),
-              ...(data.agentSessionId ? { agentSessionId: data.agentSessionId } : {}),
-              ...(data.codexThreadId ? { codexThreadId: data.codexThreadId } : {}),
-              planMode: !!data.planMode,
-            } : {}),
-          })),
-        );
+        cacheSessionPayload(data);
+        const restored = consumeCachedSessionPayload(id);
+        if (restored) {
+          applyLoadedSession(id, restored);
+        }
       }
     },
-    [saveCurrentSession, seedBackgroundStore, abandonEagerSession],
+    [
+      abandonDraftAcpSession,
+      abandonEagerSession,
+      applyLoadedSession,
+      cacheSessionPayload,
+      consumeCachedSessionPayload,
+      saveCurrentSession,
+      seedBackgroundStore,
+      setActiveSessionId,
+      setDraftProjectId,
+      setInitialMessages,
+      setInitialMeta,
+      setInitialPermission,
+      setInitialRawAcpPermission,
+      setInitialSlashCommands,
+      setSessions,
+      setStartOptions,
+    ],
   );
 
   // Keep switchSessionRef in sync for stable toast callbacks
@@ -345,6 +460,8 @@ export function useSessionLifecycle({
     async (id: string) => {
       const session = sessionsRef.current.find((s) => s.id === id);
       if (!session) return;
+      sessionPayloadCacheRef.current.delete(id);
+      inFlightPrefetchRef.current.delete(id);
       if (liveSessionIdsRef.current.has(id)) {
         if (session.engine === "codex") {
           suppressNextSessionCompletion(id);
@@ -393,8 +510,8 @@ export function useSessionLifecycle({
   const deselectSession = useCallback(async () => {
     abandonEagerSession("deselect");
     abandonDraftAcpSession("deselect");
-    await saveCurrentSession();
     seedBackgroundStore();
+    void saveCurrentSession();
     setActiveSessionId(null);
     setDraftProjectId(null);
     setInitialMessages([]);
@@ -417,8 +534,8 @@ export function useSessionLifecycle({
         return;
       }
 
-      await saveCurrentSession();
       seedBackgroundStore();
+      void saveCurrentSession();
 
       const result = await window.claude.ccSessions.import(getProjectCwd(project), ccSessionId);
       if (result.error || !result.messages) return;
@@ -444,6 +561,14 @@ export function useSessionLifecycle({
         messages: result.messages,
         totalCost: 0,
       });
+      cacheSessionPayload({
+        id: ccSessionId,
+        projectId: project.id,
+        title: newSession.title,
+        createdAt: newSession.createdAt,
+        messages: result.messages,
+        totalCost: 0,
+      });
 
       setSessions((prev) => [
         newSession,
@@ -455,7 +580,7 @@ export function useSessionLifecycle({
       setDraftProjectId(null);
       capture("session_imported", { message_count: result.messages.length });
     },
-    [findProject, saveCurrentSession, seedBackgroundStore, switchSession],
+    [cacheSessionPayload, findProject, saveCurrentSession, seedBackgroundStore, switchSession],
   );
 
   const setDraftAgent = useCallback((draftEngine: string, agentId: string, _cachedConfigOptions?: ACPConfigOption[], model?: string) => {

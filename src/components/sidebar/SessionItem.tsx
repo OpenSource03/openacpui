@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, MessageSquare, Trash2, MoreHorizontal, Loader2 } from "lucide-react";
+import { Pencil, Trash2, MoreHorizontal, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -7,7 +7,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { ChatSession } from "@/types";
+import type { ChatSession, InstalledAgent } from "@/types";
+import { AgentIcon } from "@/components/AgentIcon";
+import { getSessionEngineIcon } from "@/lib/engine-icons";
 
 export function SessionItem({
   islandLayout,
@@ -16,6 +18,7 @@ export function SessionItem({
   onSelect,
   onDelete,
   onRename,
+  agents,
 }: {
   islandLayout: boolean;
   session: ChatSession;
@@ -23,6 +26,7 @@ export function SessionItem({
   onSelect: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
+  agents?: InstalledAgent[];
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(session.title);
@@ -72,7 +76,11 @@ export function SessionItem({
         ) : session.isProcessing ? (
           <Loader2 className={`h-3 w-3 shrink-0 animate-spin ${isActive ? "text-current opacity-80" : "text-sidebar-foreground/60"}`} />
         ) : (
-          <MessageSquare className={`h-3 w-3 shrink-0 ${isActive ? "text-current opacity-80" : "text-sidebar-foreground/50"}`} />
+          <AgentIcon
+            icon={getSessionEngineIcon(session.engine, session.agentId, agents)}
+            size={12}
+            className={`shrink-0 ${isActive ? "opacity-80" : "opacity-50"}`}
+          />
         )}
         {session.titleGenerating ? (
           <span className={isActive ? "text-current opacity-80 italic" : "text-sidebar-foreground/60 italic"}>Generating title...</span>

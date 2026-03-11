@@ -95,14 +95,14 @@
 }
 
 .dark {
-  --background: oklch(0.203 0 0);
+  --background: oklch(0.107 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.257 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.257 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.203 0 0);
+  --primary-foreground: oklch(0.107 0 0);
   --secondary: oklch(0.337 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.337 0 0);
@@ -147,9 +147,9 @@ html.glass-enabled #root {
 }
 
 .dark.glass-enabled {
-  --sidebar: transparent;
-  --sidebar-border: oklch(0.40 0 0 / 0.3);
-  --sidebar-accent: oklch(0.333 0 0 / 0.4);
+  --sidebar: oklch(0.107 0 0 / 0.34);
+  --sidebar-border: oklch(0.36 0 0 / 0.32);
+  --sidebar-accent: oklch(0.26 0 0 / 0.46);
 }
 
 .glass-enabled:not(.dark) {
@@ -184,6 +184,11 @@ html.glass-enabled #root {
   color: oklch(0.985 0 0);
 }
 
+/* In light glass mode, sidebar engine icons match white text via inversion */
+.glass-enabled:not(.dark) .session-item-button img {
+  filter: invert(1) brightness(2);
+}
+
 /* In glass mode, only the outermost bg-sidebar (AppLayout root) provides
    the glass brightening overlay. Nested bg-sidebar elements stay transparent
    to avoid double-stacking the semi-transparent color. */
@@ -215,19 +220,20 @@ html.glass-enabled #root {
     ) border-box;
 }
 
-/* Light mode glass: dark reflection gradient (white-on-white is invisible) */
-.glass-enabled:not(.dark) .island {
+/* Light mode: dark reflection gradient (white-on-white is invisible) */
+:not(.dark) .island {
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.04);
   background:
     linear-gradient(var(--island-fill, var(--background)) 0 0) padding-box,
     linear-gradient(
       135deg,
-      oklch(0 0 0 / 0.10) 0%,
-      oklch(0 0 0 / 0.04) 12%,
-      oklch(0 0 0 / 0.02) 30%,
-      oklch(0 0 0 / 0.015) 50%,
-      oklch(0 0 0 / 0.02) 70%,
-      oklch(0 0 0 / 0.04) 88%,
-      oklch(0 0 0 / 0.08) 100%
+      oklch(0 0 0 / 0.14) 0%,
+      oklch(0 0 0 / 0.06) 12%,
+      oklch(0 0 0 / 0.04) 30%,
+      oklch(0 0 0 / 0.03) 50%,
+      oklch(0 0 0 / 0.04) 70%,
+      oklch(0 0 0 / 0.06) 88%,
+      oklch(0 0 0 / 0.12) 100%
     ) border-box;
 }
 
@@ -253,11 +259,11 @@ html.glass-enabled #root {
     linear-gradient(135deg, oklch(1 0 0 / 0.08), oklch(1 0 0 / 0.03) 50%, oklch(1 0 0 / 0.08)) border-box;
 }
 
-/* Light mode glass: dark outline gradient (mirrors .island light-mode fix) */
-.glass-enabled:not(.dark) .glass-outline {
+/* Light mode: dark outline gradient (mirrors .island light-mode fix) */
+:not(.dark) .glass-outline {
   background:
     linear-gradient(var(--island-fill) 0 0) padding-box,
-    linear-gradient(135deg, oklch(0 0 0 / 0.06), oklch(0 0 0 / 0.02) 50%, oklch(0 0 0 / 0.06)) border-box;
+    linear-gradient(135deg, oklch(0 0 0 / 0.10), oklch(0 0 0 / 0.04) 50%, oklch(0 0 0 / 0.10)) border-box;
 }
 
 /* Skip layout/paint for off-screen messages — large chats render instantly */

@@ -3,7 +3,7 @@ import { Bug, PanelLeft, Plus } from "lucide-react";
 import { isMac } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { ChatSession, Project, Space } from "@/types";
+import type { ChatSession, InstalledAgent, Project, Space } from "@/types";
 import { APP_SIDEBAR_WIDTH } from "@/lib/layout-constants";
 import { SidebarSearch } from "./SidebarSearch";
 import { SpaceBar } from "./SpaceBar";
@@ -39,6 +39,7 @@ interface AppSidebarProps {
   onEditSpace: (space: Space) => void;
   onDeleteSpace: (id: string) => void;
   onOpenSettings: () => void;
+  agents?: InstalledAgent[];
 }
 
 export const AppSidebar = memo(function AppSidebar({
@@ -70,6 +71,7 @@ export const AppSidebar = memo(function AppSidebar({
   onEditSpace,
   onDeleteSpace,
   onOpenSettings,
+  agents,
 }: AppSidebarProps) {
   // Load default chat limit from main-process settings
   const [defaultChatLimit, setDefaultChatLimit] = useState(10);
@@ -248,6 +250,7 @@ export const AppSidebar = memo(function AppSidebar({
                     onReorderProject(project.id, targetId)
                   }
                   defaultChatLimit={defaultChatLimit}
+                  agents={agents}
                 />
               );
             })}

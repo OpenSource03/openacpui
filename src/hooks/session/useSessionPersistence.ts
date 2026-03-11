@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import type { UIMessage, PersistedSession, ClaudeEvent, SystemInitEvent, EngineId } from "../../types";
+import type { PersistedSession, ClaudeEvent, SystemInitEvent, EngineId } from "../../types";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent } from "../../types/acp";
 import { normalizeToolInput as acpNormalizeToolInput, pickAutoResponseOption } from "../../lib/acp-adapter";
@@ -330,75 +330,68 @@ export function useSessionPersistence({
     };
   }, [messages, activeSessionId, sessionInfo?.model, persistSessionWithCodexFallback]);
 
-  // Sync model to session list
+  // Consolidated sync of session metadata to the session list (model, totalCost,
+  // lastMessageAt, isProcessing, hasPendingPermission). A single effect avoids
+  // multiple separate setSessions(prev => prev.map(...)) calls per render cycle.
   useEffect(() => {
-    if (!activeSessionId || activeSessionId === DRAFT_ID || !sessionInfo?.model) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeSessionId ? { ...s, model: sessionInfo.model } : s,
-      ),
-    );
-  }, [activeSessionId, sessionInfo?.model]);
+    if (!activeSessionId || activeSessionId === DRAFT_ID) return;
 
-  // Sync totalCost to session list
-  useEffect(() => {
-    if (!activeSessionId || activeSessionId === DRAFT_ID || totalCost === 0) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeSessionId ? { ...s, totalCost } : s,
-      ),
-    );
-  }, [activeSessionId, totalCost]);
+    // Compute lastMessageAt — only user messages affect sort order
+    let lastMessageAt: number | undefined;
+    if (messages.length > 0) {
+      // On session switch, React state can briefly still hold the previous session's messages.
+      // Skip one cycle so we don't stamp the new session with stale activity timestamps.
+      if (lastMessageSyncSessionRef.current !== activeSessionId) {
+        lastMessageSyncSessionRef.current = activeSessionId;
+      } else {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "user" && typeof messages[i].timestamp === "number") {
+            lastMessageAt = messages[i].timestamp;
+            break;
+          }
+        }
+      }
+    }
 
-  // Keep lastMessageAt in sync so the sidebar sorts by most recent user activity
-  useEffect(() => {
-    if (!activeSessionId || activeSessionId === DRAFT_ID || messages.length === 0) return;
-    // On session switch, React state can briefly still hold the previous session's messages.
-    // Skip one cycle so we don't stamp the new session with stale activity timestamps.
-    if (lastMessageSyncSessionRef.current !== activeSessionId) {
-      lastMessageSyncSessionRef.current = activeSessionId;
-      return;
-    }
-    // Only user messages should affect sort order — AI responses shouldn't bump a chat to the top
-    let lastUserMsg: UIMessage | undefined;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") { lastUserMsg = messages[i]; break; }
-    }
-    if (!lastUserMsg) return;
-    if (typeof lastUserMsg.timestamp !== "number") return;
-    const lastMessageAt = lastUserMsg.timestamp;
     setSessions((prev) => {
       let changed = false;
       const next = prev.map((s) => {
-        if (s.id !== activeSessionId || s.lastMessageAt === lastMessageAt) return s;
+        if (s.id !== activeSessionId) return s;
+
+        const updates: Record<string, unknown> = {};
+
+        // Model sync
+        if (sessionInfo?.model && s.model !== sessionInfo.model) {
+          updates.model = sessionInfo.model;
+        }
+
+        // Total cost sync
+        if (totalCost !== 0 && s.totalCost !== totalCost) {
+          updates.totalCost = totalCost;
+        }
+
+        // lastMessageAt sync
+        if (lastMessageAt !== undefined && s.lastMessageAt !== lastMessageAt) {
+          updates.lastMessageAt = lastMessageAt;
+        }
+
+        // isProcessing sync
+        if (s.isProcessing !== engine.isProcessing) {
+          updates.isProcessing = engine.isProcessing;
+        }
+
+        // hasPendingPermission sync — clear badge when permission is resolved
+        if (!engine.pendingPermission && s.hasPendingPermission) {
+          updates.hasPendingPermission = false;
+        }
+
+        if (Object.keys(updates).length === 0) return s;
         changed = true;
-        return { ...s, lastMessageAt };
+        return { ...s, ...updates };
       });
       return changed ? next : prev;
     });
-  }, [activeSessionId, messages.length]);
-
-  // Sync active session's isProcessing to the session list (for sidebar spinner)
-  useEffect(() => {
-    if (!activeSessionId || activeSessionId === DRAFT_ID) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeSessionId ? { ...s, isProcessing: engine.isProcessing } : s,
-      ),
-    );
-  }, [activeSessionId, engine.isProcessing]);
-
-  // Clear sidebar badge when the active session's permission is resolved
-  useEffect(() => {
-    if (!activeSessionId || activeSessionId === DRAFT_ID) return;
-    if (!engine.pendingPermission) {
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSessionId ? { ...s, hasPendingPermission: false } : s,
-        ),
-      );
-    }
-  }, [activeSessionId, engine.pendingPermission]);
+  }, [activeSessionId, sessionInfo?.model, totalCost, messages.length, engine.isProcessing, engine.pendingPermission]);
 
   // Save current session to disk (used before switching/creating)
   const saveCurrentSession = useCallback(async () => {
@@ -429,7 +422,7 @@ export function useSessionPersistence({
   // Seed background store with current active session's state
   const seedBackgroundStore = useCallback(() => {
     const currentId = activeSessionIdRef.current;
-    if (currentId && currentId !== DRAFT_ID && liveSessionIdsRef.current.has(currentId)) {
+    if (currentId && currentId !== DRAFT_ID) {
       // Pick slash commands from the active engine hook
       const sessionEngine = sessionsRef.current.find(s => s.id === currentId)?.engine ?? "claude";
       const slashCommands = sessionEngine === "codex"

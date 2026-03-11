@@ -126,7 +126,7 @@ export const ProjectFilesPanel = memo(function ProjectFilesPanel({
   if (!cwd) {
     return (
       <div className="flex h-full flex-col">
-        <PanelHeader icon={FolderTree} label="Project Files" />
+        <PanelHeader icon={FolderTree} label="Project Files" iconClass="text-teal-600/70 dark:text-teal-200/50" />
         <div className="flex flex-1 items-center justify-center p-4">
           <p className="text-xs text-muted-foreground">No project selected</p>
         </div>
@@ -136,7 +136,7 @@ export const ProjectFilesPanel = memo(function ProjectFilesPanel({
 
   return (
     <div className="flex h-full flex-col">
-      <PanelHeader icon={FolderTree} label="Project Files">
+      <PanelHeader icon={FolderTree} label="Project Files" iconClass="text-teal-600/70 dark:text-teal-200/50">
         {totalFiles > 0 && (
           <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px] font-semibold tabular-nums">
             {totalFiles}
@@ -248,34 +248,38 @@ const FileTreeRow = memo(function FileTreeRow({
   return (
     <div
       onClick={handleClick}
-      className="group flex cursor-pointer items-center gap-1 px-2 py-[3px] transition-colors duration-75 hover:bg-foreground/[0.05]"
-      style={{ paddingInlineStart: depth * 16 + 8 }}
+      className="group flex min-h-7 cursor-pointer items-center gap-2 pe-1.5 py-1 transition-colors duration-75 hover:bg-foreground/[0.05]"
+      style={{ paddingInlineStart: depth * 14 + 8 }}
     >
       {/* Chevron for directories */}
       {isDir ? (
-        <ChevronRight
-          className={`h-3 w-3 shrink-0 text-muted-foreground/50 transition-transform duration-150 ${
-            isExpanded ? "rotate-90" : ""
-          }`}
-        />
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+          <ChevronRight
+            className={`h-3 w-3 text-muted-foreground/50 transition-transform duration-150 ${
+              isExpanded ? "rotate-90" : ""
+            }`}
+          />
+        </span>
       ) : (
-        <span className="inline-block h-3 w-3 shrink-0" />
+        <span className="h-3.5 w-3.5 shrink-0" />
       )}
 
       {/* Icon */}
-      {isDir && isExpanded && <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-400/80" />}
-      {isDir && !isExpanded && <Folder className="h-3.5 w-3.5 shrink-0 text-amber-400/80" />}
-      {!isDir && <File className={`h-3.5 w-3.5 shrink-0 ${getFileIconColor(node.extension)}`} />}
+      <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-sm bg-foreground/[0.03] transition-colors duration-150 group-hover:bg-foreground/[0.06]">
+        {isDir && isExpanded && <FolderOpen className="h-3.25 w-3.25 text-amber-400/80" />}
+        {isDir && !isExpanded && <Folder className="h-3.25 w-3.25 text-amber-400/80" />}
+        {!isDir && <File className={`h-3.25 w-3.25 ${getFileIconColor(node.extension)}`} />}
+      </span>
 
       {/* Name */}
-      <span className="min-w-0 truncate text-xs text-foreground/80">{node.name}</span>
+      <span className="min-w-0 flex-1 truncate text-xs text-foreground/80">{node.name}</span>
 
-      {/* Open in editor (files only, on hover) */}
-      {!isDir && (
-        <span className="ms-auto shrink-0">
+      {/* Reserve the same trailing space for both row types so folders and files align. */}
+      <span className="ms-auto flex h-4.5 w-4.5 shrink-0 items-center justify-center">
+        {!isDir && (
           <OpenInEditorButton filePath={`${cwd}/${node.path}`} />
-        </span>
-      )}
+        )}
+      </span>
     </div>
   );
 });

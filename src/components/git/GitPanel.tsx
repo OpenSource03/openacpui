@@ -189,12 +189,12 @@ export const GitPanel = memo(function GitPanel({
   if (!cwd) {
     return (
       <div className="flex h-full flex-col">
-        <PanelHeader icon={GitBranchIcon} label="Source Control" />
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground/[0.03]">
-            <FolderGit2 className="h-4 w-4 text-foreground/15" />
+        <PanelHeader icon={GitBranchIcon} label="Source Control" iconClass="text-orange-600/70 dark:text-orange-200/50" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-1.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground/[0.05]">
+            <FolderGit2 className="h-3.5 w-3.5 text-foreground/25" />
           </div>
-          <p className="text-[11px] text-foreground/30">No project open</p>
+          <p className="text-[11px] text-foreground/40">No project open</p>
         </div>
       </div>
     );
@@ -203,14 +203,14 @@ export const GitPanel = memo(function GitPanel({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <PanelHeader icon={GitBranchIcon} label="Source Control">
-        {git.isLoading && <Loader2 className="h-3 w-3 animate-spin text-foreground/25" />}
+      <PanelHeader icon={GitBranchIcon} label="Source Control" iconClass="text-orange-600/70 dark:text-orange-200/50">
+        {git.isLoading && <Loader2 className="h-3 w-3 animate-spin text-foreground/40" />}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 w-5 shrink-0 text-foreground/35 hover:text-foreground/60"
+              className="h-5 w-5 shrink-0 text-foreground/45 hover:text-foreground/70"
               onClick={() => git.refreshAll()}
             >
               <RefreshCw className="h-3 w-3" />
@@ -223,16 +223,16 @@ export const GitPanel = memo(function GitPanel({
       </PanelHeader>
 
       {onSelectWorktreePath && repoOptions.length > 0 && (
-        <div className="px-3 pt-2 pb-2">
-          <div className="mb-1.5 flex items-center gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-foreground/30">Agent Worktree</label>
+        <div className="px-3 pt-1.5 pb-1.5">
+          <div className="mb-1 flex items-center gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-foreground/45">Agent Worktree</label>
             <div className="min-w-0 flex-1" />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-5 w-5 shrink-0 text-foreground/35 hover:text-foreground/60"
+                  className="h-5 w-5 shrink-0 text-foreground/45 hover:text-foreground/70"
                   onClick={openCreateDialog}
                 >
                   <Plus className="h-3 w-3" />
@@ -247,7 +247,7 @@ export const GitPanel = memo(function GitPanel({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-5 w-5 shrink-0 text-foreground/35 hover:text-foreground/60 disabled:opacity-30"
+                  className="h-5 w-5 shrink-0 text-foreground/45 hover:text-foreground/70 disabled:opacity-30"
                   onClick={openRemoveDialog}
                   disabled={linkedWorktrees.length === 0}
                 >
@@ -269,12 +269,21 @@ export const GitPanel = memo(function GitPanel({
 
       {/* Scrollable list of all repos */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {git.repoStates.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 py-10">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground/[0.03]">
-              <FolderGit2 className="h-4 w-4 text-foreground/15" />
+        {git.repoStates.length === 0 && git.isLoading && (
+          <div className="flex flex-col items-center justify-center gap-2 py-8">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground/[0.05]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground/35" />
             </div>
-            <p className="text-[11px] text-foreground/30">No git repos found</p>
+            <p className="text-[11px] text-foreground/50">Scanning repositories...</p>
+          </div>
+        )}
+
+        {git.repoStates.length === 0 && !git.isLoading && (
+          <div className="flex flex-col items-center justify-center gap-1.5 py-8">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground/[0.05]">
+              <FolderGit2 className="h-3.5 w-3.5 text-foreground/25" />
+            </div>
+            <p className="text-[11px] text-foreground/40">No git repos found</p>
           </div>
         )}
 
@@ -320,7 +329,7 @@ export const GitPanel = memo(function GitPanel({
                 value={createBranchName}
                 onChange={(e) => setCreateBranchName(e.target.value)}
                 placeholder="feature/my-work"
-                className="h-8 w-full rounded border border-input bg-background px-2 text-xs text-foreground/80 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-8 w-full rounded border border-input bg-background px-2 text-xs text-foreground/85 outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
 
@@ -331,7 +340,7 @@ export const GitPanel = memo(function GitPanel({
                 value={createWorktreePath}
                 onChange={(e) => setCreateWorktreePath(e.target.value)}
                 placeholder="../repo-feature-my-work"
-                className="h-8 w-full rounded border border-input bg-background px-2 text-xs text-foreground/80 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-8 w-full rounded border border-input bg-background px-2 text-xs text-foreground/85 outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
 
@@ -342,12 +351,12 @@ export const GitPanel = memo(function GitPanel({
                 value={createFromRef}
                 onChange={(e) => setCreateFromRef(e.target.value)}
                 placeholder="origin/main"
-                className="h-8 w-full rounded border border-input bg-background px-2 text-xs text-foreground/80 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-8 w-full rounded border border-input bg-background px-2 text-xs text-foreground/85 outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
 
             {createError && (
-              <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300/90">
+              <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-600/90 dark:text-red-300/90">
                 {createError}
               </div>
             )}
@@ -411,7 +420,7 @@ export const GitPanel = memo(function GitPanel({
             </label>
 
             {removeError && (
-              <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300/90">
+              <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-600/90 dark:text-red-300/90">
                 {removeError}
               </div>
             )}

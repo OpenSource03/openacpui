@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/AppLayout";
@@ -12,14 +11,6 @@ export function App() {
       "Check the Electron console for errors.",
     );
   }
-
-  useEffect(() => {
-    window.claude.getGlassEnabled().then((enabled) => {
-      if (enabled) {
-        document.documentElement.classList.add("glass-enabled");
-      }
-    });
-  }, []);
 
   return (
     <TooltipProvider>

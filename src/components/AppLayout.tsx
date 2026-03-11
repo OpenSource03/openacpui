@@ -60,7 +60,7 @@ export function AppLayout() {
     sidebar, projectManager, spaceManager, manager, settings, resolvedTheme,
     agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange,
     lockedEngine, lockedAgentId,
-    activeProjectId, activeProject, activeProjectPath, showThinking,
+    activeProjectId, activeProjectPath, activeSpaceProject, activeSpaceTerminalCwd, showThinking,
     hasProjects, hasRightPanel, hasToolsColumn, hasBottomTools,
     activeTodos, bgAgents, hasTodos, hasAgents, availableContextual,
     glassSupported, devFillEnabled, jiraBoardEnabled,
@@ -72,7 +72,7 @@ export function AppLayout() {
     handleToggleTool, handleToolReorder, handleNewChat, handleSend,
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
     handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
-    handleSendQueuedNow,
+    handleSendQueuedNow, handleUnqueueMessage,
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
     handleCreateSpace, handleEditSpace,
     handleDeleteSpace, handleSaveSpace, handleMoveProjectToSpace,
@@ -84,6 +84,8 @@ export function AppLayout() {
     resolvedTheme,
     glassSupported && settings.transparency,
   );
+  const isGlassActive = glassSupported && settings.transparency;
+  const isLightGlass = isGlassActive && resolvedTheme !== "dark";
 
   // ── Welcome wizard (first-run onboarding) ──
 
@@ -312,15 +314,35 @@ Link: ${issue.url}`;
     chatIslandRef.current?.style.setProperty("--chat-top-progress", clamped.toFixed(3));
   }, []);
 
+  const handleScrolledToMessage = useCallback(() => {
+    setScrollToMessageId(undefined);
+  }, []);
+
+  const handleRevert = useCallback((checkpointId: string) => {
+    if (manager.isConnected && manager.revertFiles) {
+      manager.revertFiles(checkpointId);
+    }
+  }, [manager.isConnected, manager.revertFiles]);
+
+  const handleFullRevert = useCallback((checkpointId: string) => {
+    if (manager.isConnected && manager.fullRevert) {
+      manager.fullRevert(checkpointId);
+    }
+  }, [manager.isConnected, manager.fullRevert]);
+
   // Scroll fades should soften when the space itself is more transparent.
   const spaceOpacity = spaceManager.activeSpace?.color.opacity ?? 1;
   const chatFadeStrength = Math.max(0.2, Math.min(1, spaceOpacity));
 
-  const chatSurfaceColor = "var(--background)";
+  const chatSurfaceColor = isLightGlass
+    ? "color-mix(in oklab, white 97%, var(--background) 3%)"
+    : "var(--background)";
   // Keep titlebar veil/shadow behavior consistent across island and non-island layouts.
-  const titlebarOpacity = Math.round(30 + 50 * spaceOpacity); // 30–80%
+  const titlebarOpacity = isLightGlass
+    ? Math.round(74 + 18 * spaceOpacity)
+    : Math.round(30 + 50 * spaceOpacity); // 30–80% or brighter in light glass
   const titlebarSurfaceColor =
-    `linear-gradient(to bottom, color-mix(in oklab, var(--background) ${titlebarOpacity}%, transparent) 0%, transparent 100%)`;
+    `linear-gradient(to bottom, color-mix(in oklab, ${chatSurfaceColor} ${titlebarOpacity}%, transparent) 0%, transparent 100%)`;
   const topFadeBackground = isIsland
     ? `linear-gradient(to bottom, ${chatSurfaceColor}, transparent)`
     : `linear-gradient(to bottom, ${chatSurfaceColor} 0%, ${chatSurfaceColor} 22%, transparent 100%)`;
@@ -379,6 +401,7 @@ Link: ${issue.url}`;
         onEditSpace={handleEditSpace}
         onDeleteSpace={handleDeleteSpace}
         onOpenSettings={() => setShowSettings(true)}
+        agents={agents}
       />
 
       <div ref={contentRef} className={`flex min-w-0 flex-1 flex-col ${settings.islandLayout ? "m-[var(--island-gap)]" : sidebar.isOpen ? "flat-divider-s" : ""} ${isResizing ? "select-none" : ""}`}>
@@ -398,6 +421,10 @@ Link: ${issue.url}`;
             onAvoidGroupingEditsChange={settings.setAvoidGroupingEdits}
             autoExpandTools={settings.autoExpandTools}
             onAutoExpandToolsChange={settings.setAutoExpandTools}
+            transparentToolPicker={settings.transparentToolPicker}
+            onTransparentToolPickerChange={settings.setTransparentToolPicker}
+            coloredSidebarIcons={settings.coloredSidebarIcons}
+            onColoredSidebarIconsChange={settings.setColoredSidebarIcons}
             transparency={settings.transparency}
             onTransparencyChange={settings.setTransparency}
             glassSupported={glassSupported}
@@ -477,12 +504,13 @@ Link: ${issue.url}`;
                 autoExpandTools={settings.autoExpandTools}
                 extraBottomPadding={!!manager.pendingPermission}
                 scrollToMessageId={scrollToMessageId}
-                onScrolledToMessage={() => setScrollToMessageId(undefined)}
+                onScrolledToMessage={handleScrolledToMessage}
                 sessionId={manager.activeSessionId}
-                onRevert={manager.isConnected && manager.revertFiles ? manager.revertFiles : undefined}
-                onFullRevert={manager.isConnected && manager.fullRevert ? manager.fullRevert : undefined}
+                onRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
+                onFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
                 onTopScrollProgress={handleTopScrollProgress}
                 onSendQueuedNow={handleSendQueuedNow}
+                onUnqueueQueuedMessage={handleUnqueueMessage}
                 sendNextId={manager.sendNextId}
                 agents={agents}
                 selectedAgent={selectedAgent}
@@ -663,18 +691,19 @@ Link: ${issue.url}`;
                   activeTabId={activeSpaceTerminals.activeTabId}
                   terminalsReady={spaceTerminals.isReady}
                   onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
-                  onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeProjectPath)}
-                  onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeProjectPath)}
+                  onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
+                  onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
                   onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
                   resolvedTheme={resolvedTheme}
                 />
               ),
               git: (
                 <GitPanel
-                  cwd={activeProject?.path}
+                  key={activeSpaceProject?.id ?? "git-panel-empty"}
+                  cwd={activeSpaceProject?.path}
                   collapsedRepos={settings.collapsedRepos}
                   onToggleRepoCollapsed={settings.toggleRepoCollapsed}
-                  selectedWorktreePath={activeProjectPath}
+                  selectedWorktreePath={activeSpaceTerminalCwd}
                   onSelectWorktreePath={handleAgentWorktreeChange}
                   activeEngine={manager.activeSession?.engine}
                   activeSessionId={manager.activeSessionId}
@@ -782,6 +811,8 @@ Link: ${issue.url}`;
             <div className={isIsland ? "ms-[var(--island-panel-gap)] shrink-0" : "shrink-0 tool-picker-shell"}>
               <ToolPicker
                 islandLayout={isIsland}
+                transparentBackground={settings.transparentToolPicker}
+                coloredIcons={settings.coloredSidebarIcons}
                 activeTools={activeTools}
                 onToggle={handleToggleTool}
                 availableContextual={availableContextual}
@@ -813,18 +844,19 @@ Link: ${issue.url}`;
                 activeTabId={activeSpaceTerminals.activeTabId}
                 terminalsReady={spaceTerminals.isReady}
                 onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
-                onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeProjectPath)}
-                onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeProjectPath)}
+                onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
+                onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
                 onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
                 resolvedTheme={resolvedTheme}
               />
             ),
             git: (
               <GitPanel
-                cwd={activeProject?.path}
+                key={activeSpaceProject?.id ?? "git-panel-empty"}
+                cwd={activeSpaceProject?.path}
                 collapsedRepos={settings.collapsedRepos}
                 onToggleRepoCollapsed={settings.toggleRepoCollapsed}
-                selectedWorktreePath={activeProjectPath}
+                selectedWorktreePath={activeSpaceTerminalCwd}
                 onSelectWorktreePath={handleAgentWorktreeChange}
                 activeEngine={manager.activeSession?.engine}
                 activeSessionId={manager.activeSessionId}

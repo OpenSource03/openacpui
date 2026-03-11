@@ -98,6 +98,65 @@ export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: Think
     ]);
   }, [thinking, isThinking]);
 
+  // Coalesce completed animation chunks back into baseText every 500ms
+  // to keep the animated <span> count bounded (~20-30 max)
+  useEffect(() => {
+    if (!isThinking) return;
+
+    const COALESCE_INTERVAL = 500;
+    const ANIMATION_DURATION = 400; // chunks older than this are "done"
+
+    // Track when each chunk was added
+    const chunkTimestamps = new Map<number, number>();
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+
+      setAnimatedChunks((chunks) => {
+        if (chunks.length === 0) return chunks;
+
+        // Record timestamps for new chunks
+        for (const chunk of chunks) {
+          if (!chunkTimestamps.has(chunk.id)) {
+            chunkTimestamps.set(chunk.id, now);
+          }
+        }
+
+        // Find the last completed chunk index
+        let lastCompleted = -1;
+        for (let i = 0; i < chunks.length; i++) {
+          const ts = chunkTimestamps.get(chunks[i].id) ?? now;
+          if (now - ts >= ANIMATION_DURATION) {
+            lastCompleted = i;
+          } else {
+            break; // chunks are in order, so stop at first incomplete
+          }
+        }
+
+        if (lastCompleted < 0) return chunks;
+
+        // Merge completed chunks into baseText
+        const completedText = chunks
+          .slice(0, lastCompleted + 1)
+          .map((c) => c.text)
+          .join("");
+
+        // Clean up timestamps for merged chunks
+        for (let i = 0; i <= lastCompleted; i++) {
+          chunkTimestamps.delete(chunks[i].id);
+        }
+
+        setBaseText((prev) => prev + completedText);
+        return chunks.slice(lastCompleted + 1);
+      });
+    }, COALESCE_INTERVAL);
+
+    return () => {
+      clearInterval(interval);
+      chunkTimestamps.clear();
+    };
+  }, [isThinking]);
+
   const handleOpenChange = useCallback((isOpen: boolean) => {
     setOpen(isOpen);
     if (isOpen) {

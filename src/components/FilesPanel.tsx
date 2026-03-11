@@ -63,9 +63,17 @@ export const FilesPanel = memo(function FilesPanel({
   }, [activeEngine, cwd, enabled]);
 
   const cacheSessionId = sessionId ?? "no-session";
+  // Optimization: depend on messages.length and last message identity instead of
+  // the full messages array reference, which changes on every streaming flush.
+  // buildSessionCacheKey only reads messages.length, last id, and last timestamp.
+  const lastMsg = messages[messages.length - 1];
+  const msgLen = messages.length;
+  const lastMsgId = lastMsg?.id;
+  const lastMsgTs = lastMsg?.timestamp;
   const cacheKey = useMemo(
     () => buildSessionCacheKey(cacheSessionId, messages, `${cwd ?? ""}:${activeEngine ?? ""}:${hasClaudeMd ? "claude-md" : "no-claude-md"}`),
-    [activeEngine, cacheSessionId, cwd, hasClaudeMd, messages],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeEngine, cacheSessionId, cwd, hasClaudeMd, msgLen, lastMsgId, lastMsgTs],
   );
 
   useEffect(() => {
@@ -106,7 +114,7 @@ export const FilesPanel = memo(function FilesPanel({
 
   return (
     <div className="flex h-full flex-col">
-      <PanelHeader icon={FileText} label="Open Files" separator={false} className="h-10 shrink-0 px-3">
+      <PanelHeader icon={FileText} label="Open Files" separator={false} className="h-10 shrink-0 px-3" iconClass="text-amber-600/70 dark:text-amber-200/50">
         {files.length > 0 && (
           <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px] font-semibold tabular-nums">
             {files.length}

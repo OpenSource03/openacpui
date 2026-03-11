@@ -23,7 +23,7 @@ export function FileItem({
   const statusLetter = STATUS_LETTERS[file.status] ?? "?";
 
   return (
-    <div className={`group flex items-center gap-1.5 pe-2 ps-5 py-[3px] text-[11px] transition-colors hover:bg-foreground/[0.04] ${isExpanded ? "bg-foreground/[0.04]" : ""}`}>
+    <div className={`group flex items-center gap-1 pe-2 ps-5 py-[2px] text-[11px] transition-colors hover:bg-foreground/[0.04] ${isExpanded ? "bg-foreground/[0.05]" : ""}`}>
       {/* File name + path — clickable for diff */}
       <button
         type="button"
@@ -31,12 +31,12 @@ export function FileItem({
         className="flex min-w-0 flex-1 items-center gap-1.5 truncate cursor-pointer"
         disabled={!onViewDiff}
       >
-        <span className="min-w-0 truncate text-foreground/60">{fileName}</span>
+        <span className="min-w-0 truncate text-foreground/80">{fileName}</span>
         {dirPath && (
-          <span className="min-w-0 shrink truncate text-[10px] text-foreground/20">{dirPath}</span>
+          <span className="min-w-0 shrink truncate text-[10px] text-foreground/35">{dirPath}</span>
         )}
         {file.oldPath && (
-          <span className="shrink-0 text-[10px] text-foreground/20">← {file.oldPath.split("/").pop()}</span>
+          <span className="shrink-0 text-[10px] text-foreground/35">← {file.oldPath.split("/").pop()}</span>
         )}
       </button>
 
@@ -45,7 +45,7 @@ export function FileItem({
         {onDiscard && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={() => onDiscard(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/25 hover:bg-red-500/10 hover:text-red-400/70 cursor-pointer transition-colors">
+              <button type="button" onClick={() => onDiscard(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/35 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-300 cursor-pointer transition-colors">
                 <Undo2 className="h-2.5 w-2.5" />
               </button>
             </TooltipTrigger>
@@ -55,7 +55,7 @@ export function FileItem({
         {onStage && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={() => onStage(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/25 hover:bg-emerald-500/10 hover:text-emerald-400/70 cursor-pointer transition-colors">
+              <button type="button" onClick={() => onStage(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/35 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-300 cursor-pointer transition-colors">
                 <Plus className="h-3 w-3" />
               </button>
             </TooltipTrigger>
@@ -65,7 +65,7 @@ export function FileItem({
         {onUnstage && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={() => onUnstage(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/25 hover:bg-amber-500/10 hover:text-amber-400/70 cursor-pointer transition-colors">
+              <button type="button" onClick={() => onUnstage(file)} className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/35 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-300 cursor-pointer transition-colors">
                 <Minus className="h-3 w-3" />
               </button>
             </TooltipTrigger>
@@ -75,7 +75,7 @@ export function FileItem({
       </div>
 
       {/* Status badge — pinned right */}
-      <span className={`flex h-4 min-w-4 shrink-0 items-center justify-center rounded px-0.5 text-[9px] font-bold ${statusColor}`}>
+      <span className={`flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded px-0.5 text-[9px] font-bold ${statusColor}`}>
         {statusLetter}
       </span>
     </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type FormEvent } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type FormEvent } from "react";
 import type { GrabbedElement } from "@/types/ui";
 import { getInspectorScript, getCleanupScript, GRAB_MARKER } from "@/lib/element-inspector";
 import { capture } from "@/lib/analytics";
@@ -89,6 +89,12 @@ function resolveNavigationInput(input: string): string | null {
 
   return url;
 }
+
+const BrowserHeaderIcon = forwardRef<SVGSVGElement, React.ComponentPropsWithoutRef<typeof Globe>>(
+  ({ className, ...rest }, ref) => (
+    <Globe ref={ref} {...rest} className={`${className ?? ""} text-sky-600/70 dark:text-sky-200/50`} />
+  ),
+);
 
 export function BrowserPanel({ onElementGrab }: BrowserPanelProps) {
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
@@ -226,7 +232,7 @@ export function BrowserPanel({ onElementGrab }: BrowserPanelProps) {
         onSelectTab={setActiveTabId}
         onCloseTab={closeTab}
         onNewTab={() => createTab()}
-        headerIcon={Globe}
+        headerIcon={BrowserHeaderIcon}
         headerLabel="Browser"
         renderTabIcon={(tab) =>
           tab.isLoading ? (

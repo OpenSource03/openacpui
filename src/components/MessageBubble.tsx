@@ -1,5 +1,5 @@
-import { memo, useState, useMemo, createContext, useContext, type ReactNode } from "react";
-import { AlertCircle, Clock, Crosshair, File, Folder, Info, RotateCcw, Send, Undo2 } from "lucide-react";
+import { memo, useState, useEffect, useRef, useMemo, createContext, useContext, type ReactNode } from "react";
+import { AlertCircle, Clock, Crosshair, File, Folder, Info, RotateCcw, Send, Undo2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -164,6 +164,8 @@ interface MessageBubbleProps {
   onFullRevert?: (checkpointId: string) => void;
   /** Called when user clicks "Send next" on a queued user message */
   onSendQueuedNow?: (messageId: string) => void;
+  /** Called when user removes a queued user message before it is sent */
+  onUnqueueQueued?: (messageId: string) => void;
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -174,6 +176,7 @@ export const MessageBubble = memo(function MessageBubble({
   onRevert,
   onFullRevert,
   onSendQueuedNow,
+  onUnqueueQueued,
 }: MessageBubbleProps) {
   // All hooks must be called before any early returns (Rules of Hooks)
   const isUser = message.role === "user";
@@ -240,20 +243,34 @@ export const MessageBubble = memo(function MessageBubble({
                   <div className="mt-2 flex items-center gap-2 border-t border-foreground/[0.06] pt-2 text-[11px] text-muted-foreground">
                     <Clock className="h-3 w-3 shrink-0" />
                     <span>Queued</span>
-                    {onSendQueuedNow && (
-                      <button
-                        type="button"
-                        className={cn(
-                          "ms-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all",
-                          isSendNextQueued
-                            ? "bg-primary/15 text-primary hover:bg-primary/25"
-                            : "text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground",
+                    {(onSendQueuedNow || onUnqueueQueued) && (
+                      <div className="ms-auto flex items-center gap-1">
+                        {onSendQueuedNow && (
+                          <button
+                            type="button"
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all",
+                              isSendNextQueued
+                                ? "bg-primary/15 text-primary hover:bg-primary/25"
+                                : "text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground",
+                            )}
+                            onClick={() => onSendQueuedNow(message.id)}
+                          >
+                            <Send className="h-2.5 w-2.5" />
+                            Send next
+                          </button>
                         )}
-                        onClick={() => onSendQueuedNow(message.id)}
-                      >
-                        <Send className="h-2.5 w-2.5" />
-                        Send next
-                      </button>
+                        {onUnqueueQueued && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => onUnqueueQueued(message.id)}
+                          >
+                            <X className="h-2.5 w-2.5" />
+                            Unqueue
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -296,8 +313,37 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   // Assistant message
+  //
+  // Performance: defer expensive ReactMarkdown parsing for off-screen messages.
+  // Non-streaming messages start as plain text and swap to full markdown once
+  // visible via IntersectionObserver. Streaming messages always use ReactMarkdown
+  // since they're at the bottom of the chat (always visible).
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(!!message.isStreaming);
+
+  useEffect(() => {
+    // Streaming messages are always visible (at the scroll bottom)
+    if (message.isStreaming) {
+      setIsVisible(true);
+      return;
+    }
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect(); // Once visible, stay visible permanently
+        }
+      },
+      { rootMargin: "200px" }, // Start parsing slightly before entering viewport
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [message.isStreaming]);
+
   return (
-    <div className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : "py-1.5"}`}>
+    <div ref={sentinelRef} className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : "py-1.5"}`}>
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="min-w-0 max-w-[85%] wrap-break-word">
@@ -311,17 +357,23 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
             )}
             {message.content ? (
-              <div
-                ref={proseRef}
-                className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
-              >
-                <ReactMarkdown
-                  remarkPlugins={REMARK_PLUGINS}
-                  components={MD_COMPONENTS}
+              isVisible ? (
+                <div
+                  ref={proseRef}
+                  className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
                 >
+                  <ReactMarkdown
+                    remarkPlugins={REMARK_PLUGINS}
+                    components={MD_COMPONENTS}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <div className="prose dark:prose-invert prose-sm max-w-none text-foreground whitespace-pre-wrap">
                   {message.content}
-                </ReactMarkdown>
-              </div>
+                </div>
+              )
             ) : null}
           </div>
         </TooltipTrigger>
@@ -345,7 +397,8 @@ export const MessageBubble = memo(function MessageBubble({
   prev.isContinuation === next.isContinuation &&
   prev.onRevert === next.onRevert &&
   prev.onFullRevert === next.onFullRevert &&
-  prev.onSendQueuedNow === next.onSendQueuedNow,
+  prev.onSendQueuedNow === next.onSendQueuedNow &&
+  prev.onUnqueueQueued === next.onUnqueueQueued,
 );
 
 /**

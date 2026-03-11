@@ -53,6 +53,18 @@ function ToolProgressRing({ progress, isComplete, size }: { progress: number; is
   );
 }
 
+/** Very subtle per-tool color tints. Uses *-500 for light mode (visible on white) and *-200 for dark mode (soft pastels on dark). */
+const TOOL_TINTS: Record<string, { idle: string; hover: string; active: string }> = {
+  terminal:        { idle: "text-emerald-600/70 dark:text-emerald-200/50",  hover: "hover:text-emerald-600/90 dark:hover:text-emerald-200/70",  active: "text-emerald-600 dark:text-emerald-200/90" },
+  browser:         { idle: "text-sky-600/70 dark:text-sky-200/50",          hover: "hover:text-sky-600/90 dark:hover:text-sky-200/70",          active: "text-sky-600 dark:text-sky-200/90" },
+  git:             { idle: "text-orange-600/70 dark:text-orange-200/50",    hover: "hover:text-orange-600/90 dark:hover:text-orange-200/70",    active: "text-orange-600 dark:text-orange-200/90" },
+  files:           { idle: "text-amber-600/70 dark:text-amber-200/50",      hover: "hover:text-amber-600/90 dark:hover:text-amber-200/70",     active: "text-amber-600 dark:text-amber-200/90" },
+  "project-files": { idle: "text-teal-600/70 dark:text-teal-200/50",       hover: "hover:text-teal-600/90 dark:hover:text-teal-200/70",       active: "text-teal-600 dark:text-teal-200/90" },
+  mcp:             { idle: "text-violet-600/70 dark:text-violet-200/50",    hover: "hover:text-violet-600/90 dark:hover:text-violet-200/70",   active: "text-violet-600 dark:text-violet-200/90" },
+  tasks:           { idle: "text-blue-600/70 dark:text-blue-200/50",        hover: "hover:text-blue-600/90 dark:hover:text-blue-200/70",       active: "text-blue-600 dark:text-blue-200/90" },
+  agents:          { idle: "text-indigo-600/70 dark:text-indigo-200/50",    hover: "hover:text-indigo-600/90 dark:hover:text-indigo-200/70",   active: "text-indigo-600 dark:text-indigo-200/90" },
+};
+
 interface ToolDef {
   id: ToolId;
   label: string;
@@ -78,6 +90,8 @@ const CONTEXTUAL_TOOLS: ToolDef[] = [
 
 interface ToolPickerProps {
   islandLayout: boolean;
+  transparentBackground: boolean;
+  coloredIcons: boolean;
   activeTools: Set<ToolId>;
   onToggle: (toolId: ToolId) => void;
   /** Which contextual tools have data and should be shown */
@@ -99,6 +113,7 @@ interface ToolPickerProps {
 function ToolButton({
   tool,
   isActive,
+  coloredIcons = true,
   islandLayout,
   isDragTarget,
   isBottom,
@@ -108,6 +123,7 @@ function ToolButton({
 }: {
   tool: ToolDef;
   isActive: boolean;
+  coloredIcons?: boolean;
   islandLayout: boolean;
   isDragTarget?: boolean;
   isBottom?: boolean;
@@ -119,6 +135,7 @@ function ToolButton({
   const buttonSize = islandLayout ? "h-9 w-9" : "h-10 w-10";
   const iconSize = islandLayout ? "h-4 w-4" : "h-[18px] w-[18px]";
   const radius = islandLayout ? "rounded-lg" : "rounded-[10px]";
+  const tint = coloredIcons ? TOOL_TINTS[tool.id] : undefined;
 
   return (
     <Tooltip>
@@ -128,8 +145,8 @@ function ToolButton({
           onClick={onClick}
           className={`tool-picker-btn group/btn relative mx-auto flex ${buttonSize} items-center justify-center ${radius} overflow-visible p-0 transition-all duration-200 cursor-pointer ${
             isActive
-              ? "tool-picker-btn-active bg-foreground/[0.08] text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_1px_2px_0_rgba(0,0,0,0.05)]"
-              : "text-foreground/35 hover:text-foreground/70 hover:bg-foreground/[0.05] active:scale-[0.92]"
+              ? `tool-picker-btn-active bg-foreground/[0.08] ${tint?.active ?? "text-foreground"} shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_1px_2px_0_rgba(0,0,0,0.05)]`
+              : `${tint?.idle ?? "text-foreground/35"} ${tint?.hover ?? "hover:text-foreground/70"} hover:bg-foreground/[0.05] active:scale-[0.92]`
           } ${isDragTarget ? "ring-2 ring-foreground/20 ring-offset-1 ring-offset-background" : ""}`}
         >
           <Icon
@@ -156,6 +173,7 @@ function ToolButton({
 function PanelToolWithMenu({
   tool,
   isActive,
+  coloredIcons,
   islandLayout,
   isDragTarget,
   isBottom,
@@ -172,6 +190,7 @@ function PanelToolWithMenu({
 }: {
   tool: ToolDef;
   isActive: boolean;
+  coloredIcons: boolean;
   islandLayout: boolean;
   isDragTarget: boolean;
   isBottom: boolean;
@@ -213,6 +232,7 @@ function PanelToolWithMenu({
       <ToolButton
         tool={tool}
         isActive={isActive}
+        coloredIcons={coloredIcons}
         islandLayout={islandLayout}
         isDragTarget={isDragTarget}
         isBottom={isBottom}
@@ -247,6 +267,8 @@ function PanelToolWithMenu({
 
 export const ToolPicker = memo(function ToolPicker({
   islandLayout,
+  transparentBackground,
+  coloredIcons,
   activeTools,
   onToggle,
   availableContextual,
@@ -324,8 +346,8 @@ export const ToolPicker = memo(function ToolPicker({
   );
 
   const pickerClassName = islandLayout
-    ? "tool-picker island relative flex h-full shrink-0 flex-col items-center gap-1 rounded-[var(--island-radius)] bg-background pt-2.5 pb-2.5"
-    : "tool-picker island relative flex h-full w-14 shrink-0 flex-col items-center gap-1.5 rounded-lg bg-background pt-3 pb-3";
+    ? `tool-picker ${transparentBackground ? "" : "island "}relative flex h-full shrink-0 flex-col items-center gap-1${transparentBackground ? "" : " rounded-[var(--island-radius)] bg-background"} pt-2.5 pb-2.5`
+    : `tool-picker ${transparentBackground ? "" : "island "}relative flex h-full w-14 shrink-0 flex-col items-center gap-1.5${transparentBackground ? "" : " rounded-lg bg-background"} pt-3 pb-3`;
   const pickerStyle = islandLayout ? { width: "var(--tool-picker-strip-width)" } : undefined;
 
   const editorButtonSize = islandLayout ? "h-9 w-9" : "h-10 w-10";
@@ -353,6 +375,7 @@ export const ToolPicker = memo(function ToolPicker({
                 <ToolButton
                   tool={tool}
                   isActive={activeTools.has(tool.id)}
+                  coloredIcons={coloredIcons}
                   islandLayout={islandLayout}
                   onClick={() => onToggle(tool.id)}
                   tooltipExtra={hasTaskProgress ? (
@@ -379,6 +402,7 @@ export const ToolPicker = memo(function ToolPicker({
             key={tool.id}
             tool={tool}
             isActive={activeTools.has(tool.id)}
+            coloredIcons={coloredIcons}
             islandLayout={islandLayout}
             isDragTarget={dragOverId === tool.id && draggingId !== tool.id}
             isBottom={isInBottom}

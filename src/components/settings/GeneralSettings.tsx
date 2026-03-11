@@ -2,7 +2,7 @@ import { memo, useState, useCallback, useEffect } from "react";
 import { Download, MessageSquare, Code, Mic } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingRow, selectClass } from "@/components/settings/shared";
+import { SettingRow, SettingsSelect } from "@/components/settings/shared";
 import type { AppSettings, PreferredEditor, VoiceDictationMode } from "@/types/ui";
 
 interface GeneralSettingsProps {
@@ -109,19 +109,11 @@ export const GeneralSettings = memo(function GeneralSettings({
               label="Recent chats per project"
               description="Number of chats shown by default in each project. Click 'Show more' in the sidebar to load additional chats."
             >
-              <div className="flex items-center gap-2">
-                <select
-                  value={chatLimit}
-                  onChange={(e) => handleChatLimitChange(Number(e.target.value))}
-                  className={selectClass}
-                >
-                  {[5, 10, 15, 20, 25, 30, 50, 100].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SettingsSelect
+                value={String(chatLimit)}
+                onValueChange={(v) => handleChatLimitChange(Number(v))}
+                options={[5, 10, 15, 20, 25, 30, 50, 100].map((n) => ({ value: String(n), label: String(n) }))}
+              />
             </SettingRow>
           </div>
 
@@ -138,16 +130,16 @@ export const GeneralSettings = memo(function GeneralSettings({
               label="Default editor"
               description="Choose which editor opens when you click 'Open in Editor'. Auto tries Cursor, VS Code, then Zed."
             >
-              <select
+              <SettingsSelect
                 value={preferredEditor}
-                onChange={(e) => handleEditorChange(e.target.value as PreferredEditor)}
-                className={selectClass}
-              >
-                <option value="auto">Auto</option>
-                <option value="cursor">Cursor</option>
-                <option value="code">VS Code</option>
-                <option value="zed">Zed</option>
-              </select>
+                onValueChange={(v) => handleEditorChange(v as PreferredEditor)}
+                options={[
+                  { value: "auto", label: "Auto" },
+                  { value: "cursor", label: "Cursor" },
+                  { value: "code", label: "VS Code" },
+                  { value: "zed", label: "Zed" },
+                ]}
+              />
             </SettingRow>
           </div>
 
@@ -164,14 +156,14 @@ export const GeneralSettings = memo(function GeneralSettings({
               label="Dictation mode"
               description="Native uses your OS dictation (macOS only). Whisper runs a local AI model for speech-to-text on all platforms (~40 MB download on first use)."
             >
-              <select
+              <SettingsSelect
                 value={voiceDictation}
-                onChange={(e) => handleVoiceDictationChange(e.target.value as VoiceDictationMode)}
-                className={selectClass}
-              >
-                <option value="native">Native (OS)</option>
-                <option value="whisper">Whisper (Local AI)</option>
-              </select>
+                onValueChange={(v) => handleVoiceDictationChange(v as VoiceDictationMode)}
+                options={[
+                  { value: "native", label: "Native (OS)" },
+                  { value: "whisper", label: "Whisper (Local AI)" },
+                ]}
+              />
             </SettingRow>
           </div>
         </div>

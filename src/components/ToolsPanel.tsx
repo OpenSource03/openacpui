@@ -118,7 +118,7 @@ export function ToolsPanel({
         {!hasTabs && terminalsReady && (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/[0.03]">
-              <TerminalIcon className="h-5 w-5 text-foreground/20" />
+              <TerminalIcon className="h-5 w-5 text-emerald-600/70 dark:text-emerald-200/50" />
             </div>
             <button
               type="button"

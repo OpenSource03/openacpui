@@ -255,6 +255,35 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
     startOptionsRef,
   ]);
 
+  const unqueueMessage = useCallback((messageId: string) => {
+    const activeId = activeSessionIdRef.current;
+    if (!activeId || activeId === DRAFT_ID) return;
+
+    const queue = messageQueueRef.current.get(activeId);
+    if (!queue) return;
+
+    const queueIndex = queue.findIndex((entry) => entry.messageId === messageId);
+    if (queueIndex < 0) return;
+
+    queue.splice(queueIndex, 1);
+    if (queue.length === 0) {
+      messageQueueRef.current.delete(activeId);
+      boundaryWaitRef.current.delete(activeId);
+    } else if (sendNextId === messageId) {
+      boundaryWaitRef.current.delete(activeId);
+    }
+
+    setSendNextId((prev) => prev === messageId ? null : prev);
+    setQueuedCount(queue.length);
+    engine.setMessages((prev) => prev.filter((message) => message.id !== messageId));
+  }, [
+    activeSessionIdRef,
+    engine.setMessages,
+    messageQueueRef,
+    sendNextId,
+    setQueuedCount,
+  ]);
+
   const sendQueuedMessageNext = useCallback(async (messageId: string) => {
     const activeId = activeSessionIdRef.current;
     if (!activeId || activeId === DRAFT_ID) return;
@@ -379,5 +408,5 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
     void drainNextQueuedMessage();
   }, [activeSessionId, drainNextQueuedMessage, engine.isProcessing]);
 
-  return { enqueueMessage, clearQueue, sendQueuedMessageNext, sendNextId };
+  return { enqueueMessage, clearQueue, unqueueMessage, sendQueuedMessageNext, sendNextId };
 }

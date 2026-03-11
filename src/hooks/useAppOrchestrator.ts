@@ -21,6 +21,7 @@ import {
   MIN_TOOLS_PANEL_WIDTH,
 } from "@/lib/layout-constants";
 import { resolveModelValue } from "@/lib/model-utils";
+import { getStoredProjectGitCwd, resolveProjectForSpace } from "@/lib/space-projects";
 import { getTodoItems } from "@/lib/todo-utils";
 import { isWindows } from "@/lib/utils";
 import { COLUMN_TOOL_IDS, type ToolId } from "@/components/ToolPicker";
@@ -31,6 +32,7 @@ export function useAppOrchestrator() {
   const sidebar = useSidebar();
   const projectManager = useProjectManager();
   const spaceManager = useSpaceManager();
+  const LAST_SESSION_KEY = "harnss-last-session-per-space";
   // Read ACP permission behavior early — it's a global setting (same localStorage key as useSettings)
   // so we can read it before useSettings which depends on manager.activeSession for per-project scoping
   const acpPermissionBehavior = (localStorage.getItem("harnss-acp-permission-behavior") ?? "ask") as AcpPermissionBehavior;
@@ -38,13 +40,32 @@ export function useAppOrchestrator() {
 
   // Derive activeProjectId early so useSettings can scope per-project
   const activeProjectId = manager.activeSession?.projectId ?? manager.draftProjectId;
+  const readLastSessionMap = useCallback((): Record<string, string> => {
+    try {
+      const raw = localStorage.getItem(LAST_SESSION_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }, [LAST_SESSION_KEY]);
+  const activeSpaceProject = useMemo(
+    () => resolveProjectForSpace({
+      spaceId: spaceManager.activeSpaceId,
+      activeProjectId,
+      lastSessionBySpace: readLastSessionMap(),
+      projects: projectManager.projects,
+      sessions: manager.sessions,
+    }),
+    [spaceManager.activeSpaceId, activeProjectId, readLastSessionMap, projectManager.projects, manager.sessions],
+  );
+  const settingsProjectId = activeSpaceProject?.id ?? activeProjectId ?? null;
   const activeProject = projectManager.projects.find((p) => p.id === activeProjectId);
 
   const [selectedAgent, setSelectedAgent] = useState<InstalledAgent | null>(null);
   const settingsEngine: EngineId = (!manager.isDraft && manager.activeSession?.engine)
     ? manager.activeSession.engine
     : (selectedAgent?.engine ?? "claude");
-  const settings = useSettings(activeProjectId ?? null, settingsEngine);
+  const settings = useSettings(settingsProjectId, settingsEngine);
   const resolvedTheme = useTheme(settings.theme);
   const showThinking = true;
   const activeProjectPath = settings.gitCwd ?? activeProject?.path;
@@ -145,11 +166,11 @@ export function useAppOrchestrator() {
   // ── Glass/transparency support detection ──
   const [glassSupported, setGlassSupported] = useState(false);
   useEffect(() => {
-    window.claude.getGlassEnabled().then((enabled) => setGlassSupported(enabled));
+    window.claude.getGlassSupported().then((supported) => setGlassSupported(supported));
   }, []);
 
   // Toggle the glass-enabled CSS class when the transparency setting changes.
-  // App.tsx adds the class on startup; this effect keeps it in sync with the toggle.
+  // Preload applies the initial class from localStorage so first paint stays in sync.
   useEffect(() => {
     if (!glassSupported) return;
     const root = document.documentElement;
@@ -345,6 +366,10 @@ export function useAppOrchestrator() {
     await manager.sendQueuedMessageNext(messageId);
   }, [manager.sendQueuedMessageNext]);
 
+  const handleUnqueueMessage = useCallback((messageId: string) => {
+    manager.unqueueMessage(messageId);
+  }, [manager.unqueueMessage]);
+
   // Wrap session selection to also close settings view
   const handleSelectSession = useCallback(
     (sessionId: string) => {
@@ -432,18 +457,11 @@ export function useAppOrchestrator() {
 
   // ── Space <-> session tracking: switch to last used chat when changing spaces ──
 
-  const LAST_SESSION_KEY = "harnss-last-session-per-space";
   const prevSpaceIdRef = useRef(spaceManager.activeSpaceId);
 
-  // Helper: read the map from localStorage
-  const readLastSessionMap = useCallback((): Record<string, string> => {
-    try {
-      const raw = localStorage.getItem(LAST_SESSION_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  }, []);
+  const activeSpaceTerminalCwd = activeSpaceProject
+    ? (getStoredProjectGitCwd(activeSpaceProject.id) ?? activeSpaceProject.path)
+    : null;
 
   // Save current session as last-used for its owning space whenever it changes.
   // Use the session's project space (not the currently selected space), because
@@ -548,7 +566,10 @@ export function useAppOrchestrator() {
   }, [manager.activeSessionId, manager.isDraft, manager.sessions, agents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derive the latest todo list — Codex uses turn/plan/updated events,
-  // Claude uses TodoWrite tool calls in the message stream
+  // Claude uses TodoWrite tool calls in the message stream.
+  // Optimization: only re-scan when messages.length changes (new message added),
+  // not on every streaming content update (which only modifies the last message).
+  const todoMsgCount = manager.messages.length;
   const activeTodos = useMemo(() => {
     // Codex engine: todos come from turn/plan/updated events
     if (manager.codexTodoItems && manager.codexTodoItems.length > 0) {
@@ -567,7 +588,8 @@ export function useAppOrchestrator() {
       }
     }
     return [];
-  }, [manager.messages, manager.codexTodoItems]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todoMsgCount, manager.codexTodoItems]);
 
   const bgAgents = useBackgroundAgents({
     sessionId: manager.activeSessionId,
@@ -728,6 +750,8 @@ export function useAppOrchestrator() {
     activeProjectId,
     activeProject,
     activeProjectPath,
+    activeSpaceProject,
+    activeSpaceTerminalCwd,
     showThinking,
     settingsEngine,
     hasProjects,
@@ -777,6 +801,7 @@ export function useAppOrchestrator() {
     handleAgentWorktreeChange,
     handleStop,
     handleSendQueuedNow,
+    handleUnqueueMessage,
     handleSelectSession,
     handleCreateProject,
     handleImportCCSession,

@@ -48,7 +48,7 @@ type CodexImageInput = { type: "image"; url: string } | { type: "localImage"; pa
 declare global {
   interface Window {
     claude: {
-      getGlassEnabled: () => Promise<boolean>;
+      getGlassSupported: () => Promise<boolean>;
       setMinWidth: (width: number) => void;
       start: (options?: {
         cwd?: string;

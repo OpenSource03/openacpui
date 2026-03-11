@@ -14,13 +14,13 @@ export function formatRelativeDate(iso: string): string {
 }
 
 export const STATUS_COLORS: Record<string, string> = {
-  modified: "text-amber-400/70 bg-amber-400/10",
-  added: "text-emerald-400/70 bg-emerald-400/10",
-  deleted: "text-red-400/70 bg-red-400/10",
-  renamed: "text-blue-400/70 bg-blue-400/10",
-  copied: "text-blue-400/70 bg-blue-400/10",
-  untracked: "text-foreground/35 bg-foreground/[0.06]",
-  unmerged: "text-red-400/70 bg-red-400/10",
+  modified: "text-amber-600 dark:text-amber-300 bg-amber-500/10 dark:bg-amber-400/15",
+  added: "text-emerald-600 dark:text-emerald-300 bg-emerald-500/10 dark:bg-emerald-400/15",
+  deleted: "text-red-600 dark:text-red-300 bg-red-500/10 dark:bg-red-400/15",
+  renamed: "text-blue-600 dark:text-blue-300 bg-blue-500/10 dark:bg-blue-400/15",
+  copied: "text-blue-600 dark:text-blue-300 bg-blue-500/10 dark:bg-blue-400/15",
+  untracked: "text-foreground/50 bg-foreground/[0.08]",
+  unmerged: "text-red-600 dark:text-red-300 bg-red-500/10 dark:bg-red-400/15",
 };
 
 export const STATUS_LETTERS: Record<string, string> = {

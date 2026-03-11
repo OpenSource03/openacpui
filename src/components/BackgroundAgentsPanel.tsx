@@ -59,7 +59,7 @@ export function BackgroundAgentsPanel({ agents, onDismiss }: BackgroundAgentsPan
         icon={Bot}
         label="Agents"
         className="px-4 pt-4 pb-3"
-        iconClass="text-foreground/50"
+        iconClass="text-indigo-600/70 dark:text-indigo-200/50"
       >
         {runningCount > 0 && (
           <span className="flex items-center gap-1.5 text-xs text-foreground/50">

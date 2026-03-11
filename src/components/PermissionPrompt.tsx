@@ -1,8 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { ShieldAlert, Check, X, Send, Play } from "lucide-react";
+import {
+  ShieldAlert,
+  Check,
+  X,
+  Send,
+  Play,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  MessageCircleQuestion,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
-import { buildAskUserQuestionResult, getAskUserQuestionKey } from "@/lib/ask-user-question";
+import {
+  buildAskUserQuestionResult,
+  getAskUserQuestionKey,
+} from "@/lib/ask-user-question";
 import type { PermissionRequest, RespondPermissionFn } from "@/types";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -22,7 +36,8 @@ interface ToolDetail {
 function formatToolDetail(req: PermissionRequest): ToolDetail | null {
   const input = req.toolInput;
   if (req.toolName === "Bash" && typeof input.command === "string") {
-    const description = typeof input.description === "string" ? input.description.trim() : "";
+    const description =
+      typeof input.description === "string" ? input.description.trim() : "";
     return {
       label: "Command",
       value: input.command,
@@ -80,9 +95,17 @@ interface PermissionPromptProps {
 // --- ExitPlanMode: let user choose which permission mode to switch to ---
 
 const EXIT_PLAN_MODES = [
-  { id: "acceptEdits", label: "Accept Edits", description: "Auto-approve file edits" },
+  {
+    id: "acceptEdits",
+    label: "Accept Edits",
+    description: "Auto-approve file edits",
+  },
   { id: "default", label: "Ask First", description: "Prompt before each tool" },
-  { id: "bypassPermissions", label: "Allow All", description: "No permission prompts" },
+  {
+    id: "bypassPermissions",
+    label: "Allow All",
+    description: "No permission prompts",
+  },
 ] as const;
 
 function ExitPlanModePrompt({ request, onRespond }: PermissionPromptProps) {
@@ -112,8 +135,12 @@ function ExitPlanModePrompt({ request, onRespond }: PermissionPromptProps) {
               >
                 <Play className="h-3 w-3 shrink-0" />
                 <div className="flex flex-col items-start">
-                  <span className="text-xs font-medium leading-snug">{mode.label}</span>
-                  <span className="text-[11px] leading-snug text-muted-foreground/60">{mode.description}</span>
+                  <span className="text-xs font-medium leading-snug">
+                    {mode.label}
+                  </span>
+                  <span className="text-[11px] leading-snug text-muted-foreground/60">
+                    {mode.description}
+                  </span>
                 </div>
               </button>
             ))}
@@ -160,19 +187,31 @@ function ExitPlanModePrompt({ request, onRespond }: PermissionPromptProps) {
 }
 
 // --- AskUserQuestion: render questions with selectable options ---
+// Shows one question at a time with Back/Next navigation for multi-question sets.
+// Collapsible to a minimal bar so the user can read chat content behind it.
 
 function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
   const questions = (request.toolInput.questions ?? []) as Question[];
-  const [selections, setSelections] = useState<Record<string, Set<string>>>(() => {
-    const init: Record<string, Set<string>> = {};
-    for (const [index, q] of questions.entries()) {
-      init[getAskUserQuestionKey(q, index)] = new Set();
-    }
-    return init;
-  });
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [collapsed, setCollapsed] = useState(false);
+  const [selections, setSelections] = useState<Record<string, Set<string>>>(
+    () => {
+      const init: Record<string, Set<string>> = {};
+      for (const [index, q] of questions.entries()) {
+        init[getAskUserQuestionKey(q, index)] = new Set();
+      }
+      return init;
+    },
+  );
   const [freeText, setFreeText] = useState<Record<string, string>>({});
 
-  const toggleOption = (questionKey: string, label: string, multiSelect: boolean) => {
+  const isMulti = questions.length > 1;
+  const q = questions[currentIndex];
+  const questionKey = getAskUserQuestionKey(q, currentIndex);
+  const options = q.options ?? [];
+  const hasOptions = options.length > 0;
+
+  const toggleOption = (label: string, multiSelect: boolean) => {
     setSelections((prev) => {
       const current = prev[questionKey] ?? new Set();
       const next = new Set(current);
@@ -192,7 +231,11 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
   };
 
   const handleSubmit = () => {
-    const { answers, answersByQuestionId } = buildAskUserQuestionResult(questions, selections, freeText);
+    const { answers, answersByQuestionId } = buildAskUserQuestionResult(
+      questions,
+      selections,
+      freeText,
+    );
     onRespond("allow", {
       questions: request.toolInput.questions,
       answers,
@@ -200,84 +243,205 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
     });
   };
 
-  const hasAllAnswers = questions.every((q, index) => {
-    const questionKey = getAskUserQuestionKey(q, index);
+  const hasCurrentAnswer = (() => {
     const custom = freeText[questionKey]?.trim();
     const selected = selections[questionKey];
+    return !!(custom || (selected && selected.size > 0));
+  })();
+
+  const hasAllAnswers = questions.every((question, index) => {
+    const key = getAskUserQuestionKey(question, index);
+    const custom = freeText[key]?.trim();
+    const selected = selections[key];
     return custom || (selected && selected.size > 0);
   });
+
+  // Count how many questions have been answered so far
+  const answeredCount = questions.filter((question, index) => {
+    const key = getAskUserQuestionKey(question, index);
+    const custom = freeText[key]?.trim();
+    const selected = selections[key];
+    return custom || (selected && selected.size > 0);
+  }).length;
+
+  const isLast = currentIndex === questions.length - 1;
+
+  const goNext = () => {
+    if (!isLast) setCurrentIndex((i) => i + 1);
+  };
+  const goBack = () => {
+    if (currentIndex > 0) setCurrentIndex((i) => i - 1);
+  };
+
+  // Collapsed: minimal bar with question count + expand button
+  if (collapsed) {
+    return (
+      <div
+        className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-border/60 bg-background/55 px-3.5 py-2.5 shadow-lg backdrop-blur-lg">
+          <MessageCircleQuestion className="h-4 w-4 shrink-0 text-foreground/50" />
+          <span className="flex-1 text-[12px] text-foreground/70">
+            {isMulti
+              ? `${answeredCount}/${questions.length} questions answered`
+              : q.question}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            <ChevronsUpDown className="h-3 w-3" />
+            Expand
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`mx-auto w-full px-4 pb-4 ${BOTTOM_CHAT_MAX_WIDTH_CLASS}`}>
       <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/55 shadow-lg backdrop-blur-lg">
-        {questions.map((q, qi) => (
-          <div
-            key={q.id ?? `${qi}-${q.question}`}
-            className={`flex flex-col gap-3 px-4 py-3.5 ${qi > 0 ? "border-t border-border/40" : ""}`}
-          >
-            <p className="text-[13px] text-foreground">{q.question}</p>
+        {/* Current question content */}
+        <div className="flex flex-col gap-2 px-3.5 py-3">
+          {/* Question text with step indicator */}
+          <div className="flex items-baseline gap-2">
+            {isMulti && (
+              <span className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground/50">
+                {currentIndex + 1}/{questions.length}
+              </span>
+            )}
+            <p className="text-[13px] leading-snug text-foreground">
+              {q.question}
+            </p>
+          </div>
 
-            <div className="grid grid-cols-2 gap-1.5">
-              {(q.options ?? []).map((opt) => {
-                const questionKey = getAskUserQuestionKey(q, qi);
+          {/* Option cards — compact 2-col grid with descriptions */}
+          {hasOptions && (
+            <div className="grid grid-cols-2 gap-1">
+              {options.map((opt) => {
                 const isSelected = selections[questionKey]?.has(opt.label);
                 return (
                   <button
                     key={opt.label}
                     type="button"
-                    onClick={() => toggleOption(questionKey, opt.label, q.multiSelect)}
-                    className={`flex flex-col items-start rounded-lg border px-3 py-2 text-start transition-colors ${
+                    onClick={() => toggleOption(opt.label, q.multiSelect)}
+                    className={`flex items-start justify-start gap-2 rounded-lg border px-2.5 py-2.5 text-start transition-colors ${
                       isSelected
                         ? "border-border bg-accent text-foreground"
                         : "border-border/40 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground"
                     }`}
                   >
-                    <span className="text-xs font-medium leading-snug">{opt.label}</span>
-                    <span className="text-[11px] leading-snug text-muted-foreground/60">{opt.description}</span>
+                    {q.multiSelect && (
+                      <span
+                        className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border ${
+                          isSelected
+                            ? "border-foreground/40 bg-foreground/15 text-foreground"
+                            : "border-border/60"
+                        }`}
+                      >
+                        {isSelected && <Check className="h-2.5 w-2.5" />}
+                      </span>
+                    )}
+                    <div className="flex min-w-0 flex-col gap-0.5 leading-none">
+                      <span className="block text-[12px] font-medium leading-none">
+                        {opt.label}
+                      </span>
+                      {opt.description && (
+                        <span className="block truncate text-[10px] leading-none text-muted-foreground/50">
+                          {opt.description}
+                        </span>
+                      )}
+                    </div>
                   </button>
                 );
               })}
             </div>
+          )}
 
-            <input
-              type={q.isSecret ? "password" : "text"}
-              placeholder="Or type your own answer..."
-              value={freeText[getAskUserQuestionKey(q, qi)] ?? ""}
-              onChange={(e) => {
-                const value = e.target.value;
-                const questionKey = getAskUserQuestionKey(q, qi);
-                setFreeText((prev) => ({ ...prev, [questionKey]: value }));
-                if (value.trim()) {
-                  setSelections((prev) => ({ ...prev, [questionKey]: new Set() }));
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && hasAllAnswers) handleSubmit();
-              }}
-              className="w-full rounded-md border border-border/40 bg-transparent px-2.5 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus-visible:border-border"
-            />
-          </div>
-        ))}
+          {/* Free-text input */}
+          <input
+            type={q.isSecret ? "password" : "text"}
+            placeholder={hasOptions ? "Or type your own…" : "Type your answer…"}
+            value={freeText[questionKey] ?? ""}
+            onChange={(e) => {
+              const value = e.target.value;
+              setFreeText((prev) => ({ ...prev, [questionKey]: value }));
+              if (value.trim()) {
+                setSelections((prev) => ({
+                  ...prev,
+                  [questionKey]: new Set(),
+                }));
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                if (isMulti && !isLast && hasCurrentAnswer) goNext();
+                else if (hasAllAnswers) handleSubmit();
+              }
+            }}
+            className="w-full rounded-md border border-border/30 bg-transparent px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/35 outline-none focus-visible:border-border"
+          />
+        </div>
 
-        <div className="flex items-center gap-2 border-t border-border/40 px-3 py-2.5">
+        {/* Action bar */}
+        <div className="flex items-center gap-1.5 border-t border-border/40 px-3 py-2">
           <Button
             size="sm"
             variant="ghost"
             onClick={() => onRespond("deny")}
-            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
             Skip
           </Button>
-          <Button
-            size="sm"
-            disabled={!hasAllAnswers}
-            onClick={handleSubmit}
-            className="h-8 gap-1.5 text-xs"
+
+          {/* Back button for multi-question sets */}
+          {isMulti && currentIndex > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={goBack}
+              className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Back
+            </Button>
+          )}
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Collapse button */}
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
           >
-            <Send className="h-3.5 w-3.5" />
-            Answer
-          </Button>
+            <ChevronsDownUp className="h-3 w-3" />
+          </button>
+
+          {/* Primary action: Next (when more questions remain) or Answer (when all done) */}
+          {isMulti && !isLast ? (
+            <Button
+              size="sm"
+              onClick={goNext}
+              className="h-7 gap-1 text-xs"
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={!hasAllAnswers}
+              onClick={handleSubmit}
+              className="h-7 gap-1.5 text-xs"
+            >
+              <Send className="h-3.5 w-3.5" />
+              Answer
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -286,8 +450,14 @@ function AskUserQuestionPrompt({ request, onRespond }: PermissionPromptProps) {
 
 // --- Default tool permission prompt ---
 
-export function PermissionPrompt({ request, onRespond, showAcceptForSession }: PermissionPromptProps) {
-  const [submittingAction, setSubmittingAction] = useState<"allow" | "deny" | "allowForSession" | null>(null);
+export function PermissionPrompt({
+  request,
+  onRespond,
+  showAcceptForSession,
+}: PermissionPromptProps) {
+  const [submittingAction, setSubmittingAction] = useState<
+    "allow" | "deny" | "allowForSession" | null
+  >(null);
   const submittingRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -303,13 +473,12 @@ export function PermissionPrompt({ request, onRespond, showAcceptForSession }: P
     return <AskUserQuestionPrompt request={request} onRespond={onRespond} />;
   }
 
-  const label = TOOL_LABELS[request.toolName] ?? `Use tool: ${request.toolName}`;
+  const label =
+    TOOL_LABELS[request.toolName] ?? `Use tool: ${request.toolName}`;
   const detail = formatToolDetail(request);
   const isSubmitting = submittingAction !== null;
 
-  const submit = async (
-    behavior: "allow" | "deny" | "allowForSession",
-  ) => {
+  const submit = async (behavior: "allow" | "deny" | "allowForSession") => {
     if (isSubmitting) return;
     if (submittingRequestIdRef.current === request.requestId) return;
     submittingRequestIdRef.current = request.requestId;
@@ -341,12 +510,16 @@ export function PermissionPrompt({ request, onRespond, showAcceptForSession }: P
                 {detail.value}
               </div>
               {detail.meta && (
-                <p className="text-[11px] text-muted-foreground/80">{detail.meta}</p>
+                <p className="text-[11px] text-muted-foreground/80">
+                  {detail.meta}
+                </p>
               )}
             </div>
           )}
           {request.decisionReason && (
-            <p className="text-xs text-muted-foreground wrap-break-word">{request.decisionReason}</p>
+            <p className="text-xs text-muted-foreground wrap-break-word">
+              {request.decisionReason}
+            </p>
           )}
         </div>
 
@@ -370,7 +543,9 @@ export function PermissionPrompt({ request, onRespond, showAcceptForSession }: P
               className="h-8 gap-1.5 text-xs"
             >
               <Check className="h-3.5 w-3.5" />
-              {submittingAction === "allowForSession" ? "Allowing..." : "Allow for Session"}
+              {submittingAction === "allowForSession"
+                ? "Allowing..."
+                : "Allow for Session"}
             </Button>
           )}
           <Button

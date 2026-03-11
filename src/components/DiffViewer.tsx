@@ -76,7 +76,7 @@ const HighlightedCode = memo(function HighlightedCode({
 
 // ── Main component ──
 
-export function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHeight }: DiffViewerProps) {
+export const DiffViewer = memo(function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHeight }: DiffViewerProps) {
   const [fullFileContent, setFullFileContent] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
@@ -239,7 +239,13 @@ export function DiffViewer({ oldString, newString, filePath, unifiedDiff, fillHe
       </div>
     </div>
   );
-}
+}, (prev, next) =>
+  prev.oldString === next.oldString
+  && prev.newString === next.newString
+  && prev.filePath === next.filePath
+  && prev.unifiedDiff === next.unifiedDiff
+  && prev.fillHeight === next.fillHeight,
+);
 
 // ── Diff line row ──
 

@@ -4,6 +4,14 @@
  * AppearanceSettings, and NotificationsSettings.
  */
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 /** Reusable row layout for a single setting: label+description on the left, control on the right. */
 export function SettingRow({
   label,
@@ -27,6 +35,30 @@ export function SettingRow({
   );
 }
 
-/** Standard class string for <select> dropdowns in settings panels. */
-export const selectClass =
-  "h-8 rounded-md border border-foreground/10 bg-background px-2 pe-7 text-sm text-foreground outline-none transition-colors hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20";
+/** Radix-based select matching the BranchPicker visual style. */
+export function SettingsSelect({
+  value,
+  onValueChange,
+  options,
+  className,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  className?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger size="sm" className={`text-foreground/80 ${className ?? ""}`}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}

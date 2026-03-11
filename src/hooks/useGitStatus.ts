@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GitRepoInfo, GitStatus, GitBranch, GitLogEntry } from "@/types";
+import { reportError } from "@/lib/analytics";
 
 export interface DiffStat {
   additions: number;
@@ -18,56 +19,110 @@ interface UseGitStatusOptions {
   projectPath?: string;
 }
 
+const repoStatesCache = new Map<string, RepoState[]>();
+
 export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   const [repoStates, setRepoStates] = useState<RepoState[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const repoStatesRef = useRef(repoStates);
+  const projectPathRef = useRef(projectPath);
+  const requestIdRef = useRef(0);
   repoStatesRef.current = repoStates;
+  projectPathRef.current = projectPath;
+
+  const isRequestCurrent = useCallback((requestId: number, scopePath?: string) => {
+    return requestIdRef.current === requestId && projectPathRef.current === scopePath;
+  }, []);
+
+  const applyRepoStates = useCallback((nextStates: RepoState[], scopePath?: string) => {
+    setRepoStates(nextStates);
+    if (!scopePath) return;
+    repoStatesCache.set(scopePath, nextStates);
+  }, []);
+
+  const loadRepoStates = useCallback(async (
+    repos: GitRepoInfo[],
+    requestId: number,
+    scopePath?: string,
+  ) => {
+    const previousByPath = new Map(repoStatesRef.current.map((state) => [state.repo.path, state]));
+    const updated = await Promise.all(
+      repos.map(async (repo) => {
+        const previous = previousByPath.get(repo.path);
+        const [statusResult, branchesResult, logResult, diffStatResult] = await Promise.all([
+          window.claude.git.status(repo.path),
+          window.claude.git.branches(repo.path),
+          window.claude.git.log(repo.path, 30),
+          window.claude.git.diffStat(repo.path),
+        ]);
+        return {
+          repo,
+          status: (!("error" in statusResult) || !statusResult.error) ? statusResult as GitStatus : previous?.status ?? null,
+          branches: Array.isArray(branchesResult) ? branchesResult : previous?.branches ?? [],
+          log: Array.isArray(logResult) ? logResult : previous?.log ?? [],
+          diffStat: diffStatResult ?? previous?.diffStat ?? { additions: 0, deletions: 0 },
+        };
+      }),
+    );
+    if (!isRequestCurrent(requestId, scopePath)) return;
+    applyRepoStates(updated, scopePath);
+  }, [applyRepoStates, isRequestCurrent]);
+
+  const refreshKnownRepos = useCallback(async () => {
+    const scopePath = projectPathRef.current;
+    const repos = repoStatesRef.current.map((state) => state.repo);
+    if (!scopePath || repos.length === 0) return;
+    const requestId = ++requestIdRef.current;
+    await loadRepoStates(repos, requestId, scopePath);
+  }, [loadRepoStates]);
+
+  const refreshAll = useCallback(async () => {
+    const scopePath = projectPath?.trim() || undefined;
+    const requestId = ++requestIdRef.current;
+
+    if (!scopePath) {
+      applyRepoStates([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const discovered = await window.claude.git.discoverRepos(scopePath);
+      if (!isRequestCurrent(requestId, scopePath)) return;
+      await loadRepoStates(discovered, requestId, scopePath);
+    } catch (err) {
+      if (isRequestCurrent(requestId, scopePath)) {
+        reportError("GIT_DISCOVER_REPOS_ERR", err, { projectPath: scopePath });
+      }
+    } finally {
+      if (isRequestCurrent(requestId, scopePath)) {
+        setIsLoading(false);
+      }
+    }
+  }, [applyRepoStates, isRequestCurrent, loadRepoStates, projectPath]);
 
   // Discover repos when projectPath changes
   useEffect(() => {
-    if (!projectPath) {
-      setRepoStates([]);
+    requestIdRef.current += 1;
+    const scopePath = projectPath?.trim() || undefined;
+    if (!scopePath) {
+      applyRepoStates([]);
+      setIsLoading(false);
       return;
     }
-    (async () => {
-      const discovered = await window.claude.git.discoverRepos(projectPath);
-      setRepoStates(discovered.map((repo) => ({ repo, status: null, branches: [], log: [], diffStat: { additions: 0, deletions: 0 } })));
-    })();
-  }, [projectPath]);
 
-  const refreshAll = useCallback(async () => {
-    const states = repoStatesRef.current;
-    if (states.length === 0) return;
-    setIsLoading(true);
-    try {
-      const updated = await Promise.all(
-        states.map(async (rs) => {
-          const [statusResult, branchesResult, logResult, diffStatResult] = await Promise.all([
-            window.claude.git.status(rs.repo.path),
-            window.claude.git.branches(rs.repo.path),
-            window.claude.git.log(rs.repo.path, 30),
-            window.claude.git.diffStat(rs.repo.path),
-          ]);
-          return {
-            repo: rs.repo,
-            status: (!("error" in statusResult) || !statusResult.error) ? statusResult as GitStatus : rs.status,
-            branches: Array.isArray(branchesResult) ? branchesResult : rs.branches,
-            log: Array.isArray(logResult) ? logResult : rs.log,
-            diffStat: diffStatResult ?? rs.diffStat,
-          };
-        }),
-      );
-      setRepoStates(updated);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    const cached = repoStatesCache.get(scopePath);
+    applyRepoStates(cached ?? [], scopePath);
+    void refreshAll();
+  }, [applyRepoStates, projectPath, refreshAll]);
 
   const refreshRepo = useCallback(async (repoPath: string) => {
+    const scopePath = projectPathRef.current;
     const states = repoStatesRef.current;
     const idx = states.findIndex((rs) => rs.repo.path === repoPath);
-    if (idx === -1) return;
+    if (idx === -1 || !scopePath) return;
+    const requestId = ++requestIdRef.current;
     const rs = states[idx];
     const [statusResult, branchesResult, logResult, diffStatResult] = await Promise.all([
       window.claude.git.status(rs.repo.path),
@@ -75,30 +130,35 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
       window.claude.git.log(rs.repo.path, 30),
       window.claude.git.diffStat(rs.repo.path),
     ]);
+    if (!isRequestCurrent(requestId, scopePath)) return;
     setRepoStates((prev) => {
+      const nextIdx = prev.findIndex((state) => state.repo.path === repoPath);
+      if (nextIdx === -1) return prev;
+
       const next = [...prev];
-      next[idx] = {
+      next[nextIdx] = {
         repo: rs.repo,
         status: (!("error" in statusResult) || !statusResult.error) ? statusResult as GitStatus : rs.status,
         branches: Array.isArray(branchesResult) ? branchesResult : rs.branches,
         log: Array.isArray(logResult) ? logResult : rs.log,
         diffStat: diffStatResult ?? rs.diffStat,
       };
+      repoStatesCache.set(scopePath, next);
       return next;
     });
-  }, []);
+  }, [isRequestCurrent]);
 
   // Poll all repos every 3s
   useEffect(() => {
-    if (repoStates.length === 0) return;
-    refreshAll();
+    if (!projectPath || repoStates.length === 0) return;
+    void refreshKnownRepos();
 
     const interval = setInterval(() => {
-      if (!document.hidden) refreshAll();
+      if (!document.hidden) void refreshKnownRepos();
     }, 3000);
 
     const onVisibilityChange = () => {
-      if (!document.hidden) refreshAll();
+      if (!document.hidden) void refreshKnownRepos();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
@@ -106,7 +166,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [repoStates.length, refreshAll]);
+  }, [projectPath, repoStates.length, refreshKnownRepos]);
 
   // Per-repo action creators
   const stage = useCallback(

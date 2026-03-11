@@ -1,14 +1,39 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
 
+interface PreloadDocument {
+  documentElement: {
+    classList: {
+      add: (token: string) => void;
+    };
+  };
+}
+
+interface PreloadStorage {
+  getItem: (key: string) => string | null;
+}
+
+interface PreloadGlobals {
+  document?: PreloadDocument;
+  localStorage?: PreloadStorage;
+}
+
 // Early setup wrapped in try/catch so contextBridge.exposeInMainWorld always runs
 // even if DOM isn't ready or something else fails above it.
 try {
-  // Apply platform + glass classes as early as possible (before React mounts)
-  ipcRenderer.invoke("app:getGlassEnabled").then((enabled: boolean) => {
-    // Platform class for platform-specific CSS (e.g. hiding macOS traffic-light padding on Windows)
-    document.documentElement.classList.add(`platform-${process.platform}`);
-    if (enabled) {
-      document.documentElement.classList.add("glass-enabled");
+  const globals = globalThis as typeof globalThis & PreloadGlobals;
+  const root = globals.document?.documentElement;
+
+  // Apply platform + glass classes as early as possible (before React mounts).
+  // On Windows, glass support does not mean the user has transparency enabled.
+  root?.classList.add(`platform-${process.platform}`);
+  ipcRenderer.invoke("app:getGlassSupported").then((supported: boolean) => {
+    if (!supported || !root) return;
+
+    const transparencySetting = globals.localStorage?.getItem("harnss-transparency") ?? null;
+    const transparencyEnabled = transparencySetting === null || transparencySetting === "true";
+
+    if (transparencyEnabled) {
+      root.classList.add("glass-enabled");
     }
   });
 } catch (e) {
@@ -16,7 +41,7 @@ try {
 }
 
 contextBridge.exposeInMainWorld("claude", {
-  getGlassEnabled: () => ipcRenderer.invoke("app:getGlassEnabled"),
+  getGlassSupported: () => ipcRenderer.invoke("app:getGlassSupported"),
   setMinWidth: (width: number) => ipcRenderer.send("app:set-min-width", width),
   start: (options: unknown) => ipcRenderer.invoke("claude:start", options),
   send: (sessionId: string, message: unknown) => ipcRenderer.invoke("claude:send", { sessionId, message }),

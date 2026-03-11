@@ -47,17 +47,7 @@ import { resolveModelValue } from "@/lib/model-utils";
 import { isMac } from "@/lib/utils";
 import { AgentIcon } from "@/components/AgentIcon";
 import { ImageAnnotationEditor } from "@/components/ImageAnnotationEditor";
-
-/** CDN icons for built-in engines; ACP agents use their own `icon` field */
-const ENGINE_ICONS: Record<string, string> = {
-  claude: "https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg",
-  codex: "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
-};
-
-/** Resolve the icon source for an agent — special engine CDN icons override agent-level icons */
-function getAgentIcon(agent: InstalledAgent): string | undefined {
-  return ENGINE_ICONS[agent.engine] ?? agent.icon;
-}
+import { ENGINE_ICONS, getAgentIcon } from "@/lib/engine-icons";
 
 const ACP_PERMISSION_BEHAVIORS = [
   { id: "ask" as const, label: "Ask", description: "Show permission prompt" },
@@ -96,14 +86,14 @@ function formatTokenCount(count: number): string {
 }
 
 function getContextColor(percent: number): string {
-  if (percent >= 80) return "text-red-400";
-  if (percent >= 60) return "text-amber-400";
+  if (percent >= 80) return "text-red-600 dark:text-red-400";
+  if (percent >= 60) return "text-amber-600 dark:text-amber-400";
   return "text-muted-foreground/60";
 }
 
 function getContextStrokeColor(percent: number): string {
-  if (percent >= 80) return "stroke-red-400";
-  if (percent >= 60) return "stroke-amber-400";
+  if (percent >= 80) return "stroke-red-600 dark:stroke-red-400";
+  if (percent >= 60) return "stroke-amber-600 dark:stroke-amber-400";
   return "stroke-foreground/40";
 }
 
@@ -1727,7 +1717,7 @@ export const InputBar = memo(function InputBar({
                         <circle
                           cx="10" cy="10" r={radius}
                           fill="none"
-                          className="stroke-muted/30"
+                          className="stroke-muted-foreground/20 dark:stroke-muted/30"
                           strokeWidth="2.5"
                         />
                         <circle

@@ -110,6 +110,10 @@ export interface Settings {
   setAvoidGroupingEdits: (on: boolean) => void;
   autoExpandTools: boolean;
   setAutoExpandTools: (on: boolean) => void;
+  transparentToolPicker: boolean;
+  setTransparentToolPicker: (on: boolean) => void;
+  coloredSidebarIcons: boolean;
+  setColoredSidebarIcons: (on: boolean) => void;
 
   // Per-project
   model: string;
@@ -229,6 +233,48 @@ function readEngineModels(pid: string): Record<EngineId, string> {
   };
 }
 
+interface ProjectLayoutState {
+  rightPanelWidth: number;
+  toolsPanelWidth: number;
+  toolsSplitRatios: number[];
+  rightSplitRatio: number;
+  bottomToolsHeight: number;
+  bottomToolsSplitRatios: number[];
+}
+
+const projectLayoutCache = new Map<string, ProjectLayoutState>();
+
+function cloneProjectLayoutState(state: ProjectLayoutState): ProjectLayoutState {
+  return {
+    rightPanelWidth: state.rightPanelWidth,
+    toolsPanelWidth: state.toolsPanelWidth,
+    toolsSplitRatios: [...state.toolsSplitRatios],
+    rightSplitRatio: state.rightSplitRatio,
+    bottomToolsHeight: state.bottomToolsHeight,
+    bottomToolsSplitRatios: [...state.bottomToolsSplitRatios],
+  };
+}
+
+function readProjectLayoutState(pid: string): ProjectLayoutState {
+  const cached = projectLayoutCache.get(pid);
+  if (cached) return cloneProjectLayoutState(cached);
+
+  const loaded: ProjectLayoutState = {
+    rightPanelWidth: readNumber(`harnss-${pid}-right-panel-width`, DEFAULT_RIGHT_PANEL, MIN_RIGHT_PANEL, MAX_RIGHT_PANEL),
+    toolsPanelWidth: readNumber(`harnss-${pid}-tools-panel-width`, DEFAULT_TOOLS_PANEL, MIN_TOOLS_PANEL, MAX_TOOLS_PANEL),
+    toolsSplitRatios: readToolsSplitRatios(pid),
+    rightSplitRatio: readNumber(`harnss-${pid}-right-split`, DEFAULT_SPLIT, MIN_SPLIT, MAX_SPLIT),
+    bottomToolsHeight: readNumber(`harnss-${pid}-bottom-tools-height`, DEFAULT_BOTTOM_HEIGHT, MIN_BOTTOM_HEIGHT, MAX_BOTTOM_HEIGHT),
+    bottomToolsSplitRatios: readJson<number[]>(`harnss-${pid}-bottom-tools-split-ratios`, []),
+  };
+  projectLayoutCache.set(pid, loaded);
+  return cloneProjectLayoutState(loaded);
+}
+
+function writeProjectLayoutState(pid: string, next: ProjectLayoutState): void {
+  projectLayoutCache.set(pid, cloneProjectLayoutState(next));
+}
+
 export function useSettings(projectId: string | null, engine: EngineId = "claude"): Settings {
   const pid = projectId ?? "__none__";
 
@@ -346,6 +392,22 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     localStorage.setItem("harnss-auto-expand-tools", String(on));
   }, []);
 
+  const [transparentToolPicker, setTransparentToolPickerRaw] = useState(() =>
+    readBool("harnss-transparent-tool-picker", false),
+  );
+  const setTransparentToolPicker = useCallback((on: boolean) => {
+    setTransparentToolPickerRaw(on);
+    localStorage.setItem("harnss-transparent-tool-picker", String(on));
+  }, []);
+
+  const [coloredSidebarIcons, setColoredSidebarIconsRaw] = useState(() =>
+    readBool("harnss-colored-sidebar-icons", true),
+  );
+  const setColoredSidebarIcons = useCallback((on: boolean) => {
+    setColoredSidebarIconsRaw(on);
+    localStorage.setItem("harnss-colored-sidebar-icons", String(on));
+  }, []);
+
   // ── Per-project settings ──
 
   const [modelsByEngine, setModelsByEngineRaw] = useState<Record<EngineId, string>>(() =>
@@ -403,38 +465,64 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     [pid],
   );
 
-  const [rightPanelWidth, setRightPanelWidth] = useState(() =>
-    readNumber(`harnss-${pid}-right-panel-width`, DEFAULT_RIGHT_PANEL, MIN_RIGHT_PANEL, MAX_RIGHT_PANEL),
-  );
+  const [layoutState, setLayoutState] = useState(() => ({
+    pid,
+    values: readProjectLayoutState(pid),
+  }));
+  const currentLayout = layoutState.pid === pid ? layoutState.values : readProjectLayoutState(pid);
+
+  useEffect(() => {
+    if (layoutState.pid === pid) return;
+    setLayoutState({ pid, values: currentLayout });
+  }, [currentLayout, layoutState.pid, pid]);
+
+  const rightPanelWidth = currentLayout.rightPanelWidth;
+  const setRightPanelWidth = useCallback((width: number) => {
+    setLayoutState((prev) => {
+      const base = prev.pid === pid ? prev.values : readProjectLayoutState(pid);
+      const next = { ...base, rightPanelWidth: width };
+      writeProjectLayoutState(pid, next);
+      return { pid, values: next };
+    });
+  }, [pid]);
   const rightPanelWidthRef = useRef(rightPanelWidth);
   rightPanelWidthRef.current = rightPanelWidth;
   const saveRightPanelWidth = useCallback(() => {
+    writeProjectLayoutState(pid, { ...readProjectLayoutState(pid), rightPanelWidth: rightPanelWidthRef.current });
     localStorage.setItem(`harnss-${pid}-right-panel-width`, String(rightPanelWidthRef.current));
   }, [pid]);
 
-  const [toolsPanelWidth, setToolsPanelWidth] = useState(() =>
-    readNumber(`harnss-${pid}-tools-panel-width`, DEFAULT_TOOLS_PANEL, MIN_TOOLS_PANEL, MAX_TOOLS_PANEL),
-  );
+  const toolsPanelWidth = currentLayout.toolsPanelWidth;
+  const setToolsPanelWidth = useCallback((width: number) => {
+    setLayoutState((prev) => {
+      const base = prev.pid === pid ? prev.values : readProjectLayoutState(pid);
+      const next = { ...base, toolsPanelWidth: width };
+      writeProjectLayoutState(pid, next);
+      return { pid, values: next };
+    });
+  }, [pid]);
   const toolsPanelWidthRef = useRef(toolsPanelWidth);
   toolsPanelWidthRef.current = toolsPanelWidth;
   const saveToolsPanelWidth = useCallback(() => {
+    writeProjectLayoutState(pid, { ...readProjectLayoutState(pid), toolsPanelWidth: toolsPanelWidthRef.current });
     localStorage.setItem(`harnss-${pid}-tools-panel-width`, String(toolsPanelWidthRef.current));
   }, [pid]);
 
   // ── Tools split ratios (replaces old single toolsSplitRatio) ──
 
-  const [toolsSplitRatios, setToolsSplitRatiosRaw] = useState<number[]>(() =>
-    readToolsSplitRatios(pid),
-  );
+  const toolsSplitRatios = currentLayout.toolsSplitRatios;
   const toolsSplitRatiosRef = useRef(toolsSplitRatios);
   toolsSplitRatiosRef.current = toolsSplitRatios;
-  const setToolsSplitRatios = useCallback(
-    (r: number[]) => {
-      setToolsSplitRatiosRaw(r);
-    },
-    [],
-  );
+  const setToolsSplitRatios = useCallback((ratios: number[]) => {
+    setLayoutState((prev) => {
+      const base = prev.pid === pid ? prev.values : readProjectLayoutState(pid);
+      const next = { ...base, toolsSplitRatios: [...ratios] };
+      writeProjectLayoutState(pid, next);
+      return { pid, values: next };
+    });
+  }, [pid]);
   const saveToolsSplitRatios = useCallback(() => {
+    writeProjectLayoutState(pid, { ...readProjectLayoutState(pid), toolsSplitRatios: [...toolsSplitRatiosRef.current] });
     localStorage.setItem(`harnss-${pid}-tools-split-ratios`, JSON.stringify(toolsSplitRatiosRef.current));
   }, [pid]);
 
@@ -454,15 +542,19 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
 
   // ── Right panel split (Tasks / Agents vertical ratio) ──
 
-  const [rightSplitRatio, setRightSplitRatioRaw] = useState(() =>
-    readNumber(`harnss-${pid}-right-split`, DEFAULT_SPLIT, MIN_SPLIT, MAX_SPLIT),
-  );
+  const rightSplitRatio = currentLayout.rightSplitRatio;
   const rightSplitRatioRef = useRef(rightSplitRatio);
   rightSplitRatioRef.current = rightSplitRatio;
   const setRightSplitRatio = useCallback((r: number) => {
-    setRightSplitRatioRaw(r);
-  }, []);
+    setLayoutState((prev) => {
+      const base = prev.pid === pid ? prev.values : readProjectLayoutState(pid);
+      const next = { ...base, rightSplitRatio: r };
+      writeProjectLayoutState(pid, next);
+      return { pid, values: next };
+    });
+  }, [pid]);
   const saveRightSplitRatio = useCallback(() => {
+    writeProjectLayoutState(pid, { ...readProjectLayoutState(pid), rightSplitRatio: rightSplitRatioRef.current });
     localStorage.setItem(`harnss-${pid}-right-split`, String(rightSplitRatioRef.current));
   }, [pid]);
 
@@ -545,24 +637,35 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     [pid],
   );
 
-  const [bottomToolsHeight, setBottomToolsHeight] = useState(() =>
-    readNumber(`harnss-${pid}-bottom-tools-height`, DEFAULT_BOTTOM_HEIGHT, MIN_BOTTOM_HEIGHT, MAX_BOTTOM_HEIGHT),
-  );
+  const bottomToolsHeight = currentLayout.bottomToolsHeight;
+  const setBottomToolsHeight = useCallback((height: number) => {
+    setLayoutState((prev) => {
+      const base = prev.pid === pid ? prev.values : readProjectLayoutState(pid);
+      const next = { ...base, bottomToolsHeight: height };
+      writeProjectLayoutState(pid, next);
+      return { pid, values: next };
+    });
+  }, [pid]);
   const bottomToolsHeightRef = useRef(bottomToolsHeight);
   bottomToolsHeightRef.current = bottomToolsHeight;
   const saveBottomToolsHeight = useCallback(() => {
+    writeProjectLayoutState(pid, { ...readProjectLayoutState(pid), bottomToolsHeight: bottomToolsHeightRef.current });
     localStorage.setItem(`harnss-${pid}-bottom-tools-height`, String(bottomToolsHeightRef.current));
   }, [pid]);
 
-  const [bottomToolsSplitRatios, setBottomToolsSplitRatiosRaw] = useState<number[]>(() =>
-    readJson<number[]>(`harnss-${pid}-bottom-tools-split-ratios`, []),
-  );
+  const bottomToolsSplitRatios = currentLayout.bottomToolsSplitRatios;
   const bottomToolsSplitRatiosRef = useRef(bottomToolsSplitRatios);
   bottomToolsSplitRatiosRef.current = bottomToolsSplitRatios;
-  const setBottomToolsSplitRatios = useCallback((r: number[]) => {
-    setBottomToolsSplitRatiosRaw(r);
-  }, []);
+  const setBottomToolsSplitRatios = useCallback((ratios: number[]) => {
+    setLayoutState((prev) => {
+      const base = prev.pid === pid ? prev.values : readProjectLayoutState(pid);
+      const next = { ...base, bottomToolsSplitRatios: [...ratios] };
+      writeProjectLayoutState(pid, next);
+      return { pid, values: next };
+    });
+  }, [pid]);
   const saveBottomToolsSplitRatios = useCallback(() => {
+    writeProjectLayoutState(pid, { ...readProjectLayoutState(pid), bottomToolsSplitRatios: [...bottomToolsSplitRatiosRef.current] });
     localStorage.setItem(`harnss-${pid}-bottom-tools-split-ratios`, JSON.stringify(bottomToolsSplitRatiosRef.current));
   }, [pid]);
 
@@ -574,18 +677,7 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
 
     const tools = readJson<ToolId[]>(`harnss-${pid}-active-tools`, []);
     setActiveToolsRaw(new Set(tools));
-
-    setRightPanelWidth(
-      readNumber(`harnss-${pid}-right-panel-width`, DEFAULT_RIGHT_PANEL, MIN_RIGHT_PANEL, MAX_RIGHT_PANEL),
-    );
-    setToolsPanelWidth(
-      readNumber(`harnss-${pid}-tools-panel-width`, DEFAULT_TOOLS_PANEL, MIN_TOOLS_PANEL, MAX_TOOLS_PANEL),
-    );
-    setToolsSplitRatiosRaw(readToolsSplitRatios(pid));
     setToolOrderRaw(readToolOrder(pid));
-    setRightSplitRatioRaw(
-      readNumber(`harnss-${pid}-right-split`, DEFAULT_SPLIT, MIN_SPLIT, MAX_SPLIT),
-    );
 
     const repos = readJson<string[]>(`harnss-${pid}-collapsed-repos`, []);
     setCollapsedRepos(new Set(repos));
@@ -595,10 +687,6 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
 
     const bottom = readJson<ToolId[]>(`harnss-${pid}-bottom-tools`, []).filter((id) => VALID_TOOL_IDS.has(id as ToolId));
     setBottomToolsRaw(new Set(bottom));
-    setBottomToolsHeight(
-      readNumber(`harnss-${pid}-bottom-tools-height`, DEFAULT_BOTTOM_HEIGHT, MIN_BOTTOM_HEIGHT, MAX_BOTTOM_HEIGHT),
-    );
-    setBottomToolsSplitRatiosRaw(readJson<number[]>(`harnss-${pid}-bottom-tools-split-ratios`, []));
   }, [pid]);
 
   return {
@@ -624,6 +712,10 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     setAvoidGroupingEdits,
     autoExpandTools,
     setAutoExpandTools,
+    transparentToolPicker,
+    setTransparentToolPicker,
+    coloredSidebarIcons,
+    setColoredSidebarIcons,
     model,
     setModel,
     getModelForEngine,

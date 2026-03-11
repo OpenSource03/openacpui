@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Pencil,
   Trash2,
@@ -31,7 +31,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { IconPicker } from "@/components/IconPicker";
-import type { ChatSession, Project, Space } from "@/types";
+import type { ChatSession, InstalledAgent, Project, Space } from "@/types";
 import { SessionItem } from "./SessionItem";
 import { CCSessionList } from "./CCSessionList";
 
@@ -98,6 +98,7 @@ export function ProjectSection({
   onMoveToSpace,
   onReorderProject,
   defaultChatLimit,
+  agents,
 }: {
   islandLayout: boolean;
   project: Project;
@@ -118,12 +119,15 @@ export function ProjectSection({
   onMoveToSpace: (spaceId: string) => void;
   onReorderProject: (targetProjectId: string) => void;
   defaultChatLimit: number;
+  agents?: InstalledAgent[];
 }) {
   const [expanded, setExpanded] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(project.name);
   const [isDragOver, setIsDragOver] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const openingIconPickerRef = useRef(false);
   // Pagination: show N chats initially, load 20 more on each click
   const [visibleCount, setVisibleCount] = useState(defaultChatLimit);
 
@@ -250,7 +254,7 @@ export function ProjectSection({
 
         <Popover open={iconPickerOpen} onOpenChange={setIconPickerOpen}>
         <PopoverAnchor>
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -260,7 +264,15 @@ export function ProjectSection({
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuContent
+            align="end"
+            className="w-44"
+            onCloseAutoFocus={(e) => {
+              if (!openingIconPickerRef.current) return;
+              e.preventDefault();
+              openingIconPickerRef.current = false;
+            }}
+          >
             <DropdownMenuItem
               onClick={() => {
                 setEditName(project.name);
@@ -270,11 +282,14 @@ export function ProjectSection({
               <Pencil className="me-2 h-3.5 w-3.5" />
               Rename
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => {
-              // Delay so the dropdown fully unmounts before the popover opens —
-              // otherwise Radix focus management immediately dismisses the popover.
-              setTimeout(() => setIconPickerOpen(true), 150);
-            }}>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                openingIconPickerRef.current = true;
+                setMenuOpen(false);
+                requestAnimationFrame(() => setIconPickerOpen(true));
+              }}
+            >
               <Smile className="me-2 h-3.5 w-3.5" />
               Set icon
             </DropdownMenuItem>
@@ -368,6 +383,7 @@ export function ProjectSection({
                     onSelect={() => onSelectSession(session.id)}
                     onDelete={() => onDeleteSession(session.id)}
                     onRename={(title) => onRenameSession(session.id, title)}
+                    agents={agents}
                   />
                 ))}
               </div>
