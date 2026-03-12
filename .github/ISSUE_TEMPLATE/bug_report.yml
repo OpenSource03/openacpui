@@ -115,14 +115,10 @@ body:
       description: |
         Paste any relevant logs here. **Please redact any sensitive data (API keys, tokens, passwords, file paths with personal info) before sharing.**
 
-        **Where to find logs:**
-        - **DevTools Console**: Help → Toggle DevTools → Console tab
-        - **Main process logs** (production):
-          - macOS: `~/Library/Application Support/Harnss/logs/`
-          - Windows: `%APPDATA%\Harnss\logs\`
-          - Linux: `~/.config/Harnss/logs/`
-
-        Log files are named `main-{timestamp}.log` — attach the most recent one.
+        **Where to find logs** (files are named `main-{timestamp}.log` — attach the most recent one):
+        - macOS: `~/Library/Application Support/Harnss/logs/`
+        - Windows: `%APPDATA%\Harnss\logs\`
+        - Linux: `~/.config/Harnss/logs/`
       render: text
       placeholder: Paste logs here...
 
