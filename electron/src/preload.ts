@@ -104,12 +104,17 @@ contextBridge.exposeInMainWorld("claude", {
     updateSpace: (projectId: string, spaceId: string) => ipcRenderer.invoke("projects:update-space", projectId, spaceId),
     updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => ipcRenderer.invoke("projects:update-icon", projectId, icon, iconType),
     reorder: (projectId: string, targetProjectId: string) => ipcRenderer.invoke("projects:reorder", projectId, targetProjectId),
+    createFolder: (projectId: string, name: string) => ipcRenderer.invoke("projects:create-folder", projectId, name),
+    renameFolder: (projectId: string, folderId: string, name: string) => ipcRenderer.invoke("projects:rename-folder", projectId, folderId, name),
+    deleteFolder: (projectId: string, folderId: string) => ipcRenderer.invoke("projects:delete-folder", projectId, folderId),
+    reorderFolder: (projectId: string, folderId: string, targetFolderId: string) => ipcRenderer.invoke("projects:reorder-folder", projectId, folderId, targetFolderId),
   },
   sessions: {
     save: (data: unknown) => ipcRenderer.invoke("sessions:save", data),
     load: (projectId: string, sessionId: string) => ipcRenderer.invoke("sessions:load", projectId, sessionId),
     list: (projectId: string) => ipcRenderer.invoke("sessions:list", projectId),
     delete: (projectId: string, sessionId: string) => ipcRenderer.invoke("sessions:delete", projectId, sessionId),
+    moveToFolder: (projectId: string, sessionId: string, folderId: string | null) => ipcRenderer.invoke("sessions:move-to-folder", projectId, sessionId, folderId),
     search: (projectIds: string[], query: string) => ipcRenderer.invoke("sessions:search", { projectIds, query }),
   },
   spaces: {

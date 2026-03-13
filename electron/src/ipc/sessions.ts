@@ -185,6 +185,42 @@ export function register(): void {
     }
   });
 
+  ipcMain.handle("sessions:move-to-folder", async (_event, projectId: string, sessionId: string, folderId: string | null) => {
+    try {
+      const filePath = getSessionFilePath(projectId, sessionId);
+      const data = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
+
+      // Update folderId (or remove it if null)
+      if (folderId === null) {
+        delete data.folderId;
+      } else {
+        data.folderId = folderId;
+      }
+
+      // Save updated session
+      await fs.promises.writeFile(filePath, JSON.stringify(data), "utf-8");
+
+      // Update metadata sidecar if it exists
+      const metaPath = getMetaFilePath(projectId, sessionId);
+      try {
+        const metaData = JSON.parse(await fs.promises.readFile(metaPath, "utf-8"));
+        if (folderId === null) {
+          delete metaData.folderId;
+        } else {
+          metaData.folderId = folderId;
+        }
+        await fs.promises.writeFile(metaPath, JSON.stringify(metaData), "utf-8");
+      } catch {
+        // Metadata sidecar doesn't exist, that's okay
+      }
+
+      return { ok: true };
+    } catch (err) {
+      const message = reportError("SESSIONS:MOVE_TO_FOLDER_ERR", err, { projectId, sessionId, folderId });
+      return { error: message };
+    }
+  });
+
   ipcMain.handle("sessions:search", async (_event, { projectIds, query }: { projectIds: string[]; query: string }): Promise<SearchResult> => {
     try {
       const lowerQuery = query.toLowerCase();

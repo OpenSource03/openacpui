@@ -6,6 +6,14 @@ import { getDataDir } from "../lib/data-dir";
 import { log } from "../lib/logger";
 import { captureEvent } from "../lib/posthog";
 
+interface ChatFolder {
+  id: string;
+  name: string;
+  projectId: string;
+  createdAt: number;
+  order: number;
+}
+
 interface Project {
   id: string;
   name: string;
@@ -14,6 +22,7 @@ interface Project {
   spaceId?: string;
   icon?: string;
   iconType?: "emoji" | "lucide";
+  folders?: ChatFolder[];
 }
 
 function getProjectsFilePath(): string {
@@ -186,6 +195,98 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { ok: true };
     } catch (err) {
       log("PROJECTS:UPDATE_SPACE_ERR", (err as Error).message);
+      return { error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle("projects:create-folder", (_event, projectId: string, name: string) => {
+    try {
+      const projects = readProjects();
+      const project = projects.find((p) => p.id === projectId);
+      if (!project) return { error: "Project not found" };
+
+      const folder: ChatFolder = {
+        id: crypto.randomUUID(),
+        name,
+        projectId,
+        createdAt: Date.now(),
+        order: (project.folders?.length ?? 0),
+      };
+
+      const updatedProjects = projects.map((p) =>
+        p.id === projectId
+          ? { ...p, folders: [...(p.folders ?? []), folder] }
+          : p,
+      );
+      writeProjects(updatedProjects);
+      void captureEvent("folder_created");
+      return { folder };
+    } catch (err) {
+      log("PROJECTS:CREATE_FOLDER_ERR", (err as Error).message);
+      return { error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle("projects:rename-folder", (_event, projectId: string, folderId: string, name: string) => {
+    try {
+      const projects = readProjects();
+      const updatedProjects = projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const updatedFolders = (p.folders ?? []).map((f) =>
+          f.id === folderId ? { ...f, name } : f,
+        );
+        return { ...p, folders: updatedFolders };
+      });
+      writeProjects(updatedProjects);
+      return { ok: true };
+    } catch (err) {
+      log("PROJECTS:RENAME_FOLDER_ERR", (err as Error).message);
+      return { error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle("projects:delete-folder", (_event, projectId: string, folderId: string) => {
+    try {
+      const projects = readProjects();
+      const updatedProjects = projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const updatedFolders = (p.folders ?? []).filter((f) => f.id !== folderId);
+        return { ...p, folders: updatedFolders };
+      });
+      writeProjects(updatedProjects);
+      return { ok: true };
+    } catch (err) {
+      log("PROJECTS:DELETE_FOLDER_ERR", (err as Error).message);
+      return { error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle("projects:reorder-folder", (_event, projectId: string, folderId: string, targetFolderId: string) => {
+    try {
+      const projects = readProjects();
+      const project = projects.find((p) => p.id === projectId);
+      if (!project || !project.folders) return { error: "Project or folders not found" };
+
+      const folders = [...project.folders];
+      const fromIdx = folders.findIndex((f) => f.id === folderId);
+      const toIdx = folders.findIndex((f) => f.id === targetFolderId);
+      if (fromIdx === -1 || toIdx === -1) return { error: "Folder not found" };
+
+      const [moved] = folders.splice(fromIdx, 1);
+      folders.splice(toIdx, 0, moved);
+
+      // Update order field
+      folders.forEach((f, i) => {
+        f.order = i;
+      });
+
+      const updatedProjects = projects.map((p) =>
+        p.id === projectId ? { ...p, folders } : p,
+      );
+      writeProjects(updatedProjects);
+      return { ok: true };
+    } catch (err) {
+      log("PROJECTS:REORDER_FOLDER_ERR", (err as Error).message);
       return { error: (err as Error).message };
     }
   });
