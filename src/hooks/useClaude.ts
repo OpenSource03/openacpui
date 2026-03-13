@@ -76,6 +76,9 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   const [supportedModels, setSupportedModels] = useState<ModelInfo[]>([]);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
 
+  const contextUsageRef = useRef(contextUsage);
+  contextUsageRef.current = contextUsage;
+
   const buffer = useRef(new StreamingBuffer());
   const parentToolMap = useRef<ParentToolMap>(new Map());
   const permissionQueue = useRef<PermissionRequest[]>([]);
@@ -166,12 +169,13 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
             toolInput: normalizeTodoToolInput(block.name, block.input),
             toolUseId: block.id,
           };
-          setMessages((prev) =>
-            prev.map((m) => {
-              if (m.id !== taskMsgId) return m;
-              return { ...m, subagentSteps: [...(m.subagentSteps ?? []), step] };
-            }),
-          );
+          setMessages((prev) => {
+            const idx = prev.findIndex((m) => m.id === taskMsgId);
+            if (idx < 0) return prev;
+            const next = prev.slice();
+            next[idx] = { ...prev[idx], subagentSteps: [...(prev[idx].subagentSteps ?? []), step] };
+            return next;
+          });
         }
       }
     } else if (event.type === "user") {
@@ -184,15 +188,16 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           userEvent.tool_use_result,
           uc[0].content,
         );
-        setMessages((prev) =>
-          prev.map((m) => {
-            if (m.id !== taskMsgId) return m;
-            const steps = (m.subagentSteps ?? []).map((s) =>
-              s.toolUseId === toolUseId ? { ...s, toolResult: resultMeta, toolError: isError || undefined } : s,
-            );
-            return { ...m, subagentSteps: steps };
-          }),
-        );
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === taskMsgId);
+          if (idx < 0) return prev;
+          const steps = (prev[idx].subagentSteps ?? []).map((s) =>
+            s.toolUseId === toolUseId ? { ...s, toolResult: resultMeta, toolError: isError || undefined } : s,
+          );
+          const next = prev.slice();
+          next[idx] = { ...prev[idx], subagentSteps: steps };
+          return next;
+        });
       }
     }
   }, []);
@@ -392,16 +397,17 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               flushNow();
               const capturedId = buffer.current.messageId;
               setMessages((prev) => {
-                const target = capturedId
-                  ? prev.find((m) => m.id === capturedId)
-                  : prev.findLast((m) => m.role === "assistant" && m.isStreaming);
-                if (!target) return prev;
+                const idx = capturedId
+                  ? prev.findIndex((m) => m.id === capturedId)
+                  : prev.findLastIndex((m) => m.role === "assistant" && m.isStreaming);
+                if (idx < 0) return prev;
+                const target = prev[idx];
                 if (!target.content.trim() && !target.thinking) {
                   return prev.filter((m) => m.id !== target.id);
                 }
-                return prev.map((m) =>
-                  m.id === target.id ? { ...m, isStreaming: false } : m,
-                );
+                const next = prev.slice();
+                next[idx] = { ...target, isStreaming: false };
+                return next;
               });
               break;
             }
@@ -420,7 +426,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
           const nextUsage = extractAssistantContextUsage(
             event.message,
-            contextUsage?.contextWindow ?? 200_000,
+            contextUsageRef.current?.contextWindow ?? 200_000,
           );
           if (nextUsage) {
             setContextUsage(nextUsage);
@@ -431,11 +437,12 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
           setMessages((prev) => {
             const streamId = buffer.current.messageId;
-            const target = streamId
-              ? prev.find((m) => m.id === streamId)
-              : prev.findLast((m) => m.role === "assistant" && m.isStreaming);
+            const idx = streamId
+              ? prev.findIndex((m) => m.id === streamId)
+              : prev.findLastIndex((m) => m.role === "assistant" && m.isStreaming);
 
-            if (target) {
+            if (idx >= 0) {
+              const target = prev[idx];
               if (!streamId) buffer.current.messageId = target.id;
               const merged = {
                 ...target,
@@ -447,7 +454,9 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               if (!merged.content.trim() && !merged.thinking) {
                 return prev.filter((m) => m.id !== target.id);
               }
-              return prev.map((m) => (m.id === target.id ? merged : m));
+              const next = prev.slice();
+              next[idx] = merged;
+              return next;
             }
 
             if (textContent || thinkingContent) {
@@ -526,11 +535,12 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               });
             }
 
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id !== toolCallId) return m;
-                if ((m.toolName === "Task" || m.toolName === "Agent") && resultMeta) {
-                  return {
+            setMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === toolCallId);
+              if (idx < 0) return prev;
+              const m = prev[idx];
+              const updated = (m.toolName === "Task" || m.toolName === "Agent") && resultMeta
+                ? {
                     ...m,
                     toolResult: resultMeta,
                     toolError: isError || undefined,
@@ -538,11 +548,12 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
                     subagentId: resultMeta.agentId,
                     subagentDurationMs: resultMeta.totalDurationMs,
                     subagentTokens: resultMeta.totalTokens,
-                  };
-                }
-                return { ...m, toolResult: resultMeta, toolError: isError || undefined };
-              }),
-            );
+                  }
+                : { ...m, toolResult: resultMeta, toolError: isError || undefined };
+              const next = prev.slice();
+              next[idx] = updated;
+              return next;
+            });
 
             if (!isError && toolName === "EnterPlanMode") {
               setSessionInfo((prev) =>
@@ -573,9 +584,9 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               );
               if (compactIdx >= 0) {
                 uiLog("CONTEXT_SUMMARY", { length: textPayload.length });
-                return prev.map((m, i) =>
-                  i === compactIdx ? { ...m, content: textPayload } : m,
-                );
+                const next = prev.slice();
+                next[compactIdx] = { ...prev[compactIdx], content: textPayload };
+                return next;
               }
 
               if (checkpointUuid) {
@@ -584,9 +595,9 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
                 );
                 if (userIdx >= 0) {
                   uiLog("CHECKPOINT", { uuid: checkpointUuid.slice(0, 12), msgIdx: userIdx });
-                  return prev.map((m, i) =>
-                    i === userIdx ? { ...m, checkpointId: checkpointUuid } : m,
-                  );
+                  const next = prev.slice();
+                  next[userIdx] = { ...prev[userIdx], checkpointId: checkpointUuid };
+                  return next;
                 }
               }
 
@@ -743,16 +754,17 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
 
     setMessages((prev) => {
       const streamId = buffer.current.messageId;
-      const target = streamId
-        ? prev.find((m) => m.id === streamId)
-        : prev.findLast((m) => m.role === "assistant" && m.isStreaming);
-      if (!target) return prev;
+      const idx = streamId
+        ? prev.findIndex((m) => m.id === streamId)
+        : prev.findLastIndex((m) => m.role === "assistant" && m.isStreaming);
+      if (idx < 0) return prev;
+      const target = prev[idx];
       if (!target.content.trim() && !target.thinking) {
         return prev.filter((m) => m.id !== target.id);
       }
-      return prev.map((m) =>
-        m.id === target.id ? { ...m, isStreaming: false } : m,
-      );
+      const next = prev.slice();
+      next[idx] = { ...target, isStreaming: false };
+      return next;
     });
 
     resetStreaming();
