@@ -23,6 +23,7 @@ interface AppSidebarProps {
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
+  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
   onCreateProject: () => void;
   onDeleteProject: (id: string) => void;
   onRenameProject: (id: string, name: string) => void;
@@ -32,6 +33,10 @@ interface AppSidebarProps {
   onNavigateToMessage: (sessionId: string, messageId: string) => void;
   onMoveProjectToSpace: (projectId: string, spaceId: string) => void;
   onReorderProject: (projectId: string, targetProjectId: string) => void;
+  onCreateFolder: (projectId: string, name: string) => void;
+  onRenameFolder: (projectId: string, folderId: string, name: string) => void;
+  onDeleteFolder: (projectId: string, folderId: string) => void;
+  onReorderFolder: (projectId: string, folderId: string, targetFolderId: string) => void;
   spaces: Space[];
   activeSpaceId: string;
   onSelectSpace: (id: string) => void;
@@ -55,6 +60,7 @@ export const AppSidebar = memo(function AppSidebar({
   onSelectSession,
   onDeleteSession,
   onRenameSession,
+  onMoveSessionToFolder,
   onCreateProject,
   onDeleteProject,
   onRenameProject,
@@ -64,6 +70,10 @@ export const AppSidebar = memo(function AppSidebar({
   onNavigateToMessage,
   onMoveProjectToSpace,
   onReorderProject,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onReorderFolder,
   spaces,
   activeSpaceId,
   onSelectSpace,
@@ -234,6 +244,7 @@ export const AppSidebar = memo(function AppSidebar({
                   onSelectSession={onSelectSession}
                   onDeleteSession={onDeleteSession}
                   onRenameSession={onRenameSession}
+                  onMoveSessionToFolder={onMoveSessionToFolder}
                   onDeleteProject={() => onDeleteProject(project.id)}
                   onRenameProject={(name) => onRenameProject(project.id, name)}
                   onUpdateIcon={(icon, iconType) =>
@@ -249,6 +260,10 @@ export const AppSidebar = memo(function AppSidebar({
                   onReorderProject={(targetId) =>
                     onReorderProject(project.id, targetId)
                   }
+                  onCreateFolder={(name) => onCreateFolder(project.id, name)}
+                  onRenameFolder={(folderId, name) => onRenameFolder(project.id, folderId, name)}
+                  onDeleteFolder={(folderId) => onDeleteFolder(project.id, folderId)}
+                  onReorderFolder={(folderId, targetId) => onReorderFolder(project.id, folderId, targetId)}
                   defaultChatLimit={defaultChatLimit}
                   agents={agents}
                 />

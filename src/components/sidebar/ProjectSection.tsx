@@ -12,6 +12,7 @@ import {
   ArrowRightLeft,
   Smile,
   X,
+  FolderPlus,
 } from "lucide-react";
 import { resolveLucideIcon } from "@/lib/icon-utils";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ import { IconPicker } from "@/components/IconPicker";
 import type { ChatSession, InstalledAgent, Project, Space } from "@/types";
 import { SessionItem } from "./SessionItem";
 import { CCSessionList } from "./CCSessionList";
+import { FolderSection } from "./FolderSection";
 
 interface SessionGroup {
   label: string;
@@ -90,6 +92,7 @@ export function ProjectSection({
   onSelectSession,
   onDeleteSession,
   onRenameSession,
+  onMoveSessionToFolder,
   onDeleteProject,
   onRenameProject,
   onUpdateIcon,
@@ -97,6 +100,10 @@ export function ProjectSection({
   otherSpaces,
   onMoveToSpace,
   onReorderProject,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onReorderFolder,
   defaultChatLimit,
   agents,
 }: {
@@ -111,6 +118,7 @@ export function ProjectSection({
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
+  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
   onDeleteProject: () => void;
   onRenameProject: (name: string) => void;
   onUpdateIcon: (icon: string | null, iconType: "emoji" | "lucide" | null) => void;
@@ -118,6 +126,10 @@ export function ProjectSection({
   otherSpaces: Space[];
   onMoveToSpace: (spaceId: string) => void;
   onReorderProject: (targetProjectId: string) => void;
+  onCreateFolder: (name: string) => void;
+  onRenameFolder: (folderId: string, name: string) => void;
+  onDeleteFolder: (folderId: string) => void;
+  onReorderFolder: (folderId: string, targetFolderId: string) => void;
   defaultChatLimit: number;
   agents?: InstalledAgent[];
 }) {

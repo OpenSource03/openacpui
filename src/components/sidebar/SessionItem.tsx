@@ -61,6 +61,11 @@ export function SessionItem({
     <div className="group relative">
       <button
         onClick={onSelect}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("application/x-session-id", session.id);
+          e.dataTransfer.effectAllowed = "move";
+        }}
         className={`session-item-button flex w-full min-w-0 items-center gap-2.5 rounded-lg ps-4 pe-8 py-1.5 text-start text-[13px] font-medium transition-all ${
           isActive
             ? "session-item-active bg-primary/10 text-black dark:bg-primary/15 dark:text-primary"
