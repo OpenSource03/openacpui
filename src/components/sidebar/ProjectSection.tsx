@@ -140,6 +140,8 @@ export function ProjectSection({
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const openingIconPickerRef = useRef(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
   // Pagination: show N chats initially, load 20 more on each click
   const [visibleCount, setVisibleCount] = useState(defaultChatLimit);
 
@@ -148,19 +150,43 @@ export function ProjectSection({
     setVisibleCount(defaultChatLimit);
   }, [defaultChatLimit]);
 
-  // Sort all sessions by latest message, then slice for pagination
-  const sortedSessions = useMemo(
-    () => [...sessions].sort((a, b) => getSortTimestamp(b) - getSortTimestamp(a)),
-    [sessions],
-  );
-  const visibleSessions = useMemo(
-    () => sortedSessions.slice(0, visibleCount),
-    [sortedSessions, visibleCount],
-  );
-  const hasMore = sortedSessions.length > visibleCount;
-  const remainingCount = sortedSessions.length - visibleCount;
+  // Separate sessions into foldered and non-foldered
+  const { folderedSessions, nonFolderedSessions } = useMemo(() => {
+    const foldered = new Map<string, ChatSession[]>();
+    const nonFoldered: ChatSession[] = [];
 
-  const groups = useMemo(() => groupSessionsByDate(visibleSessions), [visibleSessions]);
+    for (const session of sessions) {
+      if (session.folderId) {
+        const existing = foldered.get(session.folderId) || [];
+        existing.push(session);
+        foldered.set(session.folderId, existing);
+      } else {
+        nonFoldered.push(session);
+      }
+    }
+
+    return { folderedSessions: foldered, nonFolderedSessions: nonFoldered };
+  }, [sessions]);
+
+  // Sort non-foldered sessions by latest message, then slice for pagination
+  const sortedNonFolderedSessions = useMemo(
+    () => [...nonFolderedSessions].sort((a, b) => getSortTimestamp(b) - getSortTimestamp(a)),
+    [nonFolderedSessions],
+  );
+  const visibleNonFolderedSessions = useMemo(
+    () => sortedNonFolderedSessions.slice(0, visibleCount),
+    [sortedNonFolderedSessions, visibleCount],
+  );
+  const hasMore = sortedNonFolderedSessions.length > visibleCount;
+  const remainingCount = sortedNonFolderedSessions.length - visibleCount;
+
+  const groups = useMemo(() => groupSessionsByDate(visibleNonFolderedSessions), [visibleNonFolderedSessions]);
+
+  // Sort folders by order
+  const sortedFolders = useMemo(
+    () => [...(project.folders ?? [])].sort((a, b) => a.order - b.order),
+    [project.folders],
+  );
 
   const handleRename = () => {
     const trimmed = editName.trim();
@@ -168,6 +194,36 @@ export function ProjectSection({
       onRenameProject(trimmed);
     }
     setIsEditing(false);
+  };
+
+  const handleCreateFolder = () => {
+    const trimmed = newFolderName.trim();
+    if (trimmed) {
+      onCreateFolder(trimmed);
+      setNewFolderName("");
+    }
+    setCreatingFolder(false);
+  };
+
+  const handleSessionDrop = (e: React.DragEvent) => {
+    const sessionId = e.dataTransfer.getData("application/x-session-id");
+    if (sessionId) {
+      // Session dropped on project root - remove from folder
+      onMoveSessionToFolder(sessionId, null);
+    }
+  };
+
+  const handleFolderDrop = (e: React.DragEvent, targetFolderId: string) => {
+    const sessionId = e.dataTransfer.getData("application/x-session-id");
+    const folderId = e.dataTransfer.getData("application/x-folder-id");
+
+    if (sessionId) {
+      // Session dropped on folder
+      onMoveSessionToFolder(sessionId, targetFolderId);
+    } else if (folderId && folderId !== targetFolderId) {
+      // Folder reorder
+      onReorderFolder(folderId, targetFolderId);
+    }
   };
 
   if (isEditing) {
@@ -198,6 +254,12 @@ export function ProjectSection({
           e.dataTransfer.dropEffect = "move";
           setIsDragOver(true);
         }
+        // Accept session drops for moving out of folders
+        if (e.dataTransfer.types.includes("application/x-session-id")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setIsDragOver(true);
+        }
       }}
       onDragLeave={() => setIsDragOver(false)}
       onDrop={(e) => {
@@ -206,6 +268,7 @@ export function ProjectSection({
         if (draggedId && draggedId !== project.id) {
           onReorderProject(draggedId);
         }
+        handleSessionDrop(e);
       }}
     >
       {/* Project header row */}
@@ -295,6 +358,15 @@ export function ProjectSection({
               Rename
             </DropdownMenuItem>
             <DropdownMenuItem
+              onClick={() => {
+                setNewFolderName("");
+                setCreatingFolder(true);
+              }}
+            >
+              <FolderPlus className="me-2 h-3.5 w-3.5" />
+              New folder
+            </DropdownMenuItem>
+            <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();
                 openingIconPickerRef.current = true;
@@ -379,6 +451,60 @@ export function ProjectSection({
       {/* Nested chats */}
       {expanded && (
         <div className="ms-2 overflow-hidden">
+          {/* Folder creation input */}
+          {creatingFolder && (
+            <div className="mb-2 flex items-center gap-1 px-1 ps-2">
+              <input
+                autoFocus
+                placeholder="Folder name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onBlur={handleCreateFolder}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateFolder();
+                  if (e.key === "Escape") setCreatingFolder(false);
+                }}
+                className="flex-1 rounded-lg bg-black/5 px-2 py-1 text-[13px] text-sidebar-foreground outline-none ring-1 ring-sidebar-ring dark:bg-white/5"
+              />
+            </div>
+          )}
+
+          {/* Render folders */}
+          {sortedFolders.map((folder) => {
+            const folderSessions = (folderedSessions.get(folder.id) || []).sort(
+              (a, b) => getSortTimestamp(b) - getSortTimestamp(a),
+            );
+            return (
+              <div
+                key={folder.id}
+                onDragOver={(e) => {
+                  if (
+                    e.dataTransfer.types.includes("application/x-session-id") ||
+                    e.dataTransfer.types.includes("application/x-folder-id")
+                  ) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }
+                }}
+                onDrop={(e) => handleFolderDrop(e, folder.id)}
+              >
+                <FolderSection
+                  islandLayout={islandLayout}
+                  folder={folder}
+                  sessions={folderSessions}
+                  activeSessionId={activeSessionId}
+                  onSelectSession={onSelectSession}
+                  onDeleteSession={onDeleteSession}
+                  onRenameSession={onRenameSession}
+                  onRenameFolder={(name) => onRenameFolder(folder.id, name)}
+                  onDeleteFolder={() => onDeleteFolder(folder.id)}
+                  agents={agents}
+                />
+              </div>
+            );
+          })}
+
+          {/* Non-foldered sessions grouped by date */}
           {groups.map((group, i) => (
             <div key={group.label} className={i < groups.length - 1 ? "mb-3" : ""}>
               <div className="mb-1.5 px-3">
