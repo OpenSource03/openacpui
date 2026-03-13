@@ -300,7 +300,6 @@ export const CodeWorkspace = memo(function CodeWorkspace({
   const [showLineHooks, setShowLineHooks] = useState(true);
   const [wordWrap, setWordWrap] = useState(false);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number } | null>(null);
-  const [addToChatDropdown, setAddToChatDropdown] = useState<{ x: number; y: number; code: string; filePath: string; lineStart: number; lineEnd: number } | null>(null);
   const [floatingRect, setFloatingRect] = useState<FloatingRect>(DEFAULT_FLOATING_RECT);
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<MonacoEditorInstance | null>(null);
@@ -551,21 +550,45 @@ export const CodeWorkspace = memo(function CodeWorkspace({
       contextMenuGroupId: "9_cutcopypaste",
       contextMenuOrder: 5,
       run: (ed: typeof editorInstance) => {
+        if (splitModeRef.current) return;
         const selection = ed.getSelection();
         if (!selection || selection.isEmpty()) return;
         const selectedText = ed.getModel()?.getValueInRange(selection) ?? "";
         const tab = tabsRef.current.find((t) => t.id === activeTabIdRef.current);
         if (!tab || !onAddToChatRef.current) return;
-        if (splitModeRef.current) {
-          const pos = ed.getScrolledVisiblePosition(selection.getEndPosition());
-          const domNode = ed.getDomNode();
-          const rect = domNode?.getBoundingClientRect();
-          const x = (rect?.left ?? 0) + (pos?.left ?? 0);
-          const y = (rect?.top ?? 0) + (pos?.top ?? 0) + (pos?.height ?? 0);
-          setAddToChatDropdown({ x, y, code: selectedText, filePath: tab.relativePath, lineStart: selection.startLineNumber, lineEnd: selection.endLineNumber });
-        } else {
-          onAddToChatRef.current(selectedText, tab.relativePath, selection.startLineNumber, selection.endLineNumber);
-        }
+        onAddToChatRef.current(selectedText, tab.relativePath, selection.startLineNumber, selection.endLineNumber);
+      },
+    });
+
+    editorInstance.addAction({
+      id: "add-to-chat-pane-0",
+      label: "Add to Chat 1",
+      contextMenuGroupId: "9_cutcopypaste",
+      contextMenuOrder: 6,
+      run: (ed: typeof editorInstance) => {
+        if (!splitModeRef.current) return;
+        const selection = ed.getSelection();
+        if (!selection || selection.isEmpty()) return;
+        const selectedText = ed.getModel()?.getValueInRange(selection) ?? "";
+        const tab = tabsRef.current.find((t) => t.id === activeTabIdRef.current);
+        if (!tab || !onAddToChatRef.current) return;
+        onAddToChatRef.current(selectedText, tab.relativePath, selection.startLineNumber, selection.endLineNumber, 0);
+      },
+    });
+
+    editorInstance.addAction({
+      id: "add-to-chat-pane-1",
+      label: "Add to Chat 2",
+      contextMenuGroupId: "9_cutcopypaste",
+      contextMenuOrder: 7,
+      run: (ed: typeof editorInstance) => {
+        if (!splitModeRef.current) return;
+        const selection = ed.getSelection();
+        if (!selection || selection.isEmpty()) return;
+        const selectedText = ed.getModel()?.getValueInRange(selection) ?? "";
+        const tab = tabsRef.current.find((t) => t.id === activeTabIdRef.current);
+        if (!tab || !onAddToChatRef.current) return;
+        onAddToChatRef.current(selectedText, tab.relativePath, selection.startLineNumber, selection.endLineNumber, 1);
       },
     });
 
@@ -1110,34 +1133,6 @@ export const CodeWorkspace = memo(function CodeWorkspace({
           {statusText}
         </div>
       </div>
-
-      {addToChatDropdown && (
-        <div
-          className="fixed z-50"
-          style={{ left: addToChatDropdown.x, top: addToChatDropdown.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div
-            className="flex flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-lg"
-            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setAddToChatDropdown(null); }}
-          >
-            {[0, 1].map((pane) => (
-              <button
-                key={pane}
-                type="button"
-                autoFocus={pane === 0}
-                className="px-3 py-1.5 text-start text-xs text-foreground/85 hover:bg-foreground/[0.08] focus:bg-foreground/[0.08] focus:outline-none"
-                onClick={() => {
-                  onAddToChat?.(addToChatDropdown.code, addToChatDropdown.filePath, addToChatDropdown.lineStart, addToChatDropdown.lineEnd, pane);
-                  setAddToChatDropdown(null);
-                }}
-              >
-                Chat {pane + 1}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {floatingOpen && (
         <div className="pointer-events-none absolute inset-0 z-20">
