@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
 import { reportError } from "@/lib/analytics";
 import { getLanguageFromPath } from "@/lib/languages";
-import type { AccessType } from "@/lib/file-access";
+import { getMonacoThemeForEditor } from "@/hooks/useEditorTheme";
 
 type EditorTab = {
   id: string;
@@ -25,7 +25,7 @@ export interface CodeOpenRequest {
   filePath: string;
   line?: number;
   openInFloating?: boolean;
-  accessType?: AccessType;
+
 }
 
 interface CodeWorkspaceProps {
@@ -326,7 +326,7 @@ export const CodeWorkspace = memo(function CodeWorkspace({
     return computeLineChangeSummary(baseline, activeTab.content);
   }, [activeTab]);
 
-  const openFile = useCallback(async (absolutePath: string, line?: number, accessType?: AccessType) => {
+  const openFile = useCallback(async (absolutePath: string, line?: number) => {
     const nextRelativePath = toRelativePath(cwd, absolutePath);
     if (cwd && !absolutePath.startsWith(`${cwd}/`)) return;
 
@@ -398,7 +398,7 @@ export const CodeWorkspace = memo(function CodeWorkspace({
 
   useEffect(() => {
     if (!openRequest) return;
-    void openFile(openRequest.filePath, openRequest.line, openRequest.accessType);
+    void openFile(openRequest.filePath, openRequest.line);
     if (openRequest.openInFloating) setFloatingOpen(true);
     onOpenRequestHandled(openRequest.id);
   }, [onOpenRequestHandled, openFile, openRequest]);
@@ -482,11 +482,32 @@ export const CodeWorkspace = memo(function CodeWorkspace({
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && key === "e") {
         e.preventDefault();
         setFloatingOpen((prev) => !prev);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && key === "g") {
+        e.preventDefault();
+        const lineStr = prompt("Go to line:");
+        if (lineStr) {
+          const lineNumber = parseInt(lineStr, 10);
+          if (!isNaN(lineNumber) && editorRef.current) {
+            editorRef.current.revealLineInCenter(lineNumber);
+            editorRef.current.setPosition({ lineNumber, column: 1 });
+            editorRef.current.focus();
+          }
+        }
+        return;
+      }
+      const numKey = parseInt(key, 10);
+      if ((e.metaKey || e.ctrlKey) && numKey >= 1 && numKey <= 9) {
+        e.preventDefault();
+        const idx = numKey - 1;
+        if (idx < tabs.length) setActiveTabId(tabs[idx].id);
+        return;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTabId, handleCloseTab, handleSave]);
+  }, [activeTabId, handleCloseTab, handleSave, tabs]);
 
   useEffect(() => {
     const line = pendingLineRef.current;
@@ -668,7 +689,7 @@ export const CodeWorkspace = memo(function CodeWorkspace({
           key={`diff-${activeTab.id}`}
           height="100%"
           language={getMonacoLanguage(activeTab.relativePath)}
-          theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
+          theme={getMonacoThemeForEditor()}
           original={originalContent}
           modified={activeTab.content}
           onMount={onDiffEditorMount}
@@ -701,7 +722,7 @@ export const CodeWorkspace = memo(function CodeWorkspace({
         key={`editor-${activeTab.id}`}
         height="100%"
         language={getMonacoLanguage(activeTab.relativePath)}
-        theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
+        theme={getMonacoThemeForEditor()}
         value={activeTab.content}
         onChange={updateActiveContent}
         onMount={onEditorMount}
@@ -716,6 +737,14 @@ export const CodeWorkspace = memo(function CodeWorkspace({
           scrollBeyondLastLine: false,
           automaticLayout: true,
           glyphMargin: true,
+          bracketPairColorization: { enabled: true },
+          guides: { bracketPairs: true, indentation: true },
+          stickyScroll: { enabled: true },
+          smoothScrolling: true,
+          cursorBlinking: "smooth",
+          cursorSmoothCaretAnimation: "on",
+          renderWhitespace: "selection",
+          showFoldingControls: "always",
           padding: { top: 8, bottom: 8 },
           scrollbar: {
             verticalScrollbarSize: 8,
@@ -737,51 +766,85 @@ export const CodeWorkspace = memo(function CodeWorkspace({
       : null;
     const parts = [
       language,
+      "UTF-8",
+      "LF",
+      "Spaces: 2",
       hasGitDiff && changeText ? `git: ${changeText}` : !hasGitDiff && dirty && changeText ? changeText : dirty ? "unsaved" : "saved",
       posText,
     ].filter(Boolean);
     return parts.join(" • ");
   }, [activeTab, cursorPosition, lineChangeSummary.addedLines, lineChangeSummary.removedLines]);
 
+  const getFileColor = useCallback((path: string): string => {
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+    const colors: Record<string, string> = {
+      tsx: "#3b82f6", jsx: "#3b82f6", ts: "#eab308", js: "#eab308",
+      css: "#a855f7", scss: "#a855f7", json: "#22c55e", md: "#6b7280",
+      html: "#ef4444", py: "#3b82f6", rs: "#f97316", go: "#06b6d4",
+    };
+    return colors[ext] ?? "#6b7280";
+  }, []);
+
+  const breadcrumbs = useMemo(() => {
+    if (!activeTab) return [];
+    return activeTab.relativePath.split("/");
+  }, [activeTab]);
+
   const renderTabRow = useCallback(() => (
-    <div className="flex items-center gap-1 overflow-x-auto border-b border-foreground/[0.08] bg-background/70 px-2 py-1.5">
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeTabId;
-        const dirty = tab.content !== tab.savedContent;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTabId(tab.id)}
-            className={`group inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors ${
-              isActive
-                ? "bg-foreground/[0.09] text-foreground"
-                : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
-            }`}
-          >
-            <span className="max-w-[150px] truncate">{getFileLabel(tab.relativePath)}</span>
-            {dirty && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-            <span
-              role="button"
-              tabIndex={0}
-              className="rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-foreground/10"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleCloseTab(tab.id);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter") return;
-                event.stopPropagation();
-                handleCloseTab(tab.id);
-              }}
+    <div>
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-foreground/[0.08] bg-background/70 px-2 py-1.5">
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTabId;
+          const dirty = tab.content !== tab.savedContent;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTabId(tab.id)}
+              onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); handleCloseTab(tab.id); } }}
+              title={tab.relativePath}
+              className={`group inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors ${
+                isActive
+                  ? "bg-foreground/[0.09] text-foreground"
+                  : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+              }`}
             >
-              <X className="h-3 w-3" />
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getFileColor(tab.relativePath) }} />
+              <span className="max-w-[180px] truncate">{getFileLabel(tab.relativePath)}</span>
+              {dirty && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label="Close tab"
+                className="rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-foreground/10"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleCloseTab(tab.id);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.stopPropagation();
+                  handleCloseTab(tab.id);
+                }}
+              >
+                <X className="h-3 w-3" />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {breadcrumbs.length > 0 && (
+        <div className="flex items-center gap-1 border-b border-foreground/[0.04] px-3 py-1 text-[10px] text-muted-foreground/70">
+          {breadcrumbs.map((segment, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <span className="text-muted-foreground/30">›</span>}
+              <span className={i === breadcrumbs.length - 1 ? "text-foreground/70" : ""}>{segment}</span>
             </span>
-          </button>
-        );
-      })}
+          ))}
+        </div>
+      )}
     </div>
-  ), [activeTabId, handleCloseTab, tabs]);
+  ), [activeTabId, breadcrumbs, getFileColor, handleCloseTab, tabs]);
 
   const dockedShellClassName = showDocked
     ? "relative flex min-h-0 flex-1 flex-col overflow-hidden"

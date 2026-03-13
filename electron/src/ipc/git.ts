@@ -496,6 +496,121 @@ export function register(): void {
     }
   });
 
+  ipcMain.handle("git:reflog", async (_event, { cwd, count }: { cwd: string; count?: number }) => {
+    try {
+      const limit = count || 20;
+      const raw = await gitExec(["reflog", "--format=%H|%gd|%gs|%ci", `-n${limit}`], cwd);
+      const entries = raw.trim().split("\n").filter(Boolean).map((line) => {
+        const [hash, ref, subject, date] = line.split("|");
+        return { hash, ref, subject, date };
+      });
+      return { entries };
+    } catch (err) {
+      return { entries: [], error: reportError("GIT_REFLOG_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:undo", async (_event, cwd: string) => {
+    try {
+      const reflog = await gitExec(["reflog", "--format=%H|%gs", "-n2"], cwd);
+      const lines = reflog.trim().split("\n").filter(Boolean);
+      if (lines.length < 2) return { error: "nothing-to-undo" };
+      const targetHash = lines[1].split("|")[0];
+      await gitExec(["reset", "--soft", targetHash], cwd);
+      return { success: true, hash: targetHash };
+    } catch (err) {
+      return { error: reportError("GIT_UNDO_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:stash-list", async (_event, cwd: string) => {
+    try {
+      const raw = await gitExec(["stash", "list", "--format=%gd|%gs|%ci"], cwd);
+      const stashes = raw.trim().split("\n").filter(Boolean).map((line) => {
+        const [ref, message, date] = line.split("|");
+        return { ref, message, date };
+      });
+      return { stashes };
+    } catch {
+      return { stashes: [] };
+    }
+  });
+
+  ipcMain.handle("git:stash-save", async (_event, { cwd, message }: { cwd: string; message?: string }) => {
+    try {
+      const args = ["stash", "push"];
+      if (message) args.push("-m", message);
+      await gitExec(args, cwd);
+      return { success: true };
+    } catch (err) {
+      return { error: reportError("GIT_STASH_SAVE_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:stash-pop", async (_event, { cwd, ref }: { cwd: string; ref?: string }) => {
+    try {
+      await gitExec(["stash", "pop", ref || "stash@{0}"], cwd);
+      return { success: true };
+    } catch (err) {
+      return { error: reportError("GIT_STASH_POP_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:stash-apply", async (_event, { cwd, ref }: { cwd: string; ref?: string }) => {
+    try {
+      await gitExec(["stash", "apply", ref || "stash@{0}"], cwd);
+      return { success: true };
+    } catch (err) {
+      return { error: reportError("GIT_STASH_APPLY_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:stash-drop", async (_event, { cwd, ref }: { cwd: string; ref?: string }) => {
+    try {
+      await gitExec(["stash", "drop", ref || "stash@{0}"], cwd);
+      return { success: true };
+    } catch (err) {
+      return { error: reportError("GIT_STASH_DROP_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:cherry-pick", async (_event, { cwd, hash }: { cwd: string; hash: string }) => {
+    try {
+      await gitExec(["cherry-pick", hash], cwd);
+      return { success: true };
+    } catch (err) {
+      return { error: reportError("GIT_CHERRY_PICK_ERR", err) };
+    }
+  });
+
+  ipcMain.handle("git:blame", async (_event, { cwd, file }: { cwd: string; file: string }) => {
+    try {
+      const raw = await gitExec(["blame", "--porcelain", file], cwd);
+      const lines: Array<{ hash: string; author: string; date: string; lineNumber: number; content: string }> = [];
+      const rawLines = raw.split("\n");
+      let currentHash = "";
+      let currentAuthor = "";
+      let currentDate = "";
+      let lineNum = 0;
+      for (const line of rawLines) {
+        const hashMatch = line.match(/^([0-9a-f]{40})\s+(\d+)\s+(\d+)/);
+        if (hashMatch) {
+          currentHash = hashMatch[1];
+          lineNum = parseInt(hashMatch[3], 10);
+          continue;
+        }
+        if (line.startsWith("author ")) { currentAuthor = line.slice(7); continue; }
+        if (line.startsWith("author-time ")) { currentDate = new Date(parseInt(line.slice(12), 10) * 1000).toISOString(); continue; }
+        if (line.startsWith("\t")) {
+          lines.push({ hash: currentHash, author: currentAuthor, date: currentDate, lineNumber: lineNum, content: line.slice(1) });
+        }
+      }
+      return { lines };
+    } catch (err) {
+      return { error: reportError("GIT_BLAME_ERR", err) };
+    }
+  });
+
   ipcMain.handle("git:log", async (_event, { cwd, count }: { cwd: string; count?: number }) => {
     try {
       const limit = count || 50;

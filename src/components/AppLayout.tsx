@@ -39,7 +39,7 @@ import { CodexAuthDialog } from "./CodexAuthDialog";
 import { JiraBoardPanel } from "./JiraBoardPanel";
 import { QuickOpenDialog } from "./QuickOpenDialog";
 import { CodeWorkspace, type CodeOpenRequest } from "./CodeWorkspace";
-import type { AccessType } from "@/lib/file-access";
+
 import type { JiraIssue } from "@shared/types/jira";
 import { isMac } from "@/lib/utils";
 
@@ -135,7 +135,7 @@ export function AppLayout() {
     setPreviewFile(null);
   }, []);
 
-  const openInCodeWorkspace = useCallback((filePath: string, line?: number, openInFloating = false, accessType?: AccessType) => {
+  const openInCodeWorkspace = useCallback((filePath: string, line?: number, openInFloating = false) => {
     if (settings.workspaceMode === "chat") {
       settings.setWorkspaceMode("both");
     }
@@ -144,7 +144,6 @@ export function AppLayout() {
       filePath,
       line,
       openInFloating,
-      accessType,
     });
   }, [settings.setWorkspaceMode, settings.workspaceMode]);
 

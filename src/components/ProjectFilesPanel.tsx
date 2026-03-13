@@ -147,7 +147,7 @@ interface ProjectFilesPanelProps {
   cwd?: string;
   enabled: boolean;
   onPreviewFile?: (filePath: string, sourceRect: DOMRect) => void;
-  onOpenFileInWorkspace?: (filePath: string, line?: number, openInFloating?: boolean, accessType?: AccessType) => void;
+  onOpenFileInWorkspace?: (filePath: string, line?: number, openInFloating?: boolean) => void;
   activeFilePath?: string | null;
   sessionId?: string | null;
   messages?: UIMessage[];
@@ -390,9 +390,8 @@ export const ProjectFilesPanel = memo(function ProjectFilesPanel({
       onPreviewFile(absolutePath, rect);
       return;
     }
-    const fileAccess = accessByRelativePath.get(node.path);
-    onOpenFileInWorkspace(absolutePath, undefined, options?.openInFloating ?? false, fileAccess?.accessType);
-  }, [accessByRelativePath, cwd, onOpenFileInWorkspace, onPreviewFile]);
+    onOpenFileInWorkspace(absolutePath, undefined, options?.openInFloating ?? false);
+  }, [cwd, onOpenFileInWorkspace, onPreviewFile]);
 
   const deletePath = useCallback(async () => {
     if (!cwd || !deleteTarget) return;

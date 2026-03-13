@@ -203,6 +203,15 @@ declare global {
         diffFile: (cwd: string, file: string, staged: boolean) => Promise<{ diff?: string; error?: string }>;
         diffStat: (cwd: string) => Promise<{ additions: number; deletions: number }>;
         showFileAtHead: (cwd: string, file: string) => Promise<{ content?: string; error?: string }>;
+        reflog: (cwd: string, count?: number) => Promise<{ entries: Array<{ hash: string; ref: string; subject: string; date: string }>; error?: string }>;
+        undo: (cwd: string) => Promise<{ success?: boolean; hash?: string; error?: string }>;
+        stashList: (cwd: string) => Promise<{ stashes: Array<{ ref: string; message: string; date: string }> }>;
+        stashSave: (cwd: string, message?: string) => Promise<{ success?: boolean; error?: string }>;
+        stashPop: (cwd: string, ref?: string) => Promise<{ success?: boolean; error?: string }>;
+        stashApply: (cwd: string, ref?: string) => Promise<{ success?: boolean; error?: string }>;
+        stashDrop: (cwd: string, ref?: string) => Promise<{ success?: boolean; error?: string }>;
+        cherryPick: (cwd: string, hash: string) => Promise<{ success?: boolean; error?: string }>;
+        blame: (cwd: string, file: string) => Promise<{ lines?: Array<{ hash: string; author: string; date: string; lineNumber: number; content: string }>; error?: string }>;
         log: (cwd: string, count?: number) => Promise<GitLogEntry[] | { error: string }>;
         generateCommitMessage: (
           cwd: string,

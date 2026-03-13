@@ -1,15 +1,18 @@
 import { memo } from "react";
-import { SunMoon, Layout, Blend, Wrench } from "lucide-react";
+import { SunMoon, Layout, Blend, Wrench, Palette, Check } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingRow, SettingsSelect } from "@/components/settings/shared";
 import type { ThemeOption } from "@/types";
+import { BUILTIN_THEMES } from "@/lib/themes";
 
 // ── Props ──
 
 interface AppearanceSettingsProps {
   theme: ThemeOption;
   onThemeChange: (t: ThemeOption) => void;
+  editorThemeId: string;
+  onEditorThemeChange: (id: string) => void;
   islandLayout: boolean;
   onIslandLayoutChange: (enabled: boolean) => void;
   autoGroupTools: boolean;
@@ -33,6 +36,8 @@ interface AppearanceSettingsProps {
 export const AppearanceSettings = memo(function AppearanceSettings({
   theme,
   onThemeChange,
+  editorThemeId,
+  onEditorThemeChange,
   islandLayout,
   onIslandLayoutChange,
   autoGroupTools,
@@ -84,6 +89,58 @@ export const AppearanceSettings = memo(function AppearanceSettings({
                 ]}
               />
             </SettingRow>
+          </div>
+
+          <div className="border-t border-foreground/[0.04] py-3">
+            <div className="mb-1 flex items-center gap-2">
+              <Palette className="h-4 w-4 text-muted-foreground" />
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Editor Theme
+              </span>
+            </div>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Syntax highlighting and editor color scheme
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {BUILTIN_THEMES.map((t) => {
+                const isActive = t.id === editorThemeId;
+                const bg = t.ui.background || "#1e1e2e";
+                const fg = t.ui.foreground || "#cdd6f4";
+                const accent = t.ui.primary || "#cba6f7";
+                const muted = t.ui.mutedForeground || "#6c7086";
+                const secondary = t.ui.secondary || "#313244";
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => onEditorThemeChange(t.id)}
+                    className={`relative overflow-hidden rounded-lg border-2 p-2 text-left transition-all ${
+                      isActive
+                        ? "border-primary shadow-[0_0_12px_-3px] shadow-primary/30"
+                        : "border-transparent hover:border-foreground/10"
+                    }`}
+                    style={{ backgroundColor: bg }}
+                  >
+                    {isActive && (
+                      <div className="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full" style={{ backgroundColor: accent }}>
+                        <Check className="h-2.5 w-2.5" style={{ color: bg }} />
+                      </div>
+                    )}
+                    <div className="mb-2 flex gap-1">
+                      {[accent, fg, muted, secondary].map((c, i) => (
+                        <div key={i} className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c }} />
+                      ))}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="h-1 w-[70%] rounded-full" style={{ backgroundColor: fg, opacity: 0.6 }} />
+                      <div className="h-1 w-[50%] rounded-full" style={{ backgroundColor: accent, opacity: 0.5 }} />
+                      <div className="h-1 w-[60%] rounded-full" style={{ backgroundColor: muted, opacity: 0.4 }} />
+                    </div>
+                    <p className="mt-2 text-[10px] font-medium" style={{ color: fg }}>{t.name}</p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* ── Tools section ── */}

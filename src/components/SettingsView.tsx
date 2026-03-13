@@ -27,6 +27,7 @@ import { AnalyticsSettings } from "@/components/settings/AnalyticsSettings";
 import { isMac } from "@/lib/utils";
 import type { InstalledAgent, ThemeOption } from "@/types";
 import type { AppSettings } from "@/types/ui";
+import { useEditorTheme } from "@/hooks/useEditorTheme";
 
 // ── Section definitions ──
 
@@ -114,6 +115,7 @@ export const SettingsView = memo(function SettingsView({
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const macIslandTitlebarOffsetClass = "";
+  const { currentThemeId, setTheme: setEditorTheme } = useEditorTheme();
 
   // ── Main-process app settings (loaded once, updated optimistically) ──
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -153,6 +155,8 @@ export const SettingsView = memo(function SettingsView({
           <AppearanceSettings
             theme={theme}
             onThemeChange={onThemeChange}
+            editorThemeId={currentThemeId}
+            onEditorThemeChange={setEditorTheme}
             islandLayout={islandLayout}
             onIslandLayoutChange={onIslandLayoutChange}
             autoGroupTools={autoGroupTools}
