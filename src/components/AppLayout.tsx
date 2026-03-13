@@ -550,7 +550,7 @@ Link: ${issue.url}`;
         pane0SessionId={splitMode ? manager.activeSessionId : null}
         pane1SessionId={splitMode ? pane1.sessionId : null}
       />
-      {!sidebar.isOpen && (
+      {!sidebar.isOpen && workspaceMode === "code" && (
         <div className="pointer-events-none absolute start-3 top-3 z-40">
           <Button
             variant="ghost"
