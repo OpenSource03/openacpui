@@ -166,10 +166,12 @@ export function useSessionPersistence({
     const unsubExit = window.claude.onExit((data) => handleSessionExit(data._sessionId));
     const unsubAcpExit = window.claude.acp.onExit((data: { _sessionId: string; code: number | null }) => handleSessionExit(data._sessionId));
     const unsubCodexExit = window.claude.codex.onExit((data) => handleSessionExit(data._sessionId));
+    const unsubOpenclawExit = window.claude.openclaw.onExit((data) => handleSessionExit(data._sessionId));
     return () => {
       unsubExit();
       unsubAcpExit();
       unsubCodexExit();
+      unsubOpenclawExit();
     };
   }, []);
 
@@ -294,7 +296,13 @@ export function useSessionPersistence({
       });
     });
 
-    return () => { unsub(); unsubAcp(); unsubBgPerm(); unsubBgAcpPerm(); unsubBgAcpTurn(); unsubCodex(); unsubCodexApproval(); };
+    const unsubOpenClaw = window.claude.openclaw.onEvent((event) => {
+      const sid = event._sessionId;
+      if (!sid || sid === activeSessionIdRef.current) return;
+      backgroundStoreRef.current.handleOpenClawEvent(event);
+    });
+
+    return () => { unsub(); unsubAcp(); unsubBgPerm(); unsubBgAcpPerm(); unsubBgAcpTurn(); unsubCodex(); unsubCodexApproval(); unsubOpenClaw(); };
   }, []);
 
   // Debounced auto-save

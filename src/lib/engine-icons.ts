@@ -5,6 +5,7 @@ import type { EngineId } from "@shared/types/engine";
 export const ENGINE_ICONS: Record<string, string> = {
   claude: "https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg",
   codex: "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
+  openclaw: "Lobster",
 };
 
 /** Resolve the icon source for an agent — engine CDN icons override agent-level icons */
@@ -19,8 +20,11 @@ export function getSessionEngineIcon(
   agents?: InstalledAgent[],
 ): string | undefined {
   const effectiveEngine = engine ?? "claude";
-  if (effectiveEngine !== "acp") {
+  if (effectiveEngine !== "acp" && effectiveEngine !== "openclaw") {
     return ENGINE_ICONS[effectiveEngine];
+  }
+  if (effectiveEngine === "openclaw") {
+    return ENGINE_ICONS.openclaw;
   }
   if (agentId && agents) {
     const agent = agents.find((a) => a.id === agentId);

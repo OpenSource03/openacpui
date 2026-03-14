@@ -295,6 +295,7 @@ function PlanModeToggle({
 function EngineControls({
   isCodexAgent,
   isACPAgent,
+  isOpenClawAgent,
   isProcessing,
   showACPConfigOptions,
   modelList,
@@ -321,6 +322,7 @@ function EngineControls({
 }: {
   isCodexAgent: boolean;
   isACPAgent: boolean;
+  isOpenClawAgent: boolean;
   isProcessing: boolean;
   showACPConfigOptions: boolean;
   modelList: Array<{ id: string; label: string; description?: string }>;
@@ -389,6 +391,14 @@ function EngineControls({
         )}
         <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
         <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} showDetails />
+      </>
+    );
+  }
+
+  if (isOpenClawAgent) {
+    return (
+      <>
+        <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
       </>
     );
   }
@@ -769,6 +779,7 @@ export const InputBar = memo(function InputBar({
     : [];
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
   const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
+  const isOpenClawAgent = selectedAgent != null && selectedAgent.engine === "openclaw";
   const showACPConfigOptions = isACPAgent && (acpConfigOptions?.length ?? 0) > 0;
   const isAwaitingAcpOptions = isACPAgent && !!acpConfigOptionsLoading;
   const modelsLoading = modelList.length === 0;
@@ -1700,6 +1711,7 @@ export const InputBar = memo(function InputBar({
             <EngineControls
               isCodexAgent={isCodexAgent}
               isACPAgent={isACPAgent}
+              isOpenClawAgent={isOpenClawAgent}
               isProcessing={isProcessing}
               showACPConfigOptions={showACPConfigOptions}
               modelList={modelList}

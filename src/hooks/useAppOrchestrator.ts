@@ -555,6 +555,14 @@ export function useAppOrchestrator() {
       return;
     }
 
+    if (session.engine === "openclaw") {
+      const openclawAgent = agents.find((a) => a.engine === "openclaw");
+      if (openclawAgent && selectedAgent?.id !== openclawAgent.id) {
+        setSelectedAgent(openclawAgent);
+      }
+      return;
+    }
+
     if (selectedAgent !== null) {
       setSelectedAgent(null);
     }
@@ -628,7 +636,7 @@ export function useAppOrchestrator() {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "p") {
         e.preventDefault();
         const engine = manager.activeSession?.engine ?? selectedAgent?.engine ?? "claude";
-        if (engine === "acp") return;
+        if (engine === "acp" || engine === "openclaw") return;
         const next = !settings.planMode;
         settings.setPlanMode(next);
         manager.setActivePlanMode(next);
