@@ -3,6 +3,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   memo,
   type KeyboardEvent,
 } from "react";
@@ -535,6 +536,7 @@ const FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24
 
 interface InputBarProps {
   onSend: (text: string, images?: ImageAttachment[], displayText?: string) => void;
+  onClear?: () => void | Promise<void>;
   onStop: () => void;
   isProcessing: boolean;
   model: string;
@@ -578,6 +580,39 @@ interface InputBarProps {
   onRemoveGrabbedElement?: (id: string) => void;
   /** Controls width profile for island vs flat layout */
   isIslandLayout?: boolean;
+}
+
+export const LOCAL_CLEAR_COMMAND: SlashCommand = {
+  name: "clear",
+  description: "Open a new chat without sending anything to the agent",
+  argumentHint: "",
+  source: "local",
+};
+
+export function getAvailableSlashCommands(slashCommands?: SlashCommand[]): SlashCommand[] {
+  const commands = slashCommands?.filter((cmd) => cmd.name !== LOCAL_CLEAR_COMMAND.name) ?? [];
+  return [LOCAL_CLEAR_COMMAND, ...commands];
+}
+
+export function isClearCommandText(text: string): boolean {
+  return text.trim() === `/${LOCAL_CLEAR_COMMAND.name}`;
+}
+
+export function getSlashCommandReplacement(cmd: SlashCommand): string {
+  switch (cmd.source) {
+    case "claude":
+    case "acp":
+      return `/${cmd.name} `;
+    case "codex-skill":
+      return cmd.defaultPrompt
+        ? `$${cmd.name} ${cmd.defaultPrompt}`
+        : `$${cmd.name} `;
+    case "codex-app":
+      return `$${cmd.appSlug ?? cmd.name} `;
+    case "local":
+      // Local commands execute directly, so keep the exact command text with no trailing space.
+      return `/${cmd.name}`;
+  }
 }
 
 // Simple fuzzy match: all query chars must appear in order
@@ -688,6 +723,7 @@ function extractEditableContent(el: HTMLElement): { text: string; mentionPaths: 
 
 export const InputBar = memo(function InputBar({
   onSend,
+  onClear,
   onStop,
   isProcessing,
   model,
@@ -758,6 +794,10 @@ export const InputBar = memo(function InputBar({
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
   const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
   const showACPConfigOptions = isACPAgent && (acpConfigOptions?.length ?? 0) > 0;
+  const availableSlashCommands = useMemo(
+    () => getAvailableSlashCommands(slashCommands),
+    [slashCommands],
+  );
   const isAwaitingAcpOptions = isACPAgent && !!acpConfigOptionsLoading;
   const modelsLoading = modelList.length === 0;
   const modelsLoadingText = isCodexAgent
@@ -885,10 +925,10 @@ export const InputBar = memo(function InputBar({
 
   // Slash command filtered results
   const cmdResults = (() => {
-    if (!showCommands || !slashCommands?.length) return [];
+    if (!showCommands || availableSlashCommands.length === 0) return [];
     const q = commandQuery.toLowerCase();
-    if (!q) return slashCommands.slice(0, 15);
-    return slashCommands
+    if (!q) return availableSlashCommands.slice(0, 15);
+    return availableSlashCommands
       .filter(cmd => cmd.name.toLowerCase().includes(q) || cmd.description.toLowerCase().includes(q))
       .slice(0, 15);
   })();
@@ -914,6 +954,15 @@ export const InputBar = memo(function InputBar({
     mentionStartNode.current = null;
     mentionStartOffset.current = 0;
   }, []);
+
+  const clearComposer = useCallback((el: HTMLDivElement) => {
+    el.innerHTML = "";
+    hasContentRef.current = false;
+    setHasContent(false);
+    setAttachments([]);
+    closeMentions();
+    setShowCommands(false);
+  }, [closeMentions]);
 
   const addImageFiles = useCallback(async (files: FileList | globalThis.File[]) => {
     const validFiles = Array.from(files).filter(isAcceptedImage);
@@ -941,24 +990,7 @@ export const InputBar = memo(function InputBar({
     const el = editableRef.current;
     if (!el) return;
 
-    // Build the replacement text based on source engine
-    let replacement: string;
-    switch (cmd.source) {
-      case "claude":
-      case "acp":
-        replacement = `/${cmd.name} `;
-        break;
-      case "codex-skill":
-        replacement = cmd.defaultPrompt
-          ? `$${cmd.name} ${cmd.defaultPrompt}`
-          : `$${cmd.name} `;
-        break;
-      case "codex-app":
-        replacement = `$${cmd.appSlug ?? cmd.name} `;
-        break;
-    }
-
-    el.textContent = replacement;
+    el.textContent = getSlashCommandReplacement(cmd);
 
     // Move cursor to end
     const range = document.createRange();
@@ -1035,6 +1067,15 @@ export const InputBar = memo(function InputBar({
     const grabbedElementDisplayTokens: string[] = [];
     let hasContext = false;
 
+    if (isClearCommandText(trimmed)) {
+      try {
+        await onClear?.();
+      } finally {
+        clearComposer(el);
+      }
+      return;
+    }
+
     // File mentions → <file>/<folder> context blocks
     if (mentionPaths.length > 0 && projectPath) {
       setIsSending(true);
@@ -1104,13 +1145,8 @@ export const InputBar = memo(function InputBar({
       onSend(trimmed, currentImages);
     }
 
-    // Clear input
-    el.innerHTML = "";
-    hasContentRef.current = false;
-    setHasContent(false);
-    setAttachments([]);
-    closeMentions();
-  }, [attachments, isAwaitingAcpOptions, isSending, projectPath, onSend, closeMentions, grabbedElements]);
+    clearComposer(el);
+  }, [attachments, isAwaitingAcpOptions, isSending, projectPath, onSend, onClear, clearComposer, grabbedElements]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // Slash command picker keyboard navigation
@@ -1245,14 +1281,14 @@ export const InputBar = memo(function InputBar({
     // Slash command detection — "/" at position 0 with no spaces (still typing the command name)
     const fullText = (el.textContent ?? "").trimStart();
     const slashMatch = fullText.match(/^\/(\S*)$/);
-    if (slashMatch && slashCommands?.length) {
+    if (slashMatch && availableSlashCommands.length > 0) {
       setShowCommands(true);
       setCommandQuery(slashMatch[1]);
       setCommandIndex(0);
     } else if (showCommands) {
       setShowCommands(false);
     }
-  }, [showMentions, showCommands, closeMentions, projectPath, slashCommands]);
+  }, [showMentions, showCommands, closeMentions, projectPath, availableSlashCommands]);
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -1433,7 +1469,7 @@ export const InputBar = memo(function InputBar({
                   ? "Loading agent options..."
                 : isProcessing
                   ? `${selectedAgent?.name ?? "Claude"} is responding... (messages will be queued)`
-                  : slashCommands?.length
+                  : availableSlashCommands.length > 0
                     ? "Ask anything, @ to tag files, / for commands"
                     : "Ask anything, @ to tag files"}
             </div>

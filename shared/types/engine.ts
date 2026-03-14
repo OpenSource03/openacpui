@@ -10,7 +10,7 @@ export interface SlashCommand {
   /** Placeholder hint for arguments (e.g., "<query>"), shown grayed after the command name. */
   argumentHint?: string;
   /** Engine-specific source type — used for execution routing. */
-  source: "claude" | "acp" | "codex-skill" | "codex-app";
+  source: "claude" | "acp" | "codex-skill" | "codex-app" | "local";
   /** For Codex skills: auto-fill text after the prefix. */
   defaultPrompt?: string;
   /** For Codex apps: the app slug for $app-slug prefix. */
