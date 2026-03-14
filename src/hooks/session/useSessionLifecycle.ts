@@ -37,10 +37,10 @@ interface UseSessionLifecycleParams {
   abandonEagerSession: (reason?: string) => void;
   abandonDraftAcpSession: (reason?: string) => void;
   materializeDraft: (text: string, images?: ImageAttachment[], displayText?: string) => Promise<string>;
-  reviveSession: (text: string, images?: ImageAttachment[], displayText?: string) => Promise<void>;
-  reviveAcpSession: (text: string, images?: ImageAttachment[], displayText?: string) => Promise<void>;
-  reviveCodexSession: (text: string, images?: ImageAttachment[]) => Promise<void>;
-  enqueueMessage: (text: string, images?: ImageAttachment[], displayText?: string) => void;
+  reviveSession: (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => Promise<void>;
+  reviveAcpSession: (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => Promise<void>;
+  reviveCodexSession: (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => Promise<void>;
+  enqueueMessage: (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => void;
   clearQueue: () => void;
   resetCodexEffortToModelDefault: (effort: string | undefined) => void;
 }
@@ -1210,6 +1210,7 @@ export function useSessionLifecycle({
               timestamp: Date.now(),
               ...(images?.length ? { images } : {}),
               ...(displayText ? { displayContent: displayText } : {}),
+              ...(codeSnippets?.length ? { codeSnippets } : {}),
             },
           ]);
           codex.setIsProcessing(true);
@@ -1289,6 +1290,7 @@ export function useSessionLifecycle({
               timestamp: Date.now(),
               ...(images?.length ? { images } : {}),
               ...(displayText ? { displayContent: displayText } : {}),
+              ...(codeSnippets?.length ? { codeSnippets } : {}),
             },
           ]);
         }
@@ -1300,7 +1302,7 @@ export function useSessionLifecycle({
       const activeSessionEngine = sessionsRef.current.find(s => s.id === activeId)?.engine ?? "claude";
       if (isProcessingRef.current && liveSessionIdsRef.current.has(activeId)) {
         trackMessageSent(activeSessionEngine === "acp" ? activeId : undefined);
-        enqueueMessage(text, images, displayText);
+        enqueueMessage(text, images, displayText, codeSnippets);
         return;
       }
 
@@ -1310,7 +1312,7 @@ export function useSessionLifecycle({
           await acp.send(text, images, displayText, codeSnippets);
           return;
         }
-        await reviveAcpSession(text, images, displayText);
+        await reviveAcpSession(text, images, displayText, codeSnippets);
         return;
       }
 
@@ -1335,10 +1337,10 @@ export function useSessionLifecycle({
             ]);
             return;
           }
-          await codex.send(text, images, displayText, codexCollabMode);
+          await codex.send(text, images, displayText, codexCollabMode, codeSnippets);
           return;
         }
-        await reviveCodexSession(text, images);
+        await reviveCodexSession(text, images, undefined, codeSnippets);
         return;
       }
 
@@ -1349,7 +1351,7 @@ export function useSessionLifecycle({
       }
 
       if (activeSessionIdRef.current !== DRAFT_ID) {
-        await reviveSession(text, images, displayText);
+        await reviveSession(text, images, displayText, codeSnippets);
         return;
       }
     },

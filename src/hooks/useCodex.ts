@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { TodoItem, PermissionBehavior, ModelInfo, ImageAttachment, SessionMeta, SlashCommand } from "@/types";
+import type { TodoItem, PermissionBehavior, ModelInfo, ImageAttachment, SessionMeta, SlashCommand, CodeSnippet } from "@/types";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "@/types/codex";
 import type { CodexTokenUsageNotification } from "@/types/codex";
 import type { CollaborationMode } from "@/types/codex-protocol/CollaborationMode";
@@ -888,9 +888,8 @@ export function useCodex({
   );
 
   const send = useCallback(
-    async (text: string, images?: ImageAttachment[], displayText?: string, collaborationMode?: CollaborationMode): Promise<boolean> => {
+    async (text: string, images?: ImageAttachment[], displayText?: string, collaborationMode?: CollaborationMode, codeSnippets?: CodeSnippet[]): Promise<boolean> => {
       if (!sessionId) return false;
-      // Add user message to UI immediately
       setMessages((prev) => [
         ...prev,
         {
@@ -900,6 +899,7 @@ export function useCodex({
           timestamp: Date.now(),
           ...(images?.length ? { images } : {}),
           ...(displayText ? { displayContent: displayText } : {}),
+          ...(codeSnippets?.length ? { codeSnippets } : {}),
         },
       ]);
       const ok = await sendRaw(text, images, collaborationMode);

@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { ImageAttachment, Project } from "../../types";
+import type { ImageAttachment, Project, CodeSnippet } from "../../types";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
@@ -52,7 +52,7 @@ export function useSessionRevival({
   } = refs;
 
   const reviveAcpSession = useCallback(
-    async (text: string, images?: ImageAttachment[], displayText?: string) => {
+    async (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => {
       const oldId = activeSessionIdRef.current;
       if (!oldId || oldId === DRAFT_ID) return;
       const session = sessionsRef.current.find((s) => s.id === oldId);
@@ -121,6 +121,7 @@ export function useSessionRevival({
         timestamp: Date.now(),
         ...(images?.length ? { images } : {}),
         ...(displayText ? { displayContent: displayText } : {}),
+        ...(codeSnippets?.length ? { codeSnippets } : {}),
       }]);
       acp.setIsProcessing(true);
       capture("message_sent", {
@@ -145,7 +146,7 @@ export function useSessionRevival({
 
   /** Revive a dead Codex session — spawn new app-server + thread/resume */
   const reviveCodexSession = useCallback(
-    async (text: string, images?: ImageAttachment[]) => {
+    async (text: string, images?: ImageAttachment[], _displayText?: string, codeSnippets?: CodeSnippet[]) => {
       const oldId = activeSessionIdRef.current;
       if (!oldId || oldId === DRAFT_ID) return;
       const session = sessionsRef.current.find((s) => s.id === oldId);
@@ -216,6 +217,7 @@ export function useSessionRevival({
         content: text,
         timestamp: Date.now(),
         ...(images?.length ? { images } : {}),
+        ...(codeSnippets?.length ? { codeSnippets } : {}),
       }]);
       codex.setIsProcessing(true);
       let codexCollabMode: CollaborationMode | undefined;
@@ -255,7 +257,7 @@ export function useSessionRevival({
 
   // Claude SDK revival — resume session to restore conversation context
   const reviveSession = useCallback(
-    async (text: string, images?: ImageAttachment[], displayText?: string) => {
+    async (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => {
       const oldId = activeSessionIdRef.current;
       if (!oldId || oldId === DRAFT_ID) return;
       const session = sessionsRef.current.find((s) => s.id === oldId);
@@ -367,6 +369,7 @@ export function useSessionRevival({
           timestamp: Date.now(),
           ...(images?.length ? { images } : {}),
           ...(displayText ? { displayContent: displayText } : {}),
+          ...(codeSnippets?.length ? { codeSnippets } : {}),
         },
       ]);
     },

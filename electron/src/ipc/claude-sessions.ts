@@ -475,6 +475,9 @@ async function restartSession(
   };
 
   const canUseTool = (toolName: string, input: unknown, context: { toolUseID: string; suggestions: unknown; decisionReason: string }) => {
+    if (newSession.startOptions?.permissionMode === "bypassPermissions") {
+      return Promise.resolve({ behavior: "allow" as const });
+    }
     return new Promise<PermissionResult>((resolve) => {
       const requestId = crypto.randomUUID();
       newSession.pendingPermissions.set(requestId, { resolve });
@@ -567,6 +570,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       sessions.set(sessionId, session);
 
       const canUseTool = (toolName: string, input: unknown, context: { toolUseID: string; suggestions: unknown; decisionReason: string }) => {
+        if (session.startOptions?.permissionMode === "bypassPermissions") {
+          return Promise.resolve({ behavior: "allow" as const });
+        }
         return new Promise<PermissionResult>((resolve) => {
           const requestId = crypto.randomUUID();
           session.pendingPermissions.set(requestId, { resolve });
@@ -735,6 +741,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
     try {
       await session.queryHandle.setPermissionMode(permissionMode);
+      if (session.startOptions) {
+        session.startOptions.permissionMode = permissionMode;
+      }
       log("SET_PERM_MODE", `session=${sessionId.slice(0, 8)} mode=${permissionMode}`);
       return { ok: true };
     } catch (err) {

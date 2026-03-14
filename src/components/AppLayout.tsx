@@ -46,6 +46,10 @@ import { isMac } from "@/lib/utils";
 import { getLanguageFromPath } from "@/lib/languages";
 
 const JIRA_BOARD_BY_SPACE_KEY = "harnss-jira-board-by-space";
+const NOOP = () => {};
+const EMPTY_GRABBED: GrabbedElement[] = [];
+const EMPTY_SLASH: never[] = [];
+const EMPTY_ACP_OPTIONS: never[] = [];
 
 function readJiraBoardBySpace(): Record<string, string> {
   try {
@@ -108,6 +112,9 @@ export function AppLayout() {
     setShowSettings(false);
   }, [setShowSettings]);
 
+
+  const handleFocusPane0 = useCallback(() => handleFocusPane(0), [handleFocusPane]);
+  const handleFocusPane1 = useCallback(() => handleFocusPane(1), [handleFocusPane]);
 
   const [grabbedElements, setGrabbedElements] = useState<GrabbedElement[]>([]);
 
@@ -212,12 +219,14 @@ export function AppLayout() {
     [handleSend],
   );
 
+  const pane1SendRef = useRef(pane1.send);
+  pane1SendRef.current = pane1.send;
   const wrappedPane1Send = useCallback(
     (text: string, images?: Parameters<typeof pane1.send>[1]) => {
-      void pane1.send(text, images);
+      void pane1SendRef.current(text, images);
       setCodeSnippets1([]);
     },
-    [pane1],
+    [],
   );
 
   const handleSidebarNewChat = useCallback(
@@ -616,7 +625,7 @@ Link: ${issue.url}`;
               minWidth: splitMode || showBothWorkspace ? 0 : minChatWidth,
               "--chat-fade-strength": String(chatFadeStrength),
             } as React.CSSProperties}
-            onClick={splitMode ? () => handleFocusPane(0) : undefined}
+            onClick={splitMode ? handleFocusPane0 : undefined}
           >
             {jiraBoardProject ? (
               <JiraBoardPanel
@@ -662,7 +671,7 @@ Link: ${issue.url}`;
                   splitMode={splitMode}
                   paneIndex={0}
                   isActivePane={activePaneIndex === 0}
-                  onActivatePane={() => handleFocusPane(0)}
+                  onActivatePane={handleFocusPane0}
                   onToggleSplit={handleToggleSplit}
                 />
               </div>
@@ -805,7 +814,7 @@ Link: ${issue.url}`;
                 minWidth: 0,
                 "--chat-fade-strength": String(chatFadeStrength),
               } as React.CSSProperties}
-              onClick={() => handleFocusPane(1)}
+              onClick={handleFocusPane1}
             >
               <div
                 className="chat-titlebar-bg pointer-events-none absolute inset-x-0 top-0 z-10"
@@ -830,7 +839,7 @@ Link: ${issue.url}`;
                   splitMode={splitMode}
                   paneIndex={1}
                   isActivePane={activePaneIndex === 1}
-                  onActivatePane={() => handleFocusPane(1)}
+                  onActivatePane={handleFocusPane1}
                   onToggleSplit={handleToggleSplit}
                 />
               </div>
@@ -846,13 +855,13 @@ Link: ${issue.url}`;
                   autoExpandTools={settings.autoExpandTools}
                   extraBottomPadding={!!pane1.pendingPermission}
                   scrollToMessageId={undefined}
-                  onScrolledToMessage={() => {}}
+                  onScrolledToMessage={NOOP}
                   sessionId={pane1.sessionId}
                   onRevert={undefined}
                   onFullRevert={undefined}
-                  onTopScrollProgress={() => {}}
-                  onSendQueuedNow={() => {}}
-                  onUnqueueQueuedMessage={() => {}}
+                  onTopScrollProgress={NOOP}
+                  onSendQueuedNow={NOOP}
+                  onUnqueueQueuedMessage={NOOP}
                   sendNextId={undefined}
                   agents={agents}
                   selectedAgent={selectedAgent}
@@ -885,19 +894,19 @@ Link: ${issue.url}`;
                     agents={agents}
                     selectedAgent={selectedAgent}
                     onAgentChange={handleAgentChange}
-                    slashCommands={[]}
-                    acpConfigOptions={[]}
+                    slashCommands={EMPTY_SLASH}
+                    acpConfigOptions={EMPTY_ACP_OPTIONS}
                     acpConfigOptionsLoading={false}
-                    onACPConfigChange={() => {}}
+                    onACPConfigChange={NOOP}
                     acpPermissionBehavior={settings.acpPermissionBehavior}
                     onAcpPermissionBehaviorChange={settings.setAcpPermissionBehavior}
                     supportedModels={manager.supportedModels}
                     codexModelsLoadingMessage={undefined}
                     codexEffort={undefined}
-                    onCodexEffortChange={() => {}}
+                    onCodexEffortChange={NOOP}
                     codexModelData={undefined}
-                    grabbedElements={[]}
-                    onRemoveGrabbedElement={() => {}}
+                    grabbedElements={EMPTY_GRABBED}
+                    onRemoveGrabbedElement={NOOP}
                     codeSnippets={codeSnippets1}
                     onRemoveCodeSnippet={handleRemoveCodeSnippet1}
                     lockedEngine={lockedEngine}

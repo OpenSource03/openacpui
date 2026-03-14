@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ImageAttachment, UIMessage } from "../../types";
+import type { ImageAttachment, UIMessage, CodeSnippet } from "../../types";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
@@ -69,13 +69,13 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
   }, [messageQueueRef]);
 
   /** Add a message to the queue and show it in chat immediately with isQueued styling */
-  const enqueueMessage = useCallback((text: string, images?: ImageAttachment[], displayText?: string) => {
+  const enqueueMessage = useCallback((text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => {
     const activeId = activeSessionIdRef.current;
     if (!activeId || activeId === DRAFT_ID) return;
 
     const msgId = `user-queued-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const queue = getQueueForSession(activeId);
-    queue.push({ text, images, displayText, messageId: msgId });
+    queue.push({ text, images, displayText, codeSnippets, messageId: msgId });
     setQueuedCount(queue.length);
     engine.setMessages((prev) => [
       ...prev,
@@ -87,6 +87,7 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
         isQueued: true,
         ...(images?.length ? { images } : {}),
         ...(displayText ? { displayContent: displayText } : {}),
+        ...(codeSnippets?.length ? { codeSnippets } : {}),
       },
     ]);
   }, [activeSessionIdRef, engine.setMessages, getQueueForSession, setQueuedCount]);

@@ -1,4 +1,4 @@
-import type { ChatSession, UIMessage, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, ModelInfo, AcpPermissionBehavior, EngineId, Project, SlashCommand, ClaudeEffort, ContextUsage } from "../../types";
+import type { ChatSession, UIMessage, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, ModelInfo, AcpPermissionBehavior, EngineId, Project, SlashCommand, ClaudeEffort, ContextUsage, CodeSnippet } from "../../types";
 import type { ACPConfigOption, ACPPermissionEvent } from "../../types/acp";
 import type { BackgroundSessionStore } from "../../lib/background-session-store";
 import { permissionModeToCodexPolicy, permissionModeToCodexSandbox } from "../../lib/codex-adapter";
@@ -41,7 +41,7 @@ export interface QueuedMessage {
   text: string;
   images?: ImageAttachment[];
   displayText?: string;
-  /** ID of the UIMessage already shown in chat with isQueued: true */
+  codeSnippets?: CodeSnippet[];
   messageId: string;
 }
 

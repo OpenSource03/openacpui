@@ -306,6 +306,7 @@ export const CodeWorkspace = memo(function CodeWorkspace({
   const monacoRef = useRef<MonacoInstance | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
   const diffChangeDisposeRef = useRef<{ dispose: () => void } | null>(null);
+  const cursorDisposeRef = useRef<{ dispose: () => void } | null>(null);
   const pendingLineRef = useRef<number | null>(null);
   const openingPathsRef = useRef(new Set<string>());
   const tabsRef = useRef(tabs);
@@ -331,6 +332,17 @@ export const CodeWorkspace = memo(function CodeWorkspace({
     return `${cwd}/${activeTab.relativePath}`;
   }, [activeTab, cwd]);
 
+  const debouncedContentRef = useRef(activeTab?.content ?? "");
+  const [debouncedContent, setDebouncedContent] = useState(activeTab?.content ?? "");
+  useEffect(() => {
+    const content = activeTab?.content ?? "";
+    debouncedContentRef.current = content;
+    const timer = setTimeout(() => {
+      setDebouncedContent(debouncedContentRef.current);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [activeTab?.content]);
+
   const lineChangeSummary = useMemo(() => {
     if (!activeTab) {
       return {
@@ -341,14 +353,15 @@ export const CodeWorkspace = memo(function CodeWorkspace({
       };
     }
     const baseline = activeTab.gitHeadContent ?? activeTab.savedContent;
-    return computeLineChangeSummary(baseline, activeTab.content);
-  }, [activeTab]);
+    return computeLineChangeSummary(baseline, debouncedContent);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab?.gitHeadContent, activeTab?.savedContent, debouncedContent, activeTab == null]);
 
   const openFile = useCallback(async (absolutePath: string, line?: number) => {
     const nextRelativePath = toRelativePath(cwd, absolutePath);
     if (cwd && !absolutePath.startsWith(`${cwd}/`)) return;
 
-    const existing = tabs.find((tab) => tab.relativePath === nextRelativePath);
+    const existing = tabsRef.current.find((tab) => tab.relativePath === nextRelativePath);
     if (existing) {
       setActiveTabId(existing.id);
       pendingLineRef.current = line ?? null;
@@ -412,7 +425,7 @@ export const CodeWorkspace = memo(function CodeWorkspace({
     } finally {
       openingPathsRef.current.delete(nextRelativePath);
     }
-  }, [cwd, tabs]);
+  }, [cwd]);
 
   useEffect(() => {
     if (!openRequest) return;
@@ -539,7 +552,8 @@ export const CodeWorkspace = memo(function CodeWorkspace({
   const onEditorMount: OnMount = useCallback((editorInstance, monacoInstance) => {
     editorRef.current = editorInstance;
     monacoRef.current = monacoInstance;
-    editorInstance.onDidChangeCursorPosition((e: { position: { lineNumber: number; column: number } }) => {
+    cursorDisposeRef.current?.dispose();
+    cursorDisposeRef.current = editorInstance.onDidChangeCursorPosition((e: { position: { lineNumber: number; column: number } }) => {
       setCursorPosition({ line: e.position.lineNumber, column: e.position.column });
     });
 
@@ -666,6 +680,7 @@ export const CodeWorkspace = memo(function CodeWorkspace({
     return () => {
       clearLineDecorations();
       diffChangeDisposeRef.current?.dispose();
+      cursorDisposeRef.current?.dispose();
     };
   }, [clearLineDecorations]);
 

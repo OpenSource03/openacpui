@@ -9,7 +9,7 @@
  * useClaude instances active simultaneously is safe — they never cross-talk.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import type { ChatSession, UIMessage, PermissionRequest, EngineId } from "@/types";
 import type { AppPermissionBehavior } from "@/types";
 import type { BackgroundSessionState } from "@/lib/background-session-store";
@@ -131,21 +131,37 @@ export function useSecondaryPane(): SecondaryPaneState {
     setInitialMessages([]);
   }, []);
 
-  // Build a no-op respondPermission that satisfies the type when engine lacks it
   const noopRespond: SecondaryPaneState["respondPermission"] = useCallback(async () => {}, []);
+  const noopSend = useCallback(async () => {}, []);
+  const noopVoid = useCallback(() => {}, []);
 
-  return {
+  const engineSendRef = useRef(engine.send);
+  engineSendRef.current = engine.send;
+  const stableSend = useCallback(async (text: string, images?: import("@/types").ImageAttachment[]) => {
+    await engineSendRef.current(text, images);
+  }, []);
+
+  const respondPermission = "respondPermission" in engine ? engine.respondPermission : noopRespond;
+  const send = "send" in engine ? stableSend : noopSend;
+  const stop = "stop" in engine ? engine.stop : noopVoid;
+  const interrupt = "interrupt" in engine ? engine.interrupt : noopVoid;
+
+  return useMemo(() => ({
     sessionId,
     session,
     messages: engine.messages,
     isProcessing: engine.isProcessing,
     isConnected: engine.isConnected,
     pendingPermission: engine.pendingPermission,
-    respondPermission: "respondPermission" in engine ? engine.respondPermission : noopRespond,
-    send: "send" in engine ? async (text: string, images?: import("@/types").ImageAttachment[]) => { await engine.send(text, images); } : async () => {},
-    stop: "stop" in engine ? engine.stop : () => {},
-    interrupt: "interrupt" in engine ? engine.interrupt : () => {},
+    respondPermission,
+    send,
+    stop,
+    interrupt,
     switchSecondarySession,
     clearSecondarySession,
-  };
+  }), [
+    sessionId, session, engine.messages, engine.isProcessing, engine.isConnected,
+    engine.pendingPermission, respondPermission, send, stop, interrupt,
+    switchSecondarySession, clearSecondarySession,
+  ]);
 }
