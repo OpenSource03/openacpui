@@ -1046,6 +1046,7 @@ export const InputBar = memo(function InputBar({
       // Check if @# was used (deep folder mode)
       const deletedText = range.toString();
       const isDeepMode = deletedText.startsWith("@#");
+      const isDeepDir = isDeepMode && entry.isDir;
 
       range.deleteContents();
 
@@ -1056,13 +1057,13 @@ export const InputBar = memo(function InputBar({
         "mention-chip inline-flex items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-xs text-accent-foreground font-mono align-baseline cursor-default select-none";
       chip.setAttribute("data-mention-path", entry.path);
       chip.setAttribute("data-mention-dir", String(entry.isDir));
-      if (isDeepMode) {
+      if (isDeepDir) {
         chip.setAttribute("data-mention-deep", "true");
         // Add visual distinction for deep mode with a different background
         chip.className =
           "mention-chip inline-flex items-center gap-1 rounded-md bg-primary/60 px-1.5 py-0.5 text-xs text-primary-foreground font-mono align-baseline cursor-default select-none";
       }
-      chip.innerHTML = `${entry.isDir ? FOLDER_ICON_SVG : FILE_ICON_SVG}<span>${isDeepMode && entry.isDir ? "#" : ""}${entry.path}</span>`;
+      chip.innerHTML = `${entry.isDir ? FOLDER_ICON_SVG : FILE_ICON_SVG}<span>${isDeepDir ? "#" : ""}${entry.path}</span>`;
 
       // Insert chip at cursor
       range.insertNode(chip);
