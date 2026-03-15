@@ -20,8 +20,10 @@ import {
   MicOff,
   Paperclip,
   Pencil,
+  Search,
   Shield,
   Square,
+  Star,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,12 +32,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -125,6 +129,79 @@ function ModelDropdown({
   modelsLoading: boolean;
   modelsLoadingText: string;
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [favoriteModels, setFavoriteModels] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("harnss-favorite-models");
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (dropdownOpen) {
+      // Small delay to ensure the dropdown is fully rendered
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 0);
+    } else {
+      setSearchQuery("");
+    }
+  }, [dropdownOpen]);
+
+  // Persist favorites to localStorage
+  useEffect(() => {
+    localStorage.setItem("harnss-favorite-models", JSON.stringify([...favoriteModels]));
+  }, [favoriteModels]);
+
+  const toggleFavorite = useCallback((modelId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFavoriteModels((prev) => {
+      const next = new Set(prev);
+      if (next.has(modelId)) {
+        next.delete(modelId);
+      } else {
+        next.add(modelId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Filter and sort models
+  const filteredModels = useMemo(() => {
+    let filtered = modelList;
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      filtered = modelList.filter((m) => {
+        const labelMatch = fuzzyMatch(searchQuery, m.label);
+        const descMatch = m.description ? fuzzyMatch(searchQuery, m.description) : { match: false, score: 0 };
+        return labelMatch.match || descMatch.match;
+      }).sort((a, b) => {
+        const aLabelMatch = fuzzyMatch(searchQuery, a.label);
+        const aDescMatch = a.description ? fuzzyMatch(searchQuery, a.description) : { match: false, score: 0 };
+        const bLabelMatch = fuzzyMatch(searchQuery, b.label);
+        const bDescMatch = b.description ? fuzzyMatch(searchQuery, b.description) : { match: false, score: 0 };
+        const aScore = Math.max(aLabelMatch.score, aDescMatch.score);
+        const bScore = Math.max(bLabelMatch.score, bDescMatch.score);
+        return bScore - aScore;
+      });
+    }
+
+    // Sort favorites to the top
+    return filtered.sort((a, b) => {
+      const aFav = favoriteModels.has(a.id);
+      const bFav = favoriteModels.has(b.id);
+      if (aFav && !bFav) return -1;
+      if (!aFav && bFav) return 1;
+      return 0;
+    });
+  }, [modelList, searchQuery, favoriteModels]);
+
   if (modelsLoading) {
     return (
       <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
@@ -137,7 +214,7 @@ function ModelDropdown({
     ? activeEffort
     : undefined;
   return (
-    <DropdownMenu>
+    <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
       <DropdownMenuTrigger asChild>
         <button
           className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -152,60 +229,101 @@ function ModelDropdown({
           <ChevronDown className="h-3 w-3" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {modelList.map((m) => {
-          const effortOptions = effortOptionsByModel?.[m.id] ?? [];
-          if (effortOptions.length > 0 && onModelEffortChange) {
-            const isSelected = m.id === selectedModelId;
+      <DropdownMenuContent align="start" className="w-80">
+        <div className="relative mb-1 px-1">
+          <Search className="absolute left-3 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search models..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-8 pl-8 text-xs"
+            onKeyDown={(e) => {
+              // Prevent dropdown from closing on Enter
+              if (e.key === "Enter") {
+                e.preventDefault();
+              }
+            }}
+          />
+        </div>
+        {favoriteModels.size > 0 && !searchQuery && <DropdownMenuLabel className="text-[10px] text-muted-foreground">Favorites</DropdownMenuLabel>}
+        {filteredModels.length === 0 ? (
+          <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+            No models found
+          </div>
+        ) : (
+          filteredModels.map((m) => {
+            const effortOptions = effortOptionsByModel?.[m.id] ?? [];
+            const isFavorite = favoriteModels.has(m.id);
+            if (effortOptions.length > 0 && onModelEffortChange) {
+              const isSelected = m.id === selectedModelId;
+              return (
+                <DropdownMenuSub key={m.id}>
+                  <DropdownMenuSubTrigger className={isSelected ? "bg-accent" : ""}>
+                    <div className="flex flex-1 items-center gap-2">
+                      <button
+                        onClick={(e) => toggleFavorite(m.id, e)}
+                        className="shrink-0 transition-colors hover:text-amber-500"
+                      >
+                        <Star className={`h-3 w-3 ${isFavorite ? "fill-amber-500 text-amber-500" : ""}`} />
+                      </button>
+                      <div className="flex-1">
+                        <div>{m.label}</div>
+                        {m.description && (
+                          <div className="text-[10px] text-muted-foreground">{m.description}</div>
+                        )}
+                      </div>
+                    </div>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-56">
+                    {effortOptions.map((effort) => {
+                      const isActive = isSelected && effort === activeEffort;
+                      return (
+                        <DropdownMenuItem
+                          key={`${m.id}-${effort}`}
+                          onClick={() => onModelEffortChange(m.id, effort)}
+                          className={isActive ? "bg-accent" : ""}
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="capitalize">{effort}</span>
+                              {isActive && <span className="text-[10px] text-muted-foreground">Current</span>}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">{CLAUDE_EFFORT_DESCRIPTIONS[effort]}</div>
+                          </div>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              );
+            }
+
             return (
-              <DropdownMenuSub key={m.id}>
-                <DropdownMenuSubTrigger className={isSelected ? "bg-accent" : ""}>
-                  <div>
+              <DropdownMenuItem
+                key={m.id}
+                onClick={() => onModelChange(m.id)}
+                className={m.id === selectedModelId ? "bg-accent" : ""}
+              >
+                <div className="flex flex-1 items-center gap-2">
+                  <button
+                    onClick={(e) => toggleFavorite(m.id, e)}
+                    className="shrink-0 transition-colors hover:text-amber-500"
+                  >
+                    <Star className={`h-3 w-3 ${isFavorite ? "fill-amber-500 text-amber-500" : ""}`} />
+                  </button>
+                  <div className="flex-1">
                     <div>{m.label}</div>
                     {m.description && (
                       <div className="text-[10px] text-muted-foreground">{m.description}</div>
                     )}
                   </div>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-56">
-                  {effortOptions.map((effort) => {
-                    const isActive = isSelected && effort === activeEffort;
-                    return (
-                      <DropdownMenuItem
-                        key={`${m.id}-${effort}`}
-                        onClick={() => onModelEffortChange(m.id, effort)}
-                        className={isActive ? "bg-accent" : ""}
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="capitalize">{effort}</span>
-                            {isActive && <span className="text-[10px] text-muted-foreground">Current</span>}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">{CLAUDE_EFFORT_DESCRIPTIONS[effort]}</div>
-                        </div>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+                </div>
+              </DropdownMenuItem>
             );
-          }
-
-          return (
-            <DropdownMenuItem
-              key={m.id}
-              onClick={() => onModelChange(m.id)}
-              className={m.id === selectedModelId ? "bg-accent" : ""}
-            >
-              <div>
-                <div>{m.label}</div>
-                {m.description && (
-                  <div className="text-[10px] text-muted-foreground">{m.description}</div>
-                )}
-              </div>
-            </DropdownMenuItem>
-          );
-        })}
+          })
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
