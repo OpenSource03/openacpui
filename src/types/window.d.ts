@@ -81,6 +81,7 @@ declare global {
       revertFiles: (sessionId: string, checkpointId: string) => Promise<{ ok?: boolean; error?: string }>;
       restartSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string, effort?: ClaudeEffort, model?: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
+      writeClipboardText: (text: string) => Promise<{ ok?: boolean; error?: string }>;
       openInEditor: (filePath: string, line?: number, editor?: string) => Promise<{ ok?: boolean; editor?: string; error?: string }>;
       openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
       generateTitle: (

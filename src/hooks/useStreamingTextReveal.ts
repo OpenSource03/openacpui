@@ -49,12 +49,21 @@ function hasUnbalancedBackticks(markdown: string): boolean {
   return false;
 }
 
-function hasCodeAncestor(node: Node, stopAt: Element): boolean {
+/** Tags whose internal DOM structure is volatile during streaming and
+ *  should never be subject to text-node splitting / span injection. */
+const STRUCTURAL_TAGS = new Set([
+  "CODE", "PRE",
+  "TABLE", "THEAD", "TBODY", "TR", "TD", "TH",
+  "UL", "OL",
+  "BLOCKQUOTE",
+  "DL", "DT", "DD",
+]);
+
+function hasStructuralAncestor(node: Node, stopAt: Element): boolean {
   let current: Node | null = node.parentNode;
   while (current && current !== stopAt) {
-    if (current instanceof HTMLElement) {
-      const tag = current.tagName;
-      if (tag === "CODE" || tag === "PRE") return true;
+    if (current instanceof HTMLElement && STRUCTURAL_TAGS.has(current.tagName)) {
+      return true;
     }
     current = current.parentNode;
   }
@@ -124,12 +133,14 @@ export function useStreamingTextReveal(isStreaming: boolean | undefined, markdow
 
     const container = proseRef.current;
 
-    // Step 2: identify the last animatable block (skip code blocks / not-prose)
+    // Step 2: identify the last animatable block.
+    // Skip code blocks, tables, lists, blockquotes, and other structural elements
+    // whose internal DOM changes during streaming and can desync React's reconciler.
     let lastBlock: Element | null = null;
     for (let i = container.children.length - 1; i >= 0; i--) {
       const child = container.children[i] as HTMLElement;
       if (child.classList?.contains("not-prose")) continue;
-      if (child.tagName === "PRE") continue;
+      if (STRUCTURAL_TAGS.has(child.tagName)) continue;
       lastBlock = child;
       break;
     }
@@ -162,8 +173,8 @@ export function useStreamingTextReveal(isStreaming: boolean | undefined, markdow
     // Step 3: find the deepest last text node inside the block
     const textNode = getDeepLastTextNode(lastBlock);
     if (!textNode || !textNode.parentNode) return;
-    // Avoid splitting inside <code> where markdown structure can still shift.
-    if (hasCodeAncestor(textNode, lastBlock)) return;
+    // Avoid splitting inside structural elements where markdown structure can still shift.
+    if (hasStructuralAncestor(textNode, lastBlock)) return;
 
     const nodeText = textNode.textContent ?? "";
     // Safe path: appended block text must be entirely represented by the tail

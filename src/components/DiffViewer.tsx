@@ -7,6 +7,7 @@ import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { OpenInEditorButton } from "./OpenInEditorButton";
 import { getLanguageFromPath, INLINE_HIGHLIGHT_STYLE, INLINE_CODE_TAG_STYLE } from "@/lib/languages";
 import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
+import { copyToClipboard } from "@/lib/clipboard";
 import { highlightToLines } from "@/lib/syntax-highlight";
 
 // ── Types ──
@@ -179,10 +180,12 @@ export const DiffViewer = memo(function DiffViewer({ oldString, newString, fileP
     setExpandedSections((prev) => new Set(prev).add(sectionIdx));
   }, []);
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(newString);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handleCopy = useCallback(async () => {
+    const ok = await copyToClipboard(newString);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
   }, [newString]);
 
   return (

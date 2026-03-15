@@ -40,6 +40,7 @@
     "electron-liquid-glass": "^1.1.1",
     "electron-updater": "^6.8.3",
     "konva": "^10.2.0",
+    "mermaid": "^11.13.0",
     "motion": "^12.34.3",
     "node-pty": "^1.1.0",
     "posthog-js": "^1.360.0",

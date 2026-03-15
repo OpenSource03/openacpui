@@ -454,14 +454,18 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           const textContent = extractTextContent(event.message.content);
           const thinkingContent = extractThinkingContent(event.message.content);
 
+          // Capture messageId NOW — message_stop may call resetStreaming() and
+          // clear buffer.current.messageId before React processes this updater.
+          // (Same pattern as message_delta at line 416.)
+          const capturedStreamId = buffer.current.messageId;
+
           setMessages((prev) => {
-            const streamId = buffer.current.messageId;
-            const target = streamId
-              ? prev.find((m) => m.id === streamId)
+            const target = capturedStreamId
+              ? prev.find((m) => m.id === capturedStreamId)
               : prev.findLast((m) => m.role === "assistant" && m.isStreaming);
 
             if (target) {
-              if (!streamId) buffer.current.messageId = target.id;
+              if (!capturedStreamId) buffer.current.messageId = target.id;
               const merged = {
                 ...target,
                 content: textContent || target.content,

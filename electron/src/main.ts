@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, session, shell, systemPreferences } from "electron";
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
@@ -154,6 +154,15 @@ function createWindow(): void {
 // Renderer uses this to decide whether the transparency toggle is available.
 ipcMain.handle("app:getGlassSupported", () => {
   return !!(glassEnabled || process.platform === "win32");
+});
+
+ipcMain.handle("clipboard:write-text", (_event, text: string) => {
+  try {
+    clipboard.writeText(text);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: reportError("CLIPBOARD_WRITE", err) };
+  }
 });
 
 // Dynamic minimum window width — renderer calculates based on which panels are open.

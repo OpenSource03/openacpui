@@ -21,6 +21,7 @@ import {
   isWithinBottomLockThreshold,
   shouldUnlockBottomLock,
 } from "@/lib/chat-scroll";
+import { CHAT_CONTENT_RESIZED_EVENT } from "@/lib/events";
 
 const LARGE_CHAT_THRESHOLD = 300;
 const SESSION_SWITCH_TAIL_COUNT = 80;
@@ -342,6 +343,17 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     userScrollIntentUntilRef.current = 0;
     scheduleSettleToBottom({ force: true });
   }, [sessionId, scheduleSettleToBottom]);
+
+  useEffect(() => {
+    const handleAsyncContentResize = () => {
+      scheduleSettleToBottom();
+    };
+
+    window.addEventListener(CHAT_CONTENT_RESIZED_EVENT, handleAsyncContentResize);
+    return () => {
+      window.removeEventListener(CHAT_CONTENT_RESIZED_EVENT, handleAsyncContentResize);
+    };
+  }, [scheduleSettleToBottom]);
 
   // ResizeObserver on the scroll viewport + content: catches both content growth
   // and late layout changes that alter the visible viewport height on open.
