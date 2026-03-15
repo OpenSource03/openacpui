@@ -4,10 +4,31 @@ import crypto from "crypto";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { reportError } from "../lib/error-utils";
-import { getAppSetting } from "../lib/app-settings";
+import { getAppSetting, setAppSettings } from "../lib/app-settings";
 
 function getGatewayUrl(): string {
   return getAppSetting("openclawGatewayUrl") || "ws://127.0.0.1:18789";
+}
+
+function getDeviceId(): string {
+  let id = getAppSetting("openclawDeviceId");
+  if (!id) {
+    id = `harnss-${crypto.randomUUID()}`;
+    setAppSettings({ openclawDeviceId: id });
+  }
+  return id;
+}
+
+function buildAuthParams(): Record<string, unknown> {
+  const auth: Record<string, unknown> = {};
+  const token = getAppSetting("openclawGatewayToken");
+  const deviceToken = getAppSetting("openclawDeviceToken");
+  if (deviceToken) {
+    auth.deviceToken = deviceToken;
+  } else if (token) {
+    auth.token = token;
+  }
+  return Object.keys(auth).length > 0 ? { auth } : {};
 }
 
 interface OpenClawSession {
@@ -142,12 +163,20 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       const connectPayload = await wsSend(session, "connect", {
         client: { id: "harnss", version: "1.0.0", platform: process.platform, mode: "operator" },
+        device: { id: getDeviceId() },
         role: "operator",
-        scopes: ["operator.read", "operator.write"],
+        scopes: ["operator.read", "operator.write", "operator.pairing"],
+        ...buildAuthParams(),
         cwd: options.cwd,
         ...(model ? { model } : {}),
         ...(skills.length ? { skills } : {}),
       });
+
+      const hello = connectPayload as Record<string, unknown> | null;
+      const helloAuth = hello?.auth as Record<string, unknown> | undefined;
+      if (helloAuth?.deviceToken) {
+        setAppSettings({ openclawDeviceToken: helloAuth.deviceToken as string });
+      }
 
       log("OPENCLAW_START", { sessionId, gatewayUrl, connected: true });
 
@@ -243,26 +272,110 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle("openclaw:status", async () => {
+    const url = getGatewayUrl();
     try {
-      const ws = new WebSocket(getGatewayUrl());
-      const connected = await new Promise<boolean>((resolve) => {
+      const ws = new WebSocket(url);
+      const result = await new Promise<{ available: boolean; error?: string }>((resolve) => {
         const timeout = setTimeout(() => {
           ws.close();
-          resolve(false);
-        }, 3000);
+          resolve({ available: false, error: `Connection timeout (${url})` });
+        }, 5000);
         ws.on("open", () => {
           clearTimeout(timeout);
           ws.close();
-          resolve(true);
+          resolve({ available: true });
         });
-        ws.on("error", () => {
+        ws.on("error", (err) => {
           clearTimeout(timeout);
-          resolve(false);
+          const msg = (err as Error).message || "Unknown error";
+          if (msg.includes("ECONNREFUSED")) {
+            resolve({ available: false, error: `Gateway not running at ${url}` });
+          } else if (msg.includes("ENOTFOUND")) {
+            resolve({ available: false, error: `Host not found: ${url}` });
+          } else if (msg.includes("ETIMEDOUT")) {
+            resolve({ available: false, error: `Connection timed out: ${url}` });
+          } else {
+            resolve({ available: false, error: msg });
+          }
         });
       });
-      return { available: connected };
-    } catch {
-      return { available: false };
+      return result;
+    } catch (err) {
+      return { available: false, error: (err as Error).message || "Connection failed" };
+    }
+  });
+
+  ipcMain.handle("openclaw:pair", async () => {
+    const url = getGatewayUrl();
+    try {
+      const ws = new WebSocket(url);
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error("Gateway connection timeout"));
+        }, 10000);
+        ws.on("open", () => { clearTimeout(timeout); resolve(); });
+        ws.on("error", (err) => { clearTimeout(timeout); reject(err); });
+      });
+
+      const pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+
+      ws.on("message", (data) => {
+        let msg: Record<string, unknown>;
+        try { msg = JSON.parse(data.toString()); } catch { return; }
+        if (msg.type === "res") {
+          const pending = pendingRequests.get(msg.id as string);
+          if (pending) {
+            pendingRequests.delete(msg.id as string);
+            if (msg.ok) pending.resolve(msg.payload);
+            else pending.reject(new Error((msg.error as Record<string, unknown>)?.message as string ?? "Gateway error"));
+          }
+        }
+      });
+
+      const sendReq = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
+        return new Promise((resolve, reject) => {
+          const id = nextReqId();
+          pendingRequests.set(id, { resolve, reject });
+          ws.send(JSON.stringify({ type: "req", id, method, params }), (err) => {
+            if (err) { pendingRequests.delete(id); reject(err); }
+          });
+        });
+      };
+
+      const tokenParam = getAppSetting("openclawGatewayToken");
+      const authParams: Record<string, unknown> = {};
+      if (tokenParam) authParams.token = tokenParam;
+
+      const connectResult = await sendReq("connect", {
+        client: { id: "harnss", version: "1.0.0", platform: process.platform, mode: "operator" },
+        device: { id: getDeviceId() },
+        role: "operator",
+        scopes: ["operator.read", "operator.write", "operator.pairing"],
+        ...(Object.keys(authParams).length > 0 ? { auth: authParams } : {}),
+      }) as Record<string, unknown> | null;
+
+      const auth = (connectResult?.auth ?? {}) as Record<string, unknown>;
+      if (auth.deviceToken) {
+        setAppSettings({ openclawDeviceToken: auth.deviceToken as string });
+      }
+
+      const version = connectResult?.protocol as string | undefined;
+
+      ws.close();
+      log("OPENCLAW_PAIR", { paired: true, version });
+      return { ok: true, paired: true, version };
+    } catch (err) {
+      const msg = (err as Error).message || "Pairing failed";
+      log("OPENCLAW_PAIR_ERR", msg);
+      if (msg.includes("1008") || msg.includes("pairing required")) {
+        return { ok: false, error: "Pairing required — approve this device on the Gateway (run `openclaw nodes approve` or use the Gateway UI)" };
+      }
+      if (msg.includes("AUTH_TOKEN_MISMATCH")) {
+        return { ok: false, error: "Token mismatch — check your Gateway Token in settings" };
+      }
+      return { ok: false, error: msg };
     }
   });
 }

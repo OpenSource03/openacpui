@@ -31,7 +31,12 @@ export const AdvancedSettings = memo(function AdvancedSettings({
   const [openclawGatewayUrl, setOpenclawGatewayUrl] = useState("ws://127.0.0.1:18789");
   const [openclawDefaultModel, setOpenclawDefaultModel] = useState("");
   const [openclawDefaultSkills, setOpenclawDefaultSkills] = useState("");
+  const [openclawGatewayToken, setOpenclawGatewayToken] = useState("");
   const [gatewayTestStatus, setGatewayTestStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
+  const [gatewayTestError, setGatewayTestError] = useState<string | null>(null);
+  const [pairStatus, setPairStatus] = useState<"idle" | "pairing" | "paired" | "failed">("idle");
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [isPaired, setIsPaired] = useState(false);
 
   useEffect(() => {
     if (appSettings) {
@@ -45,6 +50,8 @@ export const AdvancedSettings = memo(function AdvancedSettings({
       setOpenclawGatewayUrl(appSettings.openclawGatewayUrl || "ws://127.0.0.1:18789");
       setOpenclawDefaultModel(appSettings.openclawDefaultModel || "");
       setOpenclawDefaultSkills((appSettings.openclawDefaultSkills ?? []).join(", "));
+      setOpenclawGatewayToken(appSettings.openclawGatewayToken || "");
+      setIsPaired(!!appSettings.openclawDeviceToken);
     }
   }, [appSettings]);
 
@@ -137,15 +144,50 @@ export const AdvancedSettings = memo(function AdvancedSettings({
     [onUpdateAppSettings],
   );
 
+  const handleGatewayTokenSave = useCallback(
+    async (value: string) => {
+      const next = value.trim();
+      setOpenclawGatewayToken(next);
+      await onUpdateAppSettings({ openclawGatewayToken: next });
+    },
+    [onUpdateAppSettings],
+  );
+
   const handleTestGateway = useCallback(async () => {
     setGatewayTestStatus("testing");
+    setGatewayTestError(null);
     try {
       const result = await window.claude.openclaw.status();
-      setGatewayTestStatus(result.available ? "connected" : "failed");
-    } catch {
+      if (result.available) {
+        setGatewayTestStatus("connected");
+      } else {
+        setGatewayTestStatus("failed");
+        setGatewayTestError(result.error ?? "Connection failed");
+      }
+    } catch (err) {
       setGatewayTestStatus("failed");
+      setGatewayTestError((err as Error).message || "Connection failed");
     }
-    setTimeout(() => setGatewayTestStatus("idle"), 4000);
+    setTimeout(() => { setGatewayTestStatus("idle"); setGatewayTestError(null); }, 6000);
+  }, []);
+
+  const handlePair = useCallback(async () => {
+    setPairStatus("pairing");
+    setPairError(null);
+    try {
+      const result = await window.claude.openclaw.pair();
+      if (result.ok) {
+        setPairStatus("paired");
+        setIsPaired(true);
+      } else {
+        setPairStatus("failed");
+        setPairError(result.error ?? "Pairing failed");
+      }
+    } catch (err) {
+      setPairStatus("failed");
+      setPairError((err as Error).message || "Pairing failed");
+    }
+    setTimeout(() => { setPairStatus("idle"); setPairError(null); }, 6000);
   }, []);
 
   const canConfigureDevFill = section === "advanced" && import.meta.env.DEV;
@@ -328,41 +370,97 @@ export const AdvancedSettings = memo(function AdvancedSettings({
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   OpenClaw
                 </span>
+                {isPaired && (
+                  <span className="rounded-full bg-emerald-500/15 px-2 py-px text-[10px] font-medium text-emerald-400">
+                    Paired
+                  </span>
+                )}
               </div>
 
               <SettingRow
                 label="Gateway URL"
-                description="WebSocket address of the OpenClaw Gateway. Changes take effect on new sessions."
+                description="WebSocket address of the OpenClaw Gateway."
               >
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={openclawGatewayUrl}
-                    onChange={(e) => setOpenclawGatewayUrl(e.target.value)}
-                    onBlur={(e) => handleOpenclawGatewayUrlSave(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleOpenclawGatewayUrlSave(e.currentTarget.value);
-                    }}
-                    spellCheck={false}
-                    className="h-8 w-64 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
-                    placeholder="ws://127.0.0.1:18789"
-                  />
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={openclawGatewayUrl}
+                      onChange={(e) => setOpenclawGatewayUrl(e.target.value)}
+                      onBlur={(e) => handleOpenclawGatewayUrlSave(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleOpenclawGatewayUrlSave(e.currentTarget.value);
+                      }}
+                      spellCheck={false}
+                      className="h-8 w-64 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                      placeholder="ws://127.0.0.1:18789"
+                    />
+                    <button
+                      onClick={handleTestGateway}
+                      disabled={gatewayTestStatus === "testing"}
+                      className={`h-8 shrink-0 rounded-md border px-3 text-xs font-medium transition-colors ${
+                        gatewayTestStatus === "connected"
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                          : gatewayTestStatus === "failed"
+                            ? "border-red-500/30 bg-red-500/10 text-red-400"
+                            : "border-foreground/10 bg-background text-foreground hover:border-foreground/20 hover:bg-foreground/[0.03]"
+                      }`}
+                    >
+                      {gatewayTestStatus === "testing" ? "Testing..." :
+                       gatewayTestStatus === "connected" ? "Connected" :
+                       gatewayTestStatus === "failed" ? "Failed" :
+                       "Test"}
+                    </button>
+                  </div>
+                  {gatewayTestError && (
+                    <p className="text-[11px] text-red-400">{gatewayTestError}</p>
+                  )}
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                label="Gateway token"
+                description="Auth token for the Gateway (OPENCLAW_GATEWAY_TOKEN). Leave empty if not required."
+              >
+                <input
+                  type="password"
+                  value={openclawGatewayToken}
+                  onChange={(e) => setOpenclawGatewayToken(e.target.value)}
+                  onBlur={(e) => handleGatewayTokenSave(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleGatewayTokenSave(e.currentTarget.value);
+                  }}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="h-8 w-64 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Optional gateway token"
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="Device pairing"
+                description={isPaired ? "This device is paired with the Gateway." : "Pair this device with the Gateway to establish a trusted connection."}
+              >
+                <div className="flex flex-col gap-1.5">
                   <button
-                    onClick={handleTestGateway}
-                    disabled={gatewayTestStatus === "testing"}
-                    className={`h-8 rounded-md border px-3 text-xs font-medium transition-colors ${
-                      gatewayTestStatus === "connected"
+                    onClick={handlePair}
+                    disabled={pairStatus === "pairing"}
+                    className={`h-8 rounded-md border px-4 text-xs font-medium transition-colors ${
+                      pairStatus === "paired"
                         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                        : gatewayTestStatus === "failed"
+                        : pairStatus === "failed"
                           ? "border-red-500/30 bg-red-500/10 text-red-400"
                           : "border-foreground/10 bg-background text-foreground hover:border-foreground/20 hover:bg-foreground/[0.03]"
                     }`}
                   >
-                    {gatewayTestStatus === "testing" ? "Testing..." :
-                     gatewayTestStatus === "connected" ? "Connected" :
-                     gatewayTestStatus === "failed" ? "Failed" :
-                     "Test Connection"}
+                    {pairStatus === "pairing" ? "Pairing..." :
+                     pairStatus === "paired" ? "Paired" :
+                     pairStatus === "failed" ? "Failed" :
+                     isPaired ? "Re-pair" : "Pair Device"}
                   </button>
+                  {pairError && (
+                    <p className="max-w-xs text-[11px] text-red-400">{pairError}</p>
+                  )}
                 </div>
               </SettingRow>
 

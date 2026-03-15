@@ -761,6 +761,7 @@ export const InputBar = memo(function InputBar({
   const [isDragging, setIsDragging] = useState(false);
   const [editingAttachment, setEditingAttachment] = useState<ImageAttachment | null>(null);
   const [gatewayAvailable, setGatewayAvailable] = useState<boolean | null>(null);
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
 
   const speech = useSpeechRecognition({
     onResult: (text) => insertTextAtCursor(editableRef.current, text),
@@ -1642,7 +1643,10 @@ export const InputBar = memo(function InputBar({
             {agents && agents.length > 1 && onAgentChange && (
               <DropdownMenu onOpenChange={(open) => {
                 if (open && agents.some((a) => a.engine === "openclaw")) {
-                  window.claude.openclaw.status().then((s) => setGatewayAvailable(s.available)).catch(() => setGatewayAvailable(false));
+                  window.claude.openclaw.status().then((s) => {
+                    setGatewayAvailable(s.available);
+                    setGatewayError(s.available ? null : (s.error ?? null));
+                  }).catch(() => { setGatewayAvailable(false); setGatewayError("Connection failed"); });
                 }
               }}>
                 <DropdownMenuTrigger asChild>
@@ -1692,7 +1696,7 @@ export const InputBar = memo(function InputBar({
                           </div>
                           {agent.engine === "openclaw" && gatewayAvailable !== null && (
                             <div className={`text-[10px] ${gatewayAvailable ? "text-emerald-400" : "text-red-400"}`}>
-                              {gatewayAvailable ? "Gateway connected" : "Gateway offline"}
+                              {gatewayAvailable ? "Gateway connected" : (gatewayError ?? "Gateway offline")}
                             </div>
                           )}
                           {crossEngine && (
