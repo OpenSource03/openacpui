@@ -246,7 +246,10 @@ export function useOpenClaw({ sessionId, initialMessages, initialMeta, initialPe
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = useCallback(async (text: string, images?: ImageAttachment[], displayText?: string, _codeSnippets?: CodeSnippet[]) => {
-    if (!sessionIdRef.current) return;
+    if (!sessionIdRef.current) {
+      openclawLog("SEND_SKIP", "no sessionId");
+      return;
+    }
 
     const msgId = nextId("user");
     setMessages(prev => [...prev, {

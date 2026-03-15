@@ -1390,11 +1390,9 @@ export function useSessionLifecycle({
       }
 
       if (activeSessionEngine === "openclaw") {
-        if (liveSessionIdsRef.current.has(activeId)) {
-          trackMessageSent();
-          await openclaw.send(text, images, displayText, codeSnippets);
-          return;
-        }
+        liveSessionIdsRef.current.add(activeId);
+        trackMessageSent();
+        await openclaw.send(text, images, displayText, codeSnippets);
         return;
       }
 

@@ -67,14 +67,11 @@ export interface AppSettings {
   openclawGatewayUrl: string;
   /** Default model for OpenClaw sessions */
   openclawDefaultModel: string;
-  /** Default skills enabled for OpenClaw sessions */
   openclawDefaultSkills: string[];
-  /** Gateway auth token (OPENCLAW_GATEWAY_TOKEN) for authenticated connections */
   openclawGatewayToken: string;
-  /** Device token issued by the Gateway after successful pairing */
   openclawDeviceToken: string;
-  /** Stable device ID for this Harnss installation */
   openclawDeviceId: string;
+  openclawDefaultAgent: string;
 }
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
@@ -104,6 +101,7 @@ const DEFAULTS: AppSettings = {
   openclawGatewayToken: "",
   openclawDeviceToken: "",
   openclawDeviceId: "",
+  openclawDefaultAgent: "",
 };
 
 // ── Internal state ──

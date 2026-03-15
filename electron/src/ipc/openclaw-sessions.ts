@@ -9,14 +9,16 @@ import { reportError } from "../lib/error-utils";
 import { getAppSetting, setAppSettings } from "../lib/app-settings";
 import { getDataDir } from "../lib/data-dir";
 
-const CLIENT_ID = "cli";
-const CLIENT_MODE = "backend";
-const PROTOCOL_VERSION = 3;
-const ROLE = "operator";
-const SCOPES = ["operator.read", "operator.write", "operator.pairing"];
-
 function getGatewayUrl(): string {
-  return getAppSetting("openclawGatewayUrl") || "ws://127.0.0.1:18789";
+  return getAppSetting("openclawGatewayUrl") || "wss://127.0.0.1:18789";
+}
+
+function getGatewayToken(): string {
+  return getAppSetting("openclawGatewayToken") || "";
+}
+
+function getAgentId(): string {
+  return getAppSetting("openclawDefaultAgent") || "";
 }
 
 interface DeviceIdentity {
@@ -62,210 +64,303 @@ function loadOrCreateDeviceIdentity(): DeviceIdentity {
   return identity;
 }
 
-function signConnectPayload(identity: DeviceIdentity, nonce: string): { signature: string; signedAt: number } {
-  const signedAt = Date.now();
-  const token = getAppSetting("openclawGatewayToken") || getAppSetting("openclawDeviceToken") || "";
-  const scopesStr = SCOPES.join(",");
-  const payload = `v2|${identity.id}|${CLIENT_ID}|${CLIENT_MODE}|${ROLE}|${scopesStr}|${signedAt}|${token}|${nonce}`;
-
-  const privateKey = crypto.createPrivateKey(identity.privateKey);
-  const sig = crypto.sign(null, Buffer.from(payload, "utf-8"), privateKey);
-  return { signature: sig.toString("base64url"), signedAt };
+interface PendingRpc {
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
-function buildConnectParams(identity: DeviceIdentity, nonce: string): Record<string, unknown> {
-  const { signature, signedAt } = signConnectPayload(identity, nonce);
-  const auth: Record<string, unknown> = {};
-  const deviceToken = getAppSetting("openclawDeviceToken");
-  const gatewayToken = getAppSetting("openclawGatewayToken");
-  if (deviceToken) auth.deviceToken = deviceToken;
-  else if (gatewayToken) auth.token = gatewayToken;
-
-  return {
-    minProtocol: PROTOCOL_VERSION,
-    maxProtocol: PROTOCOL_VERSION,
-    client: { id: CLIENT_ID, version: "1.0.0", platform: process.platform, mode: CLIENT_MODE },
-    device: {
-      id: identity.id,
-      publicKey: identity.publicKey,
-      signature,
-      signedAt,
-      nonce,
-    },
-    role: ROLE,
-    scopes: SCOPES,
-    ...(Object.keys(auth).length > 0 ? { auth } : {}),
-  };
-}
-
-function waitForChallenge(ws: WebSocket): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for connect.challenge from Gateway")), 8000);
-    const handler = (data: WebSocket.Data) => {
-      try {
-        const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-        if (msg.type === "event" && msg.event === "connect.challenge") {
-          clearTimeout(timeout);
-          ws.removeListener("message", handler);
-          const payload = msg.payload as Record<string, unknown>;
-          resolve((payload.nonce as string) || "");
-        }
-      } catch {}
-    };
-    ws.on("message", handler);
-    ws.on("close", () => { clearTimeout(timeout); reject(new Error("WebSocket closed before challenge received")); });
-    ws.on("error", (err) => { clearTimeout(timeout); reject(err); });
-  });
-}
-
-interface OpenClawSession {
+let shared: {
   ws: WebSocket;
+  connected: boolean;
   sessionKey: string;
-  internalId: string;
-  eventCounter: number;
-  gatewayUrl: string;
-  cwd: string;
-  pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
-}
+  pending: Map<string, PendingRpc>;
+  getMainWindow: () => BrowserWindow | null;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  activeSessionIds: Set<string>;
+  currentRunId: string | null;
+} | null = null;
 
-export const openclawSessions = new Map<string, OpenClawSession>();
-
-function nextReqId(): string {
-  return crypto.randomUUID();
-}
-
-function wsSend(session: OpenClawSession, method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+function rpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  if (!shared?.connected || !shared.ws || shared.ws.readyState !== WebSocket.OPEN) {
+    return Promise.reject(new Error("Not connected to Gateway"));
+  }
   return new Promise((resolve, reject) => {
-    const id = nextReqId();
-    session.pendingRequests.set(id, { resolve, reject });
-    const frame = JSON.stringify({ type: "req", id, method, params });
-    session.ws.send(frame, (err) => {
+    const id = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      shared?.pending.delete(id);
+      reject(new Error(`Timeout: ${method}`));
+    }, 30_000);
+    shared!.pending.set(id, { resolve, reject, timer });
+    shared!.ws.send(JSON.stringify({ type: "req", id, method, params }), (err) => {
       if (err) {
-        session.pendingRequests.delete(id);
+        clearTimeout(timer);
+        shared?.pending.delete(id);
         reject(err);
       }
     });
   });
 }
 
-function handleWsMessage(
-  sessionId: string,
-  session: OpenClawSession,
-  raw: string,
-  getMainWindow: () => BrowserWindow | null,
-): void {
-  let msg: Record<string, unknown>;
-  try {
-    msg = JSON.parse(raw);
-  } catch {
-    return;
+function emitToSessions(type: string, payload: Record<string, unknown>): void {
+  if (!shared) return;
+  for (const sid of shared.activeSessionIds) {
+    safeSend(shared.getMainWindow, "openclaw:event", {
+      _sessionId: sid,
+      type,
+      payload,
+      _seq: 0,
+    });
   }
+}
+
+function handleMessage(raw: string): void {
+  if (!shared) return;
+  let msg: Record<string, unknown>;
+  try { msg = JSON.parse(raw); } catch { return; }
 
   if (msg.type === "res") {
-    const pending = session.pendingRequests.get(msg.id as string);
+    const pending = shared.pending.get(msg.id as string);
     if (pending) {
-      session.pendingRequests.delete(msg.id as string);
-      if (msg.ok) {
-        pending.resolve(msg.payload);
+      shared.pending.delete(msg.id as string);
+      clearTimeout(pending.timer);
+      if (msg.ok === false || msg.error) {
+        const errObj = msg.error as Record<string, unknown> | string | undefined;
+        const errMsg = typeof errObj === "string" ? errObj : (errObj as Record<string, unknown>)?.message as string ?? "Gateway error";
+        pending.reject(new Error(errMsg));
       } else {
-        pending.reject(new Error((msg.error as Record<string, unknown>)?.message as string ?? "Gateway error"));
+        pending.resolve(msg.payload ?? msg.result);
       }
     }
     return;
   }
 
+  if (msg.id && shared.pending.has(msg.id as string)) {
+    const pending = shared.pending.get(msg.id as string)!;
+    shared.pending.delete(msg.id as string);
+    clearTimeout(pending.timer);
+    if (msg.error) {
+      pending.reject(new Error(typeof msg.error === "string" ? msg.error : JSON.stringify(msg.error)));
+    } else {
+      pending.resolve(msg.result ?? msg.payload);
+    }
+    return;
+  }
+
+  if (msg.method === "chat" && msg.params) {
+    const params = msg.params as Record<string, unknown>;
+    const delta = params.delta as string | undefined;
+    const content = params.content as string | undefined;
+    const done = params.done as boolean | undefined;
+
+    if (delta) {
+      emitToSessions("chat:delta", { text: delta });
+    }
+
+    if (done) {
+      shared.currentRunId = null;
+      emitToSessions("chat:final", { message: content ?? "" });
+    }
+    return;
+  }
+
   if (msg.type === "event") {
-    session.eventCounter++;
     const event = msg.event as string;
     const payload = (msg.payload ?? {}) as Record<string, unknown>;
+    const data = (payload.data ?? {}) as Record<string, unknown>;
 
-    safeSend(getMainWindow, "openclaw:event", {
-      _sessionId: sessionId,
-      type: event,
-      payload,
-      _seq: session.eventCounter,
-    });
+    if (event === "tick" || event === "health" || event === "presence" || event === "heartbeat" || event === "connect.challenge" || event === "chat") return;
+
+    if (event === "agent") {
+      const stream = payload.stream as string;
+      if (stream === "lifecycle") {
+        const phase = data.phase as string;
+        if (phase === "start") emitToSessions("lifecycle:start", {});
+        else if (phase === "error") emitToSessions("chat:error", { message: (data.error as string) ?? "Agent error" });
+        else if (phase === "end" || phase === "done") emitToSessions("lifecycle:end", {});
+      } else if (stream === "thinking") {
+        emitToSessions("thinking:delta", { text: (data.text ?? data.delta ?? "") as string });
+      } else if (stream === "thinking_done") {
+        emitToSessions("thinking:done", {});
+      } else if (stream === "assistant") {
+        emitToSessions("chat:delta", { text: (data.text ?? data.delta ?? "") as string });
+      } else if (stream === "tool") {
+        const phase = (data.phase ?? data.status) as string | undefined;
+        if (phase === "end" || phase === "completed" || phase === "done") {
+          emitToSessions("tool:result", {
+            toolUseId: data.toolUseId ?? data.id,
+            toolName: data.name ?? data.toolName,
+            result: data.result ?? data.output,
+          });
+        } else {
+          emitToSessions("tool:start", {
+            toolUseId: data.toolUseId ?? data.id,
+            toolName: (data.name ?? data.toolName ?? "unknown") as string,
+            input: data.input ?? data.args ?? {},
+          });
+        }
+      }
+    }
   }
 }
 
+async function ensureConnection(getMainWindow: () => BrowserWindow | null): Promise<void> {
+  if (shared?.connected && shared.ws.readyState === WebSocket.OPEN) return;
+
+  if (shared?.reconnectTimer) {
+    clearTimeout(shared.reconnectTimer);
+    shared.reconnectTimer = null;
+  }
+
+  const gatewayUrl = getGatewayUrl();
+  const agentId = getAgentId();
+  const sessionKey = `agent:${agentId}:editor`;
+
+  const ws = new WebSocket(gatewayUrl, { rejectUnauthorized: false });
+
+  if (!shared) {
+    shared = {
+      ws,
+      connected: false,
+      sessionKey,
+      pending: new Map(),
+      getMainWindow,
+      reconnectTimer: null,
+      activeSessionIds: new Set(),
+      currentRunId: null,
+    };
+  } else {
+    shared.ws = ws;
+    shared.connected = false;
+    shared.sessionKey = sessionKey;
+    shared.getMainWindow = getMainWindow;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error("Gateway connection timeout"));
+    }, 10000);
+    ws.on("open", () => { clearTimeout(timeout); resolve(); });
+    ws.on("error", (err) => { clearTimeout(timeout); reject(err); });
+  });
+
+  const challengeNonce = await new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for connect.challenge")), 8000);
+    const handler = (rawData: WebSocket.Data) => {
+      try {
+        const m = JSON.parse(rawData.toString()) as Record<string, unknown>;
+        if (m.type === "event" && m.event === "connect.challenge") {
+          clearTimeout(timeout);
+          ws.removeListener("message", handler);
+          resolve(((m.payload as Record<string, unknown>)?.nonce as string) || "");
+        }
+      } catch {}
+    };
+    ws.on("message", handler);
+  });
+
+  ws.on("message", (data) => handleMessage(data.toString()));
+
+  ws.on("close", () => {
+    log("OPENCLAW_WS_CLOSED", "Reconnecting in 3s");
+    if (shared) {
+      shared.connected = false;
+      emitToSessions("status", { connected: false });
+      shared.reconnectTimer = setTimeout(() => {
+        ensureConnection(getMainWindow).catch((err) => {
+          log("OPENCLAW_RECONNECT_ERR", (err as Error).message);
+        });
+      }, 3000);
+    }
+  });
+
+  ws.on("error", (err) => {
+    log("OPENCLAW_WS_ERR", err.message);
+  });
+
+  const identity = loadOrCreateDeviceIdentity();
+  const signedAt = Date.now();
+  const gatewayToken = getAppSetting("openclawGatewayToken");
+  const deviceToken = getAppSetting("openclawDeviceToken");
+  const signToken = gatewayToken || deviceToken || "";
+  const scopes = ["operator.read", "operator.write", "operator.pairing"];
+  const payloadStr = `v2|${identity.id}|cli|backend|operator|${scopes.join(",")}|${signedAt}|${signToken}|${challengeNonce}`;
+
+  const privateKey = crypto.createPrivateKey(identity.privateKey);
+  const sig = crypto.sign(null, Buffer.from(payloadStr, "utf-8"), privateKey);
+
+  const auth: Record<string, unknown> = {};
+  if (gatewayToken) auth.token = gatewayToken;
+  if (deviceToken) auth.deviceToken = deviceToken;
+
+  const connectId = crypto.randomUUID();
+  const connectFrame = JSON.stringify({
+    type: "req",
+    id: connectId,
+    method: "connect",
+    params: {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: { id: "cli", version: "1.0.0", platform: process.platform, mode: "backend" },
+      device: {
+        id: identity.id,
+        publicKey: identity.publicKey,
+        signature: sig.toString("base64url"),
+        signedAt,
+        nonce: challengeNonce,
+      },
+      role: "operator",
+      scopes,
+      ...(Object.keys(auth).length > 0 ? { auth } : {}),
+    },
+  });
+
+  const connectResult = await new Promise<unknown>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Connect timeout")), 15000);
+    const handler = (rawData: WebSocket.Data) => {
+      try {
+        const m = JSON.parse(rawData.toString()) as Record<string, unknown>;
+        if (m.type === "res" && m.id === connectId) {
+          clearTimeout(timeout);
+          ws.removeListener("message", handler);
+          if (m.ok === false) {
+            reject(new Error((m.error as Record<string, unknown>)?.message as string ?? "Connect rejected"));
+          } else {
+            resolve(m.payload ?? m.result);
+          }
+        }
+      } catch {}
+    };
+    ws.on("message", handler);
+    ws.send(connectFrame);
+  });
+
+  const helloAuth = ((connectResult as Record<string, unknown>)?.auth ?? {}) as Record<string, unknown>;
+  if (helloAuth.deviceToken) {
+    setAppSettings({ openclawDeviceToken: helloAuth.deviceToken as string });
+  }
+
+  shared.connected = true;
+  log("OPENCLAW_CONNECTED", { gatewayUrl, agentId, sessionKey });
+}
+
+export const openclawSessions = new Map<string, boolean>();
+
 export function register(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle("openclaw:start", async (_event, options: {
+  ipcMain.handle("openclaw:start", async (_event, _options: {
     cwd: string;
     gatewayUrl?: string;
     model?: string;
     skills?: string[];
   }) => {
     const sessionId = crypto.randomUUID();
-    const gatewayUrl = options.gatewayUrl || getGatewayUrl();
-
     try {
-      const ws = new WebSocket(gatewayUrl, { rejectUnauthorized: false });
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          ws.close();
-          reject(new Error("Gateway connection timeout"));
-        }, 10000);
-
-        ws.on("open", () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-        ws.on("error", (err) => {
-          clearTimeout(timeout);
-          reject(err);
-        });
-      });
-
-      const identity = loadOrCreateDeviceIdentity();
-      const nonce = await waitForChallenge(ws);
-
-      const session: OpenClawSession = {
-        ws,
-        sessionKey: sessionId,
-        internalId: sessionId,
-        eventCounter: 0,
-        gatewayUrl,
-        cwd: options.cwd,
-        pendingRequests: new Map(),
-      };
-
-      ws.on("message", (data) => {
-        handleWsMessage(sessionId, session, data.toString(), getMainWindow);
-      });
-
-      ws.on("close", (code) => {
-        openclawSessions.delete(sessionId);
-        safeSend(getMainWindow, "openclaw:exit", {
-          _sessionId: sessionId,
-          code,
-        });
-      });
-
-      ws.on("error", (err) => {
-        log("OPENCLAW_WS_ERR", `session=${sessionId.slice(0, 8)} ${err.message}`);
-      });
-
-      openclawSessions.set(sessionId, session);
-
-      const model = options.model || getAppSetting("openclawDefaultModel") || undefined;
-      const skills = options.skills?.length ? options.skills : (getAppSetting("openclawDefaultSkills") ?? []);
-
-      const connectParams = buildConnectParams(identity, nonce);
-      const connectPayload = await wsSend(session, "connect", connectParams);
-
-      const hello = connectPayload as Record<string, unknown> | null;
-      const helloAuth = hello?.auth as Record<string, unknown> | undefined;
-      if (helloAuth?.deviceToken) {
-        setAppSettings({ openclawDeviceToken: helloAuth.deviceToken as string });
-      }
-
-      log("OPENCLAW_START", { sessionId, gatewayUrl, connected: true });
-
-      return {
-        sessionId,
-        gatewayVersion: (connectPayload as Record<string, unknown>)?.protocol,
-      };
+      await ensureConnection(getMainWindow);
+      shared!.activeSessionIds.add(sessionId);
+      openclawSessions.set(sessionId, true);
+      log("OPENCLAW_START", { sessionId: sessionId.slice(0, 8), sessionKey: shared!.sessionKey });
+      return { sessionId };
     } catch (err) {
       const errMsg = reportError("OPENCLAW_START_ERR", err, { engine: "openclaw" });
       return { error: errMsg };
@@ -273,42 +368,81 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle("openclaw:send", async (_event, { sessionId, text }: { sessionId: string; text: string }) => {
-    const session = openclawSessions.get(sessionId);
-    if (!session) return { error: "OpenClaw session not found" };
-
     try {
-      await wsSend(session, "chat.send", {
-        sessionKey: session.sessionKey,
-        message: text,
-        cwd: session.cwd,
-      });
+      await ensureConnection(getMainWindow);
+      shared!.activeSessionIds.add(sessionId);
+
+      const attachments: { id: string; dataUrl: string; mimeType: string }[] = [];
+      const cleanText = text.replace(/<file path="([^"]+)">\n([\s\S]*?)\n<\/file>/g, (_match, filePath: string, content: string) => {
+        const ext = (filePath.split(".").pop() ?? "").toLowerCase();
+        const mimeMap: Record<string, string> = {
+          ts: "text/typescript", tsx: "text/typescript",
+          js: "text/javascript", jsx: "text/javascript",
+          py: "text/x-python", json: "application/json",
+          html: "text/html", css: "text/css",
+          md: "text/markdown", yaml: "text/yaml", yml: "text/yaml",
+          sh: "text/x-shellscript", bash: "text/x-shellscript",
+          rs: "text/x-rust", go: "text/x-go",
+          java: "text/x-java", cpp: "text/x-c++src", c: "text/x-csrc",
+          rb: "text/x-ruby", swift: "text/x-swift",
+        };
+        const mimeType = mimeMap[ext] ?? "text/plain";
+        const base64 = Buffer.from(content, "utf-8").toString("base64");
+        attachments.push({
+          id: crypto.randomUUID(),
+          dataUrl: `data:${mimeType};base64,${base64}`,
+          mimeType,
+        });
+        return "";
+      }).replace(/<folder path="([^"]+)">\n([\s\S]*?)\n<\/folder>/g, (_match, folderPath: string, tree: string) => {
+        const base64 = Buffer.from(`Directory listing: ${folderPath}\n\n${tree}`, "utf-8").toString("base64");
+        attachments.push({
+          id: crypto.randomUUID(),
+          dataUrl: `data:text/plain;base64,${base64}`,
+          mimeType: "text/plain",
+        });
+        return "";
+      }).replace(/\n{3,}/g, "\n\n").trim();
+
+      const params: Record<string, unknown> = {
+        sessionKey: shared!.sessionKey,
+        message: cleanText || text,
+        deliver: false,
+        idempotencyKey: crypto.randomUUID(),
+      };
+      if (attachments.length > 0) params.attachments = attachments;
+
+      const result = await rpc("chat.send", params) as Record<string, unknown>;
+
+      shared!.currentRunId = (result?.runId as string) ?? null;
+      log("OPENCLAW_SEND", { sessionId: sessionId.slice(0, 8), runId: shared!.currentRunId });
       return { ok: true };
     } catch (err) {
       const errMsg = reportError("OPENCLAW_SEND_ERR", err, { engine: "openclaw", sessionId });
+      emitToSessions("chat:error", { message: errMsg });
       return { error: errMsg };
     }
   });
 
   ipcMain.handle("openclaw:stop", async (_event, sessionId: string) => {
-    const session = openclawSessions.get(sessionId);
-    if (!session) return { ok: true };
-
-    try {
-      session.ws.close();
-    } catch {
-      // already closed
-    }
+    shared?.activeSessionIds.delete(sessionId);
     openclawSessions.delete(sessionId);
+    if (shared && shared.activeSessionIds.size === 0) {
+      if (shared.reconnectTimer) clearTimeout(shared.reconnectTimer);
+      try { shared.ws.close(); } catch {}
+      shared = null;
+    }
     log("OPENCLAW_STOP", { sessionId: sessionId.slice(0, 8) });
     return { ok: true };
   });
 
   ipcMain.handle("openclaw:interrupt", async (_event, sessionId: string) => {
-    const session = openclawSessions.get(sessionId);
-    if (!session) return { error: "OpenClaw session not found" };
-
     try {
-      await wsSend(session, "chat.cancel", { sessionKey: session.sessionKey });
+      const params: Record<string, unknown> = { sessionKey: shared?.sessionKey ?? "" };
+      if (shared?.currentRunId) params.runId = shared.currentRunId;
+      await rpc("chat.abort", params);
+      shared!.currentRunId = null;
+      emitToSessions("lifecycle:end", {});
       return { ok: true };
     } catch (err) {
       const errMsg = reportError("OPENCLAW_INTERRUPT_ERR", err, { engine: "openclaw", sessionId });
@@ -322,17 +456,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     prompt: string;
     skills?: string[];
   }) => {
-    const session = openclawSessions.get(sessionId);
-    if (!session) return { error: "OpenClaw session not found" };
-
     try {
-      const result = await wsSend(session, "agent.spawn", {
-        sessionKey: session.sessionKey,
-        agentName,
-        prompt,
-        skills,
-        cwd: session.cwd,
-      });
+      const result = await rpc("agent.spawn", { agentName, prompt, skills });
       return { ok: true, agentId: (result as Record<string, unknown>)?.agentId };
     } catch (err) {
       const errMsg = reportError("OPENCLAW_SPAWN_AGENT_ERR", err, { engine: "openclaw", sessionId });
@@ -340,151 +465,37 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle("openclaw:list-agents", async (_event, sessionId: string) => {
-    const session = openclawSessions.get(sessionId);
-    if (!session) return { error: "OpenClaw session not found" };
-
+  ipcMain.handle("openclaw:list-agents", async (_event, _sessionId: string) => {
     try {
-      const result = await wsSend(session, "agent.list", { sessionKey: session.sessionKey });
+      const result = await rpc("agent.list", {});
       return { ok: true, agents: result };
-    } catch (err) {
-      const errMsg = reportError("OPENCLAW_LIST_AGENTS_ERR", err, { engine: "openclaw", sessionId });
-      return { error: errMsg };
+    } catch {
+      return { ok: true, agents: [] };
     }
   });
 
   ipcMain.handle("openclaw:status", async () => {
-    const url = getGatewayUrl();
     try {
-      const ws = new WebSocket(url, { rejectUnauthorized: false });
-      let settled = false;
-
-      const result = await new Promise<{ available: boolean; error?: string }>((resolve) => {
-        const settle = (r: { available: boolean; error?: string }) => {
-          if (settled) return;
-          settled = true;
-          resolve(r);
-        };
-
-        const timeout = setTimeout(() => {
-          try { ws.close(); } catch {}
-          settle({ available: false, error: `Connection timed out after 5s — is the Gateway running at ${url}?` });
-        }, 5000);
-
-        ws.on("open", () => {
-          clearTimeout(timeout);
-          try { ws.close(); } catch {}
-          settle({ available: true });
-        });
-
-        ws.on("error", (err) => {
-          clearTimeout(timeout);
-          const raw = String((err as Error).message || err || "Unknown error");
-          let friendly: string;
-          if (raw.includes("ECONNREFUSED")) {
-            friendly = `Connection refused — Gateway is not running at ${url}`;
-          } else if (raw.includes("ENOTFOUND") || raw.includes("getaddrinfo")) {
-            friendly = `Host not found — cannot resolve ${url}`;
-          } else if (raw.includes("ETIMEDOUT")) {
-            friendly = `Connection timed out — ${url} is not reachable`;
-          } else if (raw.includes("CERT") || raw.includes("certificate") || raw.includes("SSL") || raw.includes("TLS")) {
-            friendly = `TLS/certificate error — ${raw}`;
-          } else if (raw.includes("ECONNRESET")) {
-            friendly = `Connection reset by Gateway at ${url}`;
-          } else if (raw.includes("401") || raw.includes("403") || raw.includes("Unauthorized")) {
-            friendly = `Authentication failed — check your Gateway Token`;
-          } else {
-            friendly = raw;
-          }
-          settle({ available: false, error: friendly });
-        });
-
-        ws.on("close", (code, reason) => {
-          clearTimeout(timeout);
-          if (!settled) {
-            const reasonStr = reason?.toString() || "";
-            if (code === 1008) {
-              settle({ available: false, error: `Pairing required — approve this device on the Gateway` });
-            } else {
-              settle({ available: false, error: `Gateway closed connection (code ${code}${reasonStr ? `: ${reasonStr}` : ""})` });
-            }
-          }
-        });
-      });
-      return result;
+      await ensureConnection(getMainWindow);
+      return { available: true };
     } catch (err) {
-      const raw = String((err as Error).message || err || "Unknown error");
-      return { available: false, error: raw };
+      const raw = String((err as Error).message || err);
+      let friendly: string;
+      if (raw.includes("ECONNREFUSED")) friendly = `Connection refused — Gateway is not running at ${getGatewayUrl()}`;
+      else if (raw.includes("ENOTFOUND")) friendly = `Host not found — cannot resolve ${getGatewayUrl()}`;
+      else if (raw.includes("timeout")) friendly = `Connection timed out — is the Gateway running at ${getGatewayUrl()}?`;
+      else friendly = raw;
+      return { available: false, error: friendly };
     }
   });
 
   ipcMain.handle("openclaw:pair", async () => {
-    const url = getGatewayUrl();
     try {
-      const ws = new WebSocket(url, { rejectUnauthorized: false });
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          ws.close();
-          reject(new Error("Gateway connection timeout"));
-        }, 10000);
-        ws.on("open", () => { clearTimeout(timeout); resolve(); });
-        ws.on("error", (err) => { clearTimeout(timeout); reject(err); });
-      });
-
-      const identity = loadOrCreateDeviceIdentity();
-      const nonce = await waitForChallenge(ws);
-
-      const pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-
-      ws.on("message", (data) => {
-        let msg: Record<string, unknown>;
-        try { msg = JSON.parse(data.toString()); } catch { return; }
-        if (msg.type === "res") {
-          const pending = pendingRequests.get(msg.id as string);
-          if (pending) {
-            pendingRequests.delete(msg.id as string);
-            if (msg.ok) pending.resolve(msg.payload);
-            else pending.reject(new Error((msg.error as Record<string, unknown>)?.message as string ?? "Gateway error"));
-          }
-        }
-      });
-
-      const sendReq = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
-        return new Promise((resolve, reject) => {
-          const id = nextReqId();
-          pendingRequests.set(id, { resolve, reject });
-          ws.send(JSON.stringify({ type: "req", id, method, params }), (err) => {
-            if (err) { pendingRequests.delete(id); reject(err); }
-          });
-        });
-      };
-
-      const connectParams = buildConnectParams(identity, nonce);
-      const connectResult = await sendReq("connect", connectParams) as Record<string, unknown> | null;
-
-      const auth = (connectResult?.auth ?? {}) as Record<string, unknown>;
-      if (auth.deviceToken) {
-        setAppSettings({ openclawDeviceToken: auth.deviceToken as string });
-      }
-
-      const version = connectResult?.protocol as string | undefined;
-
-      ws.close();
-      log("OPENCLAW_PAIR", { paired: true, version, deviceId: identity.id.slice(0, 12) });
-      return { ok: true, paired: true, version };
+      await ensureConnection(getMainWindow);
+      return { ok: true, paired: true };
     } catch (err) {
       const msg = (err as Error).message || "Pairing failed";
       log("OPENCLAW_PAIR_ERR", msg);
-      if (msg.includes("1008") || msg.includes("pairing required")) {
-        return { ok: false, error: "Pairing required — approve this device on the Gateway (run `openclaw nodes approve` or use the Gateway UI)" };
-      }
-      if (msg.includes("AUTH_TOKEN_MISMATCH")) {
-        return { ok: false, error: "Token mismatch — check your Gateway Token in settings" };
-      }
-      if (msg.includes("DEVICE_AUTH_SIGNATURE_INVALID") || msg.includes("device signature invalid")) {
-        return { ok: false, error: "Device signature invalid — try deleting the identity file and re-pairing" };
-      }
       return { ok: false, error: msg };
     }
   });

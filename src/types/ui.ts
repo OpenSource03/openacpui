@@ -45,6 +45,7 @@ export interface AppSettings {
     openclawGatewayToken: string;
     openclawDeviceToken: string;
     openclawDeviceId: string;
+    openclawDefaultAgent: string;
 }
 
 export interface SpaceColor {
