@@ -61,8 +61,12 @@ function handleStreamEvent(state: InternalState, event: StreamEvent): void {
         if (target.thinking && !target.thinkingComplete) {
           target.thinkingComplete = true;
         }
-        target.content = mergeStreamingChunk(target.content, streamEvt.delta.text);
+        // SDK text deltas are pure incremental chunks — simple concatenation
+        // avoids false-positive overlap detection eating markdown chars.
+        target.content = target.content + streamEvt.delta.text;
       } else if (streamEvt.delta.type === "thinking_delta") {
+        // Thinking deltas may arrive as cumulative snapshots,
+        // so overlap detection is still needed.
         target.thinking = mergeStreamingChunk(
           target.thinking ?? "",
           streamEvt.delta.thinking,

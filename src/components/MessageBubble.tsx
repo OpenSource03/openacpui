@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef, useMemo, createContext, useContext, type ReactNode } from "react";
+import { memo, useState, useMemo, createContext, useContext, type ReactNode } from "react";
 import { AlertCircle, Clock, Crosshair, File, Folder, Info, RotateCcw, Send, Undo2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -30,6 +30,11 @@ import type { Components } from "react-markdown";
  * this Context replaces it by having the `pre` component signal block context.
  */
 const IsBlockCodeContext = createContext(false);
+const IsStreamingMarkdownContext = createContext(false);
+
+function containsMermaidFence(text: string): boolean {
+  return /(^|\n)```mermaid(?:\s|$)/i.test(text);
+}
 
 function parseFileHref(href: string): { filePath: string; line?: number } | null {
   if (!href) return null;
@@ -313,41 +318,20 @@ export const MessageBubble = memo(function MessageBubble({
     );
   }
 
-  // Assistant message
-  //
-  // Performance: defer expensive ReactMarkdown parsing for off-screen messages.
-  // Non-streaming messages start as plain text and swap to full markdown once
-  // visible via IntersectionObserver. Streaming messages always use ReactMarkdown
-  // since they're at the bottom of the chat (always visible).
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(!!message.isStreaming);
-
-  useEffect(() => {
-    // Streaming messages are always visible (at the scroll bottom)
-    if (message.isStreaming) {
-      setIsVisible(true);
-      return;
-    }
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect(); // Once visible, stay visible permanently
-        }
-      },
-      { rootMargin: "200px" }, // Start parsing slightly before entering viewport
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [message.isStreaming]);
+  // Assistant message — always render with ReactMarkdown.
+  // Previously this used IntersectionObserver to defer markdown parsing for
+  // off-screen messages, but that caused messages to render as plain text
+  // (showing literal # and * characters) when the observer didn't fire
+  // reliably — e.g. after session switch-back, persistence restore, or within
+  // Radix ScrollArea. Always rendering markdown is fast enough for individual
+  // messages; for truly long chats, proper virtualization should be used instead.
+  const hasMermaidContent = containsMermaidFence(message.content);
 
   return (
-    <div ref={sentinelRef} className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : "py-1.5"}`}>
+    <div className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : "py-1.5"}`}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="min-w-0 max-w-[85%] wrap-break-word">
+          <div className={cn("min-w-0 wrap-break-word", hasMermaidContent ? "w-full max-w-[50%]" : "max-w-[85%]")}>
             {showThinking && message.thinking && (
               <div className={message.content ? "mb-2" : undefined}>
                 <ThinkingBlock
@@ -358,23 +342,19 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
             )}
             {message.content ? (
-              isVisible ? (
-                <div
-                  ref={proseRef}
-                  className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
-                >
+              <div
+                ref={proseRef}
+                className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
+              >
+                <IsStreamingMarkdownContext.Provider value={!!message.isStreaming}>
                   <ReactMarkdown
                     remarkPlugins={REMARK_PLUGINS}
                     components={MD_COMPONENTS}
                   >
                     {message.content}
                   </ReactMarkdown>
-                </div>
-              ) : (
-                <div className="prose dark:prose-invert prose-sm max-w-none text-foreground whitespace-pre-wrap">
-                  {message.content}
-                </div>
-              )
+                </IsStreamingMarkdownContext.Provider>
+              </div>
             ) : null}
           </div>
         </TooltipTrigger>
@@ -410,6 +390,7 @@ export const MessageBubble = memo(function MessageBubble({
 function CodeBlock(props: React.HTMLAttributes<HTMLElement> & { node?: unknown }) {
   const { className, children } = props;
   const isBlock = useContext(IsBlockCodeContext);
+  const isStreaming = useContext(IsStreamingMarkdownContext);
   const match = /language-(\w+)/.exec(String(className ?? ""));
   const code = String(children).replace(/\n$/, "");
 
@@ -419,7 +400,7 @@ function CodeBlock(props: React.HTMLAttributes<HTMLElement> & { node?: unknown }
 
     // Render mermaid diagrams with MermaidDiagram component
     if (language === "mermaid") {
-      return <MermaidDiagram code={code} />;
+      return <MermaidDiagram code={code} isStreaming={isStreaming} />;
     }
 
     return (
