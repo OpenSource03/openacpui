@@ -274,34 +274,65 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("openclaw:status", async () => {
     const url = getGatewayUrl();
     try {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, { rejectUnauthorized: false });
+      let settled = false;
+
       const result = await new Promise<{ available: boolean; error?: string }>((resolve) => {
+        const settle = (r: { available: boolean; error?: string }) => {
+          if (settled) return;
+          settled = true;
+          resolve(r);
+        };
+
         const timeout = setTimeout(() => {
-          ws.close();
-          resolve({ available: false, error: `Connection timeout (${url})` });
+          try { ws.close(); } catch {}
+          settle({ available: false, error: `Connection timed out after 5s — is the Gateway running at ${url}?` });
         }, 5000);
+
         ws.on("open", () => {
           clearTimeout(timeout);
-          ws.close();
-          resolve({ available: true });
+          try { ws.close(); } catch {}
+          settle({ available: true });
         });
+
         ws.on("error", (err) => {
           clearTimeout(timeout);
-          const msg = (err as Error).message || "Unknown error";
-          if (msg.includes("ECONNREFUSED")) {
-            resolve({ available: false, error: `Gateway not running at ${url}` });
-          } else if (msg.includes("ENOTFOUND")) {
-            resolve({ available: false, error: `Host not found: ${url}` });
-          } else if (msg.includes("ETIMEDOUT")) {
-            resolve({ available: false, error: `Connection timed out: ${url}` });
+          const raw = String((err as Error).message || err || "Unknown error");
+          let friendly: string;
+          if (raw.includes("ECONNREFUSED")) {
+            friendly = `Connection refused — Gateway is not running at ${url}`;
+          } else if (raw.includes("ENOTFOUND") || raw.includes("getaddrinfo")) {
+            friendly = `Host not found — cannot resolve ${url}`;
+          } else if (raw.includes("ETIMEDOUT")) {
+            friendly = `Connection timed out — ${url} is not reachable`;
+          } else if (raw.includes("CERT") || raw.includes("certificate") || raw.includes("SSL") || raw.includes("TLS")) {
+            friendly = `TLS/certificate error — ${raw}`;
+          } else if (raw.includes("ECONNRESET")) {
+            friendly = `Connection reset by Gateway at ${url}`;
+          } else if (raw.includes("401") || raw.includes("403") || raw.includes("Unauthorized")) {
+            friendly = `Authentication failed — check your Gateway Token`;
           } else {
-            resolve({ available: false, error: msg });
+            friendly = raw;
+          }
+          settle({ available: false, error: friendly });
+        });
+
+        ws.on("close", (code, reason) => {
+          clearTimeout(timeout);
+          if (!settled) {
+            const reasonStr = reason?.toString() || "";
+            if (code === 1008) {
+              settle({ available: false, error: `Pairing required — approve this device on the Gateway` });
+            } else {
+              settle({ available: false, error: `Gateway closed connection (code ${code}${reasonStr ? `: ${reasonStr}` : ""})` });
+            }
           }
         });
       });
       return result;
     } catch (err) {
-      return { available: false, error: (err as Error).message || "Connection failed" };
+      const raw = String((err as Error).message || err || "Unknown error");
+      return { available: false, error: raw };
     }
   });
 
