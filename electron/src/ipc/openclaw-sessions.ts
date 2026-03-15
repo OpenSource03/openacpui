@@ -1,34 +1,114 @@
 import { BrowserWindow, ipcMain } from "electron";
 import WebSocket from "ws";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { reportError } from "../lib/error-utils";
 import { getAppSetting, setAppSettings } from "../lib/app-settings";
+import { getDataDir } from "../lib/data-dir";
+
+const CLIENT_ID = "cli";
+const CLIENT_MODE = "backend";
+const PROTOCOL_VERSION = 3;
+const ROLE = "operator";
+const SCOPES = ["operator.read", "operator.write", "operator.pairing"];
 
 function getGatewayUrl(): string {
   return getAppSetting("openclawGatewayUrl") || "ws://127.0.0.1:18789";
 }
 
-function getDeviceId(): string {
-  let id = getAppSetting("openclawDeviceId");
-  if (!id) {
-    id = `harnss-${crypto.randomUUID()}`;
-    setAppSettings({ openclawDeviceId: id });
-  }
-  return id;
+interface DeviceIdentity {
+  id: string;
+  publicKey: string;
+  privateKey: string;
 }
 
-function buildAuthParams(): Record<string, unknown> {
+function getIdentityPath(): string {
+  return path.join(getDataDir(), "openclaw-device-identity.json");
+}
+
+function loadOrCreateDeviceIdentity(): DeviceIdentity {
+  const idPath = getIdentityPath();
+  try {
+    const raw = fs.readFileSync(idPath, "utf-8");
+    const identity = JSON.parse(raw) as DeviceIdentity;
+    if (identity.id && identity.publicKey && identity.privateKey) return identity;
+  } catch {}
+
+  const keyPair = crypto.generateKeyPairSync("ed25519");
+  const pubRaw = keyPair.publicKey.export({ type: "spki", format: "der" });
+  const pubKeyHex = pubRaw.subarray(pubRaw.length - 32).toString("hex");
+  const deviceId = crypto.createHash("sha256").update(Buffer.from(pubKeyHex, "hex")).digest("hex");
+
+  const identity: DeviceIdentity = {
+    id: deviceId,
+    publicKey: pubKeyHex,
+    privateKey: keyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+  };
+
+  const dir = path.dirname(idPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(idPath, JSON.stringify(identity, null, 2), { mode: 0o600 });
+  log("OPENCLAW_IDENTITY_CREATED", { deviceId: deviceId.slice(0, 12) });
+  return identity;
+}
+
+function signConnectPayload(identity: DeviceIdentity, nonce: string): { signature: string; signedAt: number } {
+  const signedAt = Date.now();
+  const token = getAppSetting("openclawGatewayToken") || getAppSetting("openclawDeviceToken") || "";
+  const scopesStr = SCOPES.join(",");
+  const payload = `v2|${identity.id}|${CLIENT_ID}|${CLIENT_MODE}|${ROLE}|${scopesStr}|${signedAt}|${token}|${nonce}`;
+
+  const privateKey = crypto.createPrivateKey(identity.privateKey);
+  const sig = crypto.sign(null, Buffer.from(payload, "utf-8"), privateKey);
+  return { signature: sig.toString("hex"), signedAt };
+}
+
+function buildConnectParams(identity: DeviceIdentity, nonce: string): Record<string, unknown> {
+  const { signature, signedAt } = signConnectPayload(identity, nonce);
   const auth: Record<string, unknown> = {};
-  const token = getAppSetting("openclawGatewayToken");
   const deviceToken = getAppSetting("openclawDeviceToken");
-  if (deviceToken) {
-    auth.deviceToken = deviceToken;
-  } else if (token) {
-    auth.token = token;
-  }
-  return Object.keys(auth).length > 0 ? { auth } : {};
+  const gatewayToken = getAppSetting("openclawGatewayToken");
+  if (deviceToken) auth.deviceToken = deviceToken;
+  else if (gatewayToken) auth.token = gatewayToken;
+
+  return {
+    minProtocol: PROTOCOL_VERSION,
+    maxProtocol: PROTOCOL_VERSION,
+    client: { id: CLIENT_ID, version: "1.0.0", platform: process.platform, mode: CLIENT_MODE },
+    device: {
+      id: identity.id,
+      publicKey: identity.publicKey,
+      signature,
+      signedAt,
+      nonce,
+    },
+    role: ROLE,
+    scopes: SCOPES,
+    ...(Object.keys(auth).length > 0 ? { auth } : {}),
+  };
+}
+
+function waitForChallenge(ws: WebSocket): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for connect.challenge from Gateway")), 8000);
+    const handler = (data: WebSocket.Data) => {
+      try {
+        const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+        if (msg.type === "event" && msg.event === "connect.challenge") {
+          clearTimeout(timeout);
+          ws.removeListener("message", handler);
+          const payload = msg.payload as Record<string, unknown>;
+          resolve((payload.nonce as string) || "");
+        }
+      } catch {}
+    };
+    ws.on("message", handler);
+    ws.on("close", () => { clearTimeout(timeout); reject(new Error("WebSocket closed before challenge received")); });
+    ws.on("error", (err) => { clearTimeout(timeout); reject(err); });
+  });
 }
 
 interface OpenClawSession {
@@ -112,7 +192,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     const gatewayUrl = options.gatewayUrl || getGatewayUrl();
 
     try {
-      const ws = new WebSocket(gatewayUrl);
+      const ws = new WebSocket(gatewayUrl, { rejectUnauthorized: false });
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -129,6 +209,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           reject(err);
         });
       });
+
+      const identity = loadOrCreateDeviceIdentity();
+      const nonce = await waitForChallenge(ws);
 
       const session: OpenClawSession = {
         ws,
@@ -161,16 +244,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const model = options.model || getAppSetting("openclawDefaultModel") || undefined;
       const skills = options.skills?.length ? options.skills : (getAppSetting("openclawDefaultSkills") ?? []);
 
-      const connectPayload = await wsSend(session, "connect", {
-        client: { id: "harnss", version: "1.0.0", platform: process.platform, mode: "operator" },
-        device: { id: getDeviceId() },
-        role: "operator",
-        scopes: ["operator.read", "operator.write", "operator.pairing"],
-        ...buildAuthParams(),
-        cwd: options.cwd,
-        ...(model ? { model } : {}),
-        ...(skills.length ? { skills } : {}),
-      });
+      const connectParams = buildConnectParams(identity, nonce);
+      const connectPayload = await wsSend(session, "connect", connectParams);
 
       const hello = connectPayload as Record<string, unknown> | null;
       const helloAuth = hello?.auth as Record<string, unknown> | undefined;
@@ -339,7 +414,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("openclaw:pair", async () => {
     const url = getGatewayUrl();
     try {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, { rejectUnauthorized: false });
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -349,6 +424,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         ws.on("open", () => { clearTimeout(timeout); resolve(); });
         ws.on("error", (err) => { clearTimeout(timeout); reject(err); });
       });
+
+      const identity = loadOrCreateDeviceIdentity();
+      const nonce = await waitForChallenge(ws);
 
       const pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
@@ -375,17 +453,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         });
       };
 
-      const tokenParam = getAppSetting("openclawGatewayToken");
-      const authParams: Record<string, unknown> = {};
-      if (tokenParam) authParams.token = tokenParam;
-
-      const connectResult = await sendReq("connect", {
-        client: { id: "harnss", version: "1.0.0", platform: process.platform, mode: "operator" },
-        device: { id: getDeviceId() },
-        role: "operator",
-        scopes: ["operator.read", "operator.write", "operator.pairing"],
-        ...(Object.keys(authParams).length > 0 ? { auth: authParams } : {}),
-      }) as Record<string, unknown> | null;
+      const connectParams = buildConnectParams(identity, nonce);
+      const connectResult = await sendReq("connect", connectParams) as Record<string, unknown> | null;
 
       const auth = (connectResult?.auth ?? {}) as Record<string, unknown>;
       if (auth.deviceToken) {
@@ -395,7 +464,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       const version = connectResult?.protocol as string | undefined;
 
       ws.close();
-      log("OPENCLAW_PAIR", { paired: true, version });
+      log("OPENCLAW_PAIR", { paired: true, version, deviceId: identity.id.slice(0, 12) });
       return { ok: true, paired: true, version };
     } catch (err) {
       const msg = (err as Error).message || "Pairing failed";
@@ -405,6 +474,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
       if (msg.includes("AUTH_TOKEN_MISMATCH")) {
         return { ok: false, error: "Token mismatch — check your Gateway Token in settings" };
+      }
+      if (msg.includes("DEVICE_AUTH_SIGNATURE_INVALID") || msg.includes("device signature invalid")) {
+        return { ok: false, error: "Device signature invalid — try deleting the identity file and re-pairing" };
       }
       return { ok: false, error: msg };
     }
