@@ -4,8 +4,11 @@ import crypto from "crypto";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { reportError } from "../lib/error-utils";
+import { getAppSetting } from "../lib/app-settings";
 
-const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
+function getGatewayUrl(): string {
+  return getAppSetting("openclawGatewayUrl") || "ws://127.0.0.1:18789";
+}
 
 interface OpenClawSession {
   ws: WebSocket;
@@ -85,7 +88,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     skills?: string[];
   }) => {
     const sessionId = crypto.randomUUID();
-    const gatewayUrl = options.gatewayUrl || DEFAULT_GATEWAY_URL;
+    const gatewayUrl = options.gatewayUrl || getGatewayUrl();
 
     try {
       const ws = new WebSocket(gatewayUrl);
@@ -134,10 +137,16 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       openclawSessions.set(sessionId, session);
 
+      const model = options.model || getAppSetting("openclawDefaultModel") || undefined;
+      const skills = options.skills?.length ? options.skills : (getAppSetting("openclawDefaultSkills") ?? []);
+
       const connectPayload = await wsSend(session, "connect", {
         client: { id: "harnss", version: "1.0.0", platform: process.platform, mode: "operator" },
         role: "operator",
         scopes: ["operator.read", "operator.write"],
+        cwd: options.cwd,
+        ...(model ? { model } : {}),
+        ...(skills.length ? { skills } : {}),
       });
 
       log("OPENCLAW_START", { sessionId, gatewayUrl, connected: true });
@@ -235,7 +244,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle("openclaw:status", async () => {
     try {
-      const ws = new WebSocket(DEFAULT_GATEWAY_URL);
+      const ws = new WebSocket(getGatewayUrl());
       const connected = await new Promise<boolean>((resolve) => {
         const timeout = setTimeout(() => {
           ws.close();

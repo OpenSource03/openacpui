@@ -28,6 +28,9 @@ export const AdvancedSettings = memo(function AdvancedSettings({
   const [claudeCustomBinaryPath, setClaudeCustomBinaryPath] = useState("");
   const [showDevFillInChatTitleBar, setShowDevFillInChatTitleBar] = useState(false);
   const [showJiraBoard, setShowJiraBoard] = useState(false);
+  const [openclawGatewayUrl, setOpenclawGatewayUrl] = useState("ws://127.0.0.1:18789");
+  const [openclawDefaultModel, setOpenclawDefaultModel] = useState("");
+  const [openclawDefaultSkills, setOpenclawDefaultSkills] = useState("");
 
   useEffect(() => {
     if (appSettings) {
@@ -38,6 +41,9 @@ export const AdvancedSettings = memo(function AdvancedSettings({
       setClaudeCustomBinaryPath(appSettings.claudeCustomBinaryPath || "");
       setShowDevFillInChatTitleBar(!!appSettings.showDevFillInChatTitleBar);
       setShowJiraBoard(!!appSettings.showJiraBoard);
+      setOpenclawGatewayUrl(appSettings.openclawGatewayUrl || "ws://127.0.0.1:18789");
+      setOpenclawDefaultModel(appSettings.openclawDefaultModel || "");
+      setOpenclawDefaultSkills((appSettings.openclawDefaultSkills ?? []).join(", "));
     }
   }, [appSettings]);
 
@@ -98,6 +104,34 @@ export const AdvancedSettings = memo(function AdvancedSettings({
     async (checked: boolean) => {
       setShowJiraBoard(checked);
       await onUpdateAppSettings({ showJiraBoard: checked });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const handleOpenclawGatewayUrlSave = useCallback(
+    async (value: string) => {
+      const next = value.trim() || "ws://127.0.0.1:18789";
+      setOpenclawGatewayUrl(next);
+      await onUpdateAppSettings({ openclawGatewayUrl: next });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const handleOpenclawModelSave = useCallback(
+    async (value: string) => {
+      const next = value.trim();
+      setOpenclawDefaultModel(next);
+      await onUpdateAppSettings({ openclawDefaultModel: next });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const handleOpenclawSkillsSave = useCallback(
+    async (value: string) => {
+      const next = value.trim();
+      setOpenclawDefaultSkills(next);
+      const skills = next ? next.split(",").map(s => s.trim()).filter(Boolean) : [];
+      await onUpdateAppSettings({ openclawDefaultSkills: skills });
     },
     [onUpdateAppSettings],
   );
@@ -273,6 +307,72 @@ export const AdvancedSettings = memo(function AdvancedSettings({
               </SettingRow>
             )}
           </div>
+
+          {/* ── OpenClaw section ── */}
+          {section === "engines" && (
+            <div className="py-3">
+              <div className="mb-1 flex items-center gap-2">
+                <Server className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  OpenClaw
+                </span>
+              </div>
+
+              <SettingRow
+                label="Gateway URL"
+                description="WebSocket address of the OpenClaw Gateway. Changes take effect on new sessions."
+              >
+                <input
+                  type="text"
+                  value={openclawGatewayUrl}
+                  onChange={(e) => setOpenclawGatewayUrl(e.target.value)}
+                  onBlur={(e) => handleOpenclawGatewayUrlSave(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleOpenclawGatewayUrlSave(e.currentTarget.value);
+                  }}
+                  spellCheck={false}
+                  className="h-8 w-80 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  placeholder="ws://127.0.0.1:18789"
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="Default model"
+                description="Model identifier sent to the Gateway when starting new sessions."
+              >
+                <input
+                  type="text"
+                  value={openclawDefaultModel}
+                  onChange={(e) => setOpenclawDefaultModel(e.target.value)}
+                  onBlur={(e) => handleOpenclawModelSave(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleOpenclawModelSave(e.currentTarget.value);
+                  }}
+                  spellCheck={false}
+                  className="h-8 w-60 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  placeholder="e.g. gpt-4o, claude-sonnet-4-6"
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="Default skills"
+                description="Comma-separated list of skills to enable by default (e.g. shell_exec, web_search)."
+              >
+                <input
+                  type="text"
+                  value={openclawDefaultSkills}
+                  onChange={(e) => setOpenclawDefaultSkills(e.target.value)}
+                  onBlur={(e) => handleOpenclawSkillsSave(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleOpenclawSkillsSave(e.currentTarget.value);
+                  }}
+                  spellCheck={false}
+                  className="h-8 w-80 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  placeholder="shell_exec, file_read, web_search"
+                />
+              </SettingRow>
+            </div>
+          )}
         </div>
       </ScrollArea>
     </div>

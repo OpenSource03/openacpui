@@ -39,6 +39,9 @@ export interface AppSettings {
     analyticsEnabled: boolean;
     analyticsUserId?: string;
     analyticsLastDailyActiveDate?: string;
+    openclawGatewayUrl: string;
+    openclawDefaultModel: string;
+    openclawDefaultSkills: string[];
 }
 
 export interface SpaceColor {
