@@ -34,17 +34,24 @@ function loadOrCreateDeviceIdentity(): DeviceIdentity {
   try {
     const raw = fs.readFileSync(idPath, "utf-8");
     const identity = JSON.parse(raw) as DeviceIdentity;
-    if (identity.id && identity.publicKey && identity.privateKey) return identity;
+    if (identity.id && identity.publicKey && identity.privateKey) {
+      if (identity.publicKey.length === 64 && /^[0-9a-f]+$/.test(identity.publicKey)) {
+        log("OPENCLAW_IDENTITY_MIGRATION", "Regenerating identity — old hex format detected");
+      } else {
+        return identity;
+      }
+    }
   } catch {}
 
   const keyPair = crypto.generateKeyPairSync("ed25519");
-  const pubRaw = keyPair.publicKey.export({ type: "spki", format: "der" });
-  const pubKeyHex = pubRaw.subarray(pubRaw.length - 32).toString("hex");
-  const deviceId = crypto.createHash("sha256").update(Buffer.from(pubKeyHex, "hex")).digest("hex");
+  const spkiDer = keyPair.publicKey.export({ type: "spki", format: "der" });
+  const raw32 = spkiDer.subarray(-32);
+  const publicKeyBase64Url = raw32.toString("base64url");
+  const deviceId = crypto.createHash("sha256").update(raw32).digest("hex");
 
   const identity: DeviceIdentity = {
     id: deviceId,
-    publicKey: pubKeyHex,
+    publicKey: publicKeyBase64Url,
     privateKey: keyPair.privateKey.export({ type: "pkcs8", format: "pem" }) as string,
   };
 
@@ -63,7 +70,7 @@ function signConnectPayload(identity: DeviceIdentity, nonce: string): { signatur
 
   const privateKey = crypto.createPrivateKey(identity.privateKey);
   const sig = crypto.sign(null, Buffer.from(payload, "utf-8"), privateKey);
-  return { signature: sig.toString("hex"), signedAt };
+  return { signature: sig.toString("base64url"), signedAt };
 }
 
 function buildConnectParams(identity: DeviceIdentity, nonce: string): Record<string, unknown> {
