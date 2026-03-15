@@ -31,6 +31,7 @@ export const AdvancedSettings = memo(function AdvancedSettings({
   const [openclawGatewayUrl, setOpenclawGatewayUrl] = useState("ws://127.0.0.1:18789");
   const [openclawDefaultModel, setOpenclawDefaultModel] = useState("");
   const [openclawDefaultSkills, setOpenclawDefaultSkills] = useState("");
+  const [gatewayTestStatus, setGatewayTestStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
 
   useEffect(() => {
     if (appSettings) {
@@ -135,6 +136,17 @@ export const AdvancedSettings = memo(function AdvancedSettings({
     },
     [onUpdateAppSettings],
   );
+
+  const handleTestGateway = useCallback(async () => {
+    setGatewayTestStatus("testing");
+    try {
+      const result = await window.claude.openclaw.status();
+      setGatewayTestStatus(result.available ? "connected" : "failed");
+    } catch {
+      setGatewayTestStatus("failed");
+    }
+    setTimeout(() => setGatewayTestStatus("idle"), 4000);
+  }, []);
 
   const canConfigureDevFill = section === "advanced" && import.meta.env.DEV;
 
@@ -322,18 +334,36 @@ export const AdvancedSettings = memo(function AdvancedSettings({
                 label="Gateway URL"
                 description="WebSocket address of the OpenClaw Gateway. Changes take effect on new sessions."
               >
-                <input
-                  type="text"
-                  value={openclawGatewayUrl}
-                  onChange={(e) => setOpenclawGatewayUrl(e.target.value)}
-                  onBlur={(e) => handleOpenclawGatewayUrlSave(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleOpenclawGatewayUrlSave(e.currentTarget.value);
-                  }}
-                  spellCheck={false}
-                  className="h-8 w-80 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
-                  placeholder="ws://127.0.0.1:18789"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={openclawGatewayUrl}
+                    onChange={(e) => setOpenclawGatewayUrl(e.target.value)}
+                    onBlur={(e) => handleOpenclawGatewayUrlSave(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleOpenclawGatewayUrlSave(e.currentTarget.value);
+                    }}
+                    spellCheck={false}
+                    className="h-8 w-64 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                    placeholder="ws://127.0.0.1:18789"
+                  />
+                  <button
+                    onClick={handleTestGateway}
+                    disabled={gatewayTestStatus === "testing"}
+                    className={`h-8 rounded-md border px-3 text-xs font-medium transition-colors ${
+                      gatewayTestStatus === "connected"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                        : gatewayTestStatus === "failed"
+                          ? "border-red-500/30 bg-red-500/10 text-red-400"
+                          : "border-foreground/10 bg-background text-foreground hover:border-foreground/20 hover:bg-foreground/[0.03]"
+                    }`}
+                  >
+                    {gatewayTestStatus === "testing" ? "Testing..." :
+                     gatewayTestStatus === "connected" ? "Connected" :
+                     gatewayTestStatus === "failed" ? "Failed" :
+                     "Test Connection"}
+                  </button>
+                </div>
               </SettingRow>
 
               <SettingRow
