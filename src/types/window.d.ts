@@ -6,6 +6,7 @@ import type {
   InstalledAgent, ModelInfo, McpServerConfig, McpServerStatus,
   AppSettings,
   ClaudeEffort,
+  ChatFolder,
 } from "./ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
 import type { EngineId, AppPermissionBehavior } from "./engine";
@@ -136,12 +137,17 @@ declare global {
         updateSpace: (projectId: string, spaceId: string) => Promise<{ ok?: boolean; error?: string }>;
         updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => Promise<{ ok?: boolean; error?: string }>;
         reorder: (projectId: string, targetProjectId: string) => Promise<{ ok?: boolean; error?: string }>;
+        createFolder: (projectId: string, name: string) => Promise<{ folder?: ChatFolder; error?: string }>;
+        renameFolder: (projectId: string, folderId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
+        deleteFolder: (projectId: string, folderId: string) => Promise<{ ok?: boolean; error?: string }>;
+        reorderFolder: (projectId: string, folderId: string, targetFolderId: string) => Promise<{ ok?: boolean; error?: string }>;
       };
       sessions: {
         save: (data: PersistedSession) => Promise<{ ok?: boolean; error?: string }>;
         load: (projectId: string, sessionId: string) => Promise<PersistedSession | null>;
         list: (projectId: string) => Promise<SessionListItem[]>;
         delete: (projectId: string, sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        moveToFolder: (projectId: string, sessionId: string, folderId: string | null) => Promise<{ ok?: boolean; error?: string }>;
         search: (projectIds: string[], query: string) => Promise<{
           messageResults: SearchMessageResult[];
           sessionResults: SearchSessionResult[];

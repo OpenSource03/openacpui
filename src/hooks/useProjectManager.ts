@@ -74,6 +74,66 @@ export function useProjectManager() {
     });
   }, []);
 
+  const createFolder = useCallback(async (projectId: string, name: string) => {
+    const result = await window.claude.projects.createFolder(projectId, name);
+    if (!result.folder) return null;
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === projectId
+          ? { ...p, folders: [...(p.folders ?? []), result.folder!] }
+          : p,
+      ),
+    );
+    return result.folder;
+  }, []);
+
+  const renameFolder = useCallback(async (projectId: string, folderId: string, name: string) => {
+    await window.claude.projects.renameFolder(projectId, folderId, name);
+    setProjects((prev) =>
+      prev.map((p) => {
+        if (p.id !== projectId) return p;
+        return {
+          ...p,
+          folders: (p.folders ?? []).map((f) =>
+            f.id === folderId ? { ...f, name } : f,
+          ),
+        };
+      }),
+    );
+  }, []);
+
+  const deleteFolder = useCallback(async (projectId: string, folderId: string) => {
+    await window.claude.projects.deleteFolder(projectId, folderId);
+    setProjects((prev) =>
+      prev.map((p) => {
+        if (p.id !== projectId) return p;
+        return {
+          ...p,
+          folders: (p.folders ?? []).filter((f) => f.id !== folderId),
+        };
+      }),
+    );
+  }, []);
+
+  const reorderFolder = useCallback(async (projectId: string, folderId: string, targetFolderId: string) => {
+    await window.claude.projects.reorderFolder(projectId, folderId, targetFolderId);
+    setProjects((prev) =>
+      prev.map((p) => {
+        if (p.id !== projectId || !p.folders) return p;
+        const folders = [...p.folders];
+        const fromIdx = folders.findIndex((f) => f.id === folderId);
+        const toIdx = folders.findIndex((f) => f.id === targetFolderId);
+        if (fromIdx === -1 || toIdx === -1) return p;
+        const [moved] = folders.splice(fromIdx, 1);
+        folders.splice(toIdx, 0, moved);
+        folders.forEach((f, i) => {
+          f.order = i;
+        });
+        return { ...p, folders };
+      }),
+    );
+  }, []);
+
   return {
     projects,
     createProject,
@@ -83,5 +143,9 @@ export function useProjectManager() {
     updateProjectSpace,
     updateProjectIcon,
     reorderProject,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    reorderFolder,
   };
 }

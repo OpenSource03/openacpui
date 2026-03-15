@@ -201,6 +201,27 @@ export function AppLayout() {
     setJiraBoardProjectForSpace(spaceId, currentProjectId === projectId ? null : projectId);
   }, [jiraBoardBySpace, projectManager.projects, setJiraBoardProjectForSpace]);
 
+  const handleMoveSessionToFolder = useCallback(
+    async (sessionId: string, folderId: string | null) => {
+      // Find the session in our local state
+      const session = manager.sessions.find((s) => s.id === sessionId);
+      if (!session) return;
+
+      // Update the session's folderId via IPC
+      await window.claude.sessions.moveToFolder(session.projectId, sessionId, folderId);
+
+      // Update the session state locally
+      manager.setSessions((prev) =>
+        prev.map((s) =>
+          s.id === sessionId
+            ? { ...s, folderId: folderId ?? undefined }
+            : s,
+        ),
+      );
+    },
+    [manager],
+  );
+
   // Handler for creating task from Jira issue
   const handleCreateTaskFromJiraIssue = useCallback(
     (projectId: string, issue: JiraIssue) => {
@@ -399,6 +420,7 @@ Link: ${issue.url}`;
         onSelectSession={handleSidebarSelectSession}
         onDeleteSession={manager.deleteSession}
         onRenameSession={manager.renameSession}
+        onMoveSessionToFolder={handleMoveSessionToFolder}
         onCreateProject={handleCreateProject}
         onDeleteProject={projectManager.deleteProject}
         onRenameProject={projectManager.renameProject}
@@ -408,6 +430,10 @@ Link: ${issue.url}`;
         onNavigateToMessage={handleNavigateToMessage}
         onMoveProjectToSpace={handleMoveProjectToSpace}
         onReorderProject={projectManager.reorderProject}
+        onCreateFolder={projectManager.createFolder}
+        onRenameFolder={projectManager.renameFolder}
+        onDeleteFolder={projectManager.deleteFolder}
+        onReorderFolder={projectManager.reorderFolder}
         spaces={spaceManager.spaces}
         activeSpaceId={spaceManager.activeSpaceId}
         onSelectSpace={spaceManager.setActiveSpaceId}

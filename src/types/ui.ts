@@ -173,6 +173,14 @@ export interface SessionInfo {
   agentName?: string;
 }
 
+export interface ChatFolder {
+  id: string;
+  name: string;
+  projectId: string;
+  createdAt: number;
+  order: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -181,12 +189,14 @@ export interface Project {
   spaceId?: string;
   icon?: string;
   iconType?: "emoji" | "lucide";
+  folders?: ChatFolder[];
 }
 
 /** Fields shared between live and persisted session representations. */
 export interface SessionBase {
   id: string;
   projectId: string;
+  folderId?: string;
   title: string;
   createdAt: number;
   model?: string;
