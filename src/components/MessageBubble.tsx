@@ -18,6 +18,7 @@ import type { UIMessage, ImageAttachment } from "@/types";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { CopyButton } from "./CopyButton";
 import { ImageLightbox } from "./ImageLightbox";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 // Stable references to avoid re-creating on every render
 const REMARK_PLUGINS = [remarkGfm];
@@ -414,15 +415,22 @@ function CodeBlock(props: React.HTMLAttributes<HTMLElement> & { node?: unknown }
 
   // Fenced code block with language tag → syntax highlighted
   if (isBlock && match) {
+    const language = match[1];
+
+    // Render mermaid diagrams with MermaidDiagram component
+    if (language === "mermaid") {
+      return <MermaidDiagram code={code} />;
+    }
+
     return (
       <div className="not-prose group/code relative my-2 rounded-lg bg-foreground/[0.03] overflow-hidden">
         <div className="flex items-center justify-between bg-foreground/[0.04] px-3 py-1">
-          <span className="text-[11px] text-muted-foreground">{match[1]}</span>
+          <span className="text-[11px] text-muted-foreground">{language}</span>
           <CopyButton text={code} className="opacity-0 transition-opacity group-hover/code:opacity-100" />
         </div>
         <SyntaxHighlighter
           style={oneDark}
-          language={match[1]}
+          language={language}
           PreTag="div"
           customStyle={SYNTAX_STYLE}
           codeTagProps={CODE_TAG_PROPS}
