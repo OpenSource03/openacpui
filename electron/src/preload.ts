@@ -283,6 +283,9 @@ contextBridge.exposeInMainWorld("claude", {
     stop: (sessionId: string) => ipcRenderer.invoke("openclaw:stop", sessionId),
     interrupt: (sessionId: string) => ipcRenderer.invoke("openclaw:interrupt", sessionId),
     status: () => ipcRenderer.invoke("openclaw:status"),
+    spawnAgent: (sessionId: string, agentName: string, prompt: string, skills?: string[]) =>
+      ipcRenderer.invoke("openclaw:spawn-agent", { sessionId, agentName, prompt, skills }),
+    listAgents: (sessionId: string) => ipcRenderer.invoke("openclaw:list-agents", sessionId),
     onEvent: (callback: (data: unknown) => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on("openclaw:event", listener);

@@ -160,6 +160,66 @@ export function useOpenClaw({ sessionId, initialMessages, initialMeta, initialPe
           break;
         }
 
+        case "agent:spawn": {
+          const agentId = (event.payload.agentId as string) ?? nextId("agent");
+          const agentName = (event.payload.agentName as string) ?? "Agent";
+          const prompt = (event.payload.prompt as string) ?? "";
+          setMessages(prev => [...prev, {
+            id: agentId,
+            role: "tool_call",
+            content: "",
+            toolName: "Task",
+            toolInput: { prompt, description: `${agentName}: ${prompt}` },
+            subagentId: agentId,
+            subagentSteps: [],
+            subagentStatus: "running",
+            timestamp: Date.now(),
+          }]);
+          break;
+        }
+
+        case "agent:step": {
+          const agentId = (event.payload.agentId as string) ?? "";
+          const step = {
+            toolName: (event.payload.toolName as string) ?? "unknown",
+            toolInput: (event.payload.input as Record<string, unknown>) ?? {},
+            toolResult: event.payload.result as Record<string, unknown> | undefined,
+            toolUseId: (event.payload.stepId as string) ?? nextId("step"),
+            toolError: (event.payload.error as boolean) ?? false,
+          };
+          setMessages(prev => prev.map(m => {
+            if (m.id !== agentId) return m;
+            return { ...m, subagentSteps: [...(m.subagentSteps ?? []), step] };
+          }));
+          break;
+        }
+
+        case "agent:message": {
+          const agentId = (event.payload.agentId as string) ?? "";
+          const text = (event.payload.text as string) ?? "";
+          setMessages(prev => prev.map(m => {
+            if (m.id !== agentId) return m;
+            return { ...m, content: (m.content ?? "") + text };
+          }));
+          break;
+        }
+
+        case "agent:complete": {
+          const agentId = (event.payload.agentId as string) ?? "";
+          const result = event.payload.result as Record<string, unknown> | undefined;
+          const durationMs = (event.payload.durationMs as number) ?? undefined;
+          setMessages(prev => prev.map(m => {
+            if (m.id !== agentId) return m;
+            return {
+              ...m,
+              subagentStatus: "completed" as const,
+              subagentDurationMs: durationMs,
+              toolResult: result ?? { content: m.content || "Done" },
+            };
+          }));
+          break;
+        }
+
         case "lifecycle:end":
           finalizeStreamingMessage();
           setIsProcessing(false);

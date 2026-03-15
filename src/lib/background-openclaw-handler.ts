@@ -95,6 +95,58 @@ export function handleOpenClawEvent(state: InternalState, event: OpenClawSession
       break;
     }
 
+    case "agent:spawn": {
+      const agentId = (event.payload.agentId as string) ?? nextId("agent");
+      const agentName = (event.payload.agentName as string) ?? "Agent";
+      const prompt = (event.payload.prompt as string) ?? "";
+      state.messages.push({
+        id: agentId,
+        role: "tool_call",
+        content: "",
+        toolName: "Task",
+        toolInput: { prompt, description: `${agentName}: ${prompt}` },
+        subagentId: agentId,
+        subagentSteps: [],
+        subagentStatus: "running",
+        timestamp: Date.now(),
+      });
+      break;
+    }
+
+    case "agent:step": {
+      const agentId = (event.payload.agentId as string) ?? "";
+      const msg = state.messages.find(m => m.id === agentId);
+      if (msg) {
+        const step = {
+          toolName: (event.payload.toolName as string) ?? "unknown",
+          toolInput: (event.payload.input as Record<string, unknown>) ?? {},
+          toolResult: event.payload.result as Record<string, unknown> | undefined,
+          toolUseId: (event.payload.stepId as string) ?? nextId("step"),
+          toolError: (event.payload.error as boolean) ?? false,
+        };
+        msg.subagentSteps = [...(msg.subagentSteps ?? []), step];
+      }
+      break;
+    }
+
+    case "agent:message": {
+      const agentId = (event.payload.agentId as string) ?? "";
+      const msg = state.messages.find(m => m.id === agentId);
+      if (msg) msg.content = (msg.content ?? "") + ((event.payload.text as string) ?? "");
+      break;
+    }
+
+    case "agent:complete": {
+      const agentId = (event.payload.agentId as string) ?? "";
+      const msg = state.messages.find(m => m.id === agentId);
+      if (msg) {
+        msg.subagentStatus = "completed";
+        msg.subagentDurationMs = (event.payload.durationMs as number) ?? undefined;
+        msg.toolResult = (event.payload.result as Record<string, unknown>) ?? { content: msg.content || "Done" };
+      }
+      break;
+    }
+
     case "lifecycle:end":
       finalizeStreamingMsg(state);
       state.isProcessing = false;

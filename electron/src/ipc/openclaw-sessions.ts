@@ -196,6 +196,43 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
+  ipcMain.handle("openclaw:spawn-agent", async (_event, { sessionId, agentName, prompt, skills }: {
+    sessionId: string;
+    agentName: string;
+    prompt: string;
+    skills?: string[];
+  }) => {
+    const session = openclawSessions.get(sessionId);
+    if (!session) return { error: "OpenClaw session not found" };
+
+    try {
+      const result = await wsSend(session, "agent.spawn", {
+        sessionKey: session.sessionKey,
+        agentName,
+        prompt,
+        skills,
+        cwd: session.cwd,
+      });
+      return { ok: true, agentId: (result as Record<string, unknown>)?.agentId };
+    } catch (err) {
+      const errMsg = reportError("OPENCLAW_SPAWN_AGENT_ERR", err, { engine: "openclaw", sessionId });
+      return { error: errMsg };
+    }
+  });
+
+  ipcMain.handle("openclaw:list-agents", async (_event, sessionId: string) => {
+    const session = openclawSessions.get(sessionId);
+    if (!session) return { error: "OpenClaw session not found" };
+
+    try {
+      const result = await wsSend(session, "agent.list", { sessionKey: session.sessionKey });
+      return { ok: true, agents: result };
+    } catch (err) {
+      const errMsg = reportError("OPENCLAW_LIST_AGENTS_ERR", err, { engine: "openclaw", sessionId });
+      return { error: errMsg };
+    }
+  });
+
   ipcMain.handle("openclaw:status", async () => {
     try {
       const ws = new WebSocket(DEFAULT_GATEWAY_URL);

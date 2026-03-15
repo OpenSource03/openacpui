@@ -10,6 +10,10 @@ export interface OpenClawSessionEvent {
     | "tool:result"
     | "thinking:delta"
     | "thinking:done"
+    | "agent:spawn"
+    | "agent:step"
+    | "agent:message"
+    | "agent:complete"
     | "status";
   payload: Record<string, unknown>;
 }
