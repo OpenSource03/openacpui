@@ -3,6 +3,7 @@ import type { BrowserWindow } from "electron";
 import { execFile } from "child_process";
 import path from "path";
 import fs from "fs";
+import { promises as fsPromises } from "fs";
 import { log } from "../lib/logger";
 import { ALWAYS_SKIP } from "../lib/git-exec";
 import { getAppSetting } from "../lib/app-settings";
@@ -339,7 +340,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         if (!absPath.startsWith(path.resolve(cwd) + path.sep) && absPath !== path.resolve(cwd)) {
           continue;
         }
-        const stat = fs.statSync(absPath);
+        const stat = await fsPromises.stat(absPath);
         if (stat.isDirectory()) {
           const allFiles = await listProjectFiles(cwd);
           const dirPrefix = relPath.endsWith("/") ? relPath : relPath + "/";
@@ -348,7 +349,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           for (const file of matchingFiles) {
             const fileAbsPath = path.resolve(cwd, file);
             try {
-              const fileStat = fs.statSync(fileAbsPath);
+              const fileStat = await fsPromises.stat(fileAbsPath);
               if (!fileStat.isDirectory() && fileStat.size <= 500_000) {
                 totalSize += fileStat.size;
                 fileCount++;
@@ -388,7 +389,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           results.push({ path: relPath, error: "Path outside project directory" });
           continue;
         }
-        const stat = fs.statSync(absPath);
+        const stat = await fsPromises.stat(absPath);
         if (stat.isDirectory()) {
           const allFiles = await listProjectFiles(cwd);
           const dirPrefix = relPath.endsWith("/") ? relPath : relPath + "/";
@@ -411,7 +412,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
                 continue;
               }
               try {
-                const fileStat = fs.statSync(fileAbsPath);
+                const fileStat = await fsPromises.stat(fileAbsPath);
                 if (!fileStat.isDirectory() && fileStat.size <= 500_000) {
                   folderContentSize += fileStat.size;
                   filesToRead.push(file);
@@ -430,20 +431,34 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
               continue;
             }
 
-            // Read all files in the folder
-            for (const file of filesToRead) {
-              const fileAbsPath = path.resolve(cwd, file);
-              try {
-                const fileStat = fs.statSync(fileAbsPath);
-                if (fileStat.size > 500_000) {
-                  results.push({ path: file, error: "File too large" });
-                  continue;
-                }
-                const content = fs.readFileSync(fileAbsPath, "utf-8");
-                results.push({ path: file, content });
-                totalContentSize += content.length;
-              } catch (fileErr) {
-                results.push({ path: file, error: fileErr instanceof Error ? fileErr.message : String(fileErr) });
+            // Read all files in the folder with batching to avoid blocking
+            // Process files in batches of 10 to periodically yield to event loop
+            const BATCH_SIZE = 10;
+            for (let i = 0; i < filesToRead.length; i += BATCH_SIZE) {
+              const batch = filesToRead.slice(i, i + BATCH_SIZE);
+
+              // Process batch in parallel
+              await Promise.all(
+                batch.map(async (file) => {
+                  const fileAbsPath = path.resolve(cwd, file);
+                  try {
+                    const fileStat = await fsPromises.stat(fileAbsPath);
+                    if (fileStat.size > 500_000) {
+                      results.push({ path: file, error: "File too large" });
+                      return;
+                    }
+                    const content = await fsPromises.readFile(fileAbsPath, "utf-8");
+                    results.push({ path: file, content });
+                    totalContentSize += content.length;
+                  } catch (fileErr) {
+                    results.push({ path: file, error: fileErr instanceof Error ? fileErr.message : String(fileErr) });
+                  }
+                })
+              );
+
+              // Yield to event loop between batches
+              if (i + BATCH_SIZE < filesToRead.length) {
+                await new Promise(resolve => setImmediate(resolve));
               }
             }
           } else {
@@ -455,7 +470,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             results.push({ path: relPath, error: "File too large" });
             continue;
           }
-          const content = fs.readFileSync(absPath, "utf-8");
+          const content = await fsPromises.readFile(absPath, "utf-8");
           results.push({ path: relPath, content });
           totalContentSize += content.length;
         }
