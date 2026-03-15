@@ -342,6 +342,11 @@ export const MessageBubble = memo(function MessageBubble({
     return () => observer.disconnect();
   }, [message.isStreaming]);
 
+  const hasRenderableAssistantContent = !!message.content || (showThinking && !!message.thinking);
+  if (!hasRenderableAssistantContent) {
+    return null;
+  }
+
   return (
     <div ref={sentinelRef} className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : "py-1.5"}`}>
       <Tooltip>

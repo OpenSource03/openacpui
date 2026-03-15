@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import type {
   ClaudeEvent,
   SystemInitEvent,
@@ -853,6 +854,10 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           });
           permissionQueue.current = nextState.queue;
           setPendingPermission(nextState.current);
+        } else {
+          toast.error("Failed to respond to permission prompt", {
+            description: result.error,
+          });
         }
         return;
       }

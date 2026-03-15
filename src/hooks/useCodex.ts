@@ -7,6 +7,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import type { TodoItem, PermissionBehavior, ModelInfo, ImageAttachment, SessionMeta, SlashCommand } from "@/types";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "@/types/codex";
 import type { CodexTokenUsageNotification } from "@/types/codex";
@@ -45,6 +46,12 @@ interface UseCodexOptions {
 
 function nextId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function showCodexPermissionError(message: string): void {
+  toast.error("Failed to respond to permission prompt", {
+    description: message,
+  });
 }
 
 interface CodexQuestionOption {
@@ -557,6 +564,7 @@ export function useCodex({
         m.id === msgId
           ? {
               ...m,
+              toolInput: codexItemToToolInput(item),
               toolResult: toolResult ?? m.toolResult,
               toolError: isError || undefined,
               // For command execution, also include accumulated output
@@ -944,8 +952,6 @@ export function useCodex({
       // AppLayout's sync effect handles toggling plan mode off when
       // sessionInfo.permissionMode changes away from "plan".
       if (pendingPermission?.toolName === "ExitPlanMode") {
-        setPendingPermission(null);
-
         if (behavior === "deny") {
           // Send user feedback as a plan-mode message so Codex refines the plan
           const denyMessage = typeof _updatedInput?.denyMessage === "string"
@@ -969,8 +975,10 @@ export function useCodex({
               mode: "plan",
               settings: { model, reasoning_effort: null, developer_instructions: null },
             };
-            await send(denyMessage, undefined, undefined, planCollabMode);
+            const ok = await send(denyMessage, undefined, undefined, planCollabMode);
+            if (!ok) return;
           }
+          setPendingPermission(null);
           return;
         }
 
@@ -990,8 +998,6 @@ export function useCodex({
             return;
           }
 
-          // User accepted — update sessionInfo so AppLayout's planMode sync fires
-          setSessionInfo((prev) => prev ? { ...prev, permissionMode: _newPermissionMode } : prev);
           const collaborationMode: CollaborationMode = {
             mode: "default",
             settings: {
@@ -1001,8 +1007,13 @@ export function useCodex({
             },
           };
           // Send implementation prompt — plan is already in conversation context
-          await send("Implement the plan.", undefined, undefined, collaborationMode);
+          const ok = await send("Implement the plan.", undefined, undefined, collaborationMode);
+          if (!ok) return;
+
+          // User accepted — update sessionInfo so AppLayout's planMode sync fires
+          setSessionInfo((prev) => prev ? { ...prev, permissionMode: _newPermissionMode } : prev);
         }
+        setPendingPermission(null);
         return;
       }
 
@@ -1022,12 +1033,16 @@ export function useCodex({
 
       if (activeRequest.method === "item/tool/requestUserInput") {
         if (behavior === "deny") {
-          await window.claude.codex.respondServerRequestError(
+          const result = await window.claude.codex.respondServerRequestError(
             sessionId,
             activeRequest.rpcId,
             -32001,
             "User declined requestUserInput",
           );
+          if (result?.error) {
+            showCodexPermissionError(result.error);
+            return;
+          }
           setPendingPermission(null);
           serverRequestRef.current = null;
           return;
@@ -1043,7 +1058,11 @@ export function useCodex({
             answers[questionId] = { answers: cleaned };
           }
         }
-        await window.claude.codex.respondUserInput(sessionId, activeRequest.rpcId, answers);
+        const result = await window.claude.codex.respondUserInput(sessionId, activeRequest.rpcId, answers);
+        if (result?.error) {
+          showCodexPermissionError(result.error);
+          return;
+        }
         setPendingPermission(null);
         serverRequestRef.current = null;
         return;
@@ -1051,7 +1070,16 @@ export function useCodex({
 
       const decision = behavior === "allow" ? "accept" : behavior === "allowForSession" ? "accept" : "decline";
       const acceptSettings = behavior === "allowForSession" ? { forSession: true } : undefined;
-      await window.claude.codex.respondApproval(sessionId, activeRequest.rpcId, decision, acceptSettings);
+      const result = await window.claude.codex.respondApproval(
+        sessionId,
+        activeRequest.rpcId,
+        decision,
+        acceptSettings,
+      );
+      if (result?.error) {
+        showCodexPermissionError(result.error);
+        return;
+      }
       setPendingPermission(null);
       serverRequestRef.current = null;
     },

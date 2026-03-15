@@ -3,20 +3,11 @@ import path from "path";
 import fs from "fs";
 import { getDataDir, getProjectSessionsDir, getSessionFilePath } from "../lib/data-dir";
 import { reportError } from "../lib/error-utils";
-
-interface SessionMeta {
-  id: string;
-  projectId: string;
-  title: string;
-  createdAt: number;
-  /** Timestamp of the most recent user message — used for sidebar sort order */
-  lastMessageAt: number;
-  model?: string;
-  planMode?: boolean;
-  totalCost?: number;
-  engine?: "claude" | "acp" | "codex";
-  codexThreadId?: string;
-}
+import {
+  getLastUserMessageTimestamp,
+  extractSessionMeta,
+  type SessionMeta,
+} from "@shared/lib/session-persistence";
 
 interface SearchResult {
   messageResults: Array<{
@@ -35,32 +26,8 @@ interface SearchResult {
   }>;
 }
 
-function getLastUserMessageTimestamp(messages?: Array<{ role?: string; timestamp?: number }>): number | undefined {
-  if (!Array.isArray(messages) || messages.length === 0) return undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role === "user" && typeof msg.timestamp === "number") return msg.timestamp;
-  }
-  return undefined;
-}
-
 function getMetaFilePath(projectId: string, sessionId: string): string {
   return getSessionFilePath(projectId, sessionId).replace(/\.json$/, ".meta.json");
-}
-
-function extractSessionMeta(data: Record<string, unknown>, lastMessageAt: number): SessionMeta {
-  return {
-    id: data.id as string,
-    projectId: data.projectId as string,
-    title: (data.title as string) || "Untitled",
-    createdAt: (data.createdAt as number) || 0,
-    lastMessageAt,
-    model: data.model as string | undefined,
-    planMode: data.planMode as boolean | undefined,
-    totalCost: (data.totalCost as number) || 0,
-    engine: data.engine as SessionMeta["engine"],
-    codexThreadId: data.codexThreadId as string | undefined,
-  };
 }
 
 export function register(): void {

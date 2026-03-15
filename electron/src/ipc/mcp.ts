@@ -126,7 +126,7 @@ export function register(): void {
   ipcMain.handle("mcp:add", (_event, { projectId, server }: { projectId: string; server: McpServerConfig }) => {
     try {
       addMcpServer(projectId, server);
-      void captureEvent("mcp_server_added", { transport: server.transport });
+      void captureEvent("mcp_server_added", { name: server.name, transport: server.transport });
       return { ok: true };
     } catch (err) {
       return { error: reportError("MCP_ADD_ERR", err) };

@@ -100,6 +100,7 @@ export function useSessionLifecycle({
     totalCostRef,
     contextUsageRef,
     isProcessingRef,
+    sessionInfoRef,
     liveSessionIdsRef,
     backgroundStoreRef,
     preStartedSessionIdRef,
@@ -767,12 +768,23 @@ export function useSessionLifecycle({
     const id = activeSessionIdRef.current;
     if (!id) return;
 
+    const livePermissionMode = !planMode
+      ? sessionInfoRef.current?.permissionMode?.trim()
+      : undefined;
+    const nextPermissionMode = livePermissionMode && livePermissionMode !== "plan"
+      ? livePermissionMode
+      : startOptionsRef.current.permissionMode;
     const nextOptions = {
       ...startOptionsRef.current,
       planMode,
+      ...(nextPermissionMode ? { permissionMode: nextPermissionMode } : {}),
     };
     const effectiveClaudeMode = getEffectiveClaudePermissionMode(nextOptions);
-    setStartOptions((prev) => ({ ...prev, planMode }));
+    setStartOptions((prev) => ({
+      ...prev,
+      planMode,
+      ...(nextPermissionMode ? { permissionMode: nextPermissionMode } : {}),
+    }));
     if (planMode) capture("plan_mode_entered");
     setSessions((prev) => prev.map((s) => (
       s.id === id ? { ...s, planMode } : s
@@ -799,7 +811,7 @@ export function useSessionLifecycle({
     }
     // Codex: no mid-session mode RPC — collaborationMode is sent per-turn on turn/start.
     // startOptions is already updated above, so the next send() will pick it up.
-  }, [engine.setPermissionMode]);
+  }, [engine.setPermissionMode, sessionInfoRef, startOptionsRef]);
 
   const setActiveThinking = useCallback((thinkingEnabled: boolean) => {
     const id = activeSessionIdRef.current;

@@ -272,18 +272,18 @@ declare global {
         stop: (sessionId: string) => Promise<void>;
         interrupt: (sessionId: string) => Promise<{ error?: string }>;
         respondApproval: (sessionId: string, rpcId: string | number, decision: string, acceptSettings?: unknown) =>
-          Promise<void>;
+          Promise<{ ok?: boolean; error?: string }>;
         respondUserInput: (
           sessionId: string,
           rpcId: string | number,
           answers: Record<string, { answers: string[] }>,
-        ) => Promise<void>;
+        ) => Promise<{ ok?: boolean; error?: string }>;
         respondServerRequestError: (
           sessionId: string,
           rpcId: string | number,
           code: number,
           message: string,
-        ) => Promise<void>;
+        ) => Promise<{ ok?: boolean; error?: string }>;
         compact: (sessionId: string) => Promise<{ error?: string }>;
         listSkills: (sessionId: string) => Promise<{
           skills: Array<import("./codex-protocol/v2/SkillsListEntry").SkillsListEntry>;

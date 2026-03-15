@@ -45,16 +45,9 @@ interface CodexSession {
   model?: string;
 }
 
-const codexSessions = new Map<string, CodexSession>();
-const SUPPORTED_SERVER_REQUESTS = new Set([
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-  "item/tool/requestUserInput",
-]);
+import { SUPPORTED_SERVER_REQUESTS, isSupportedServerRequestMethod, pickModelId } from "@shared/lib/codex-helpers";
 
-function isSupportedServerRequestMethod(method: string): boolean {
-  return SUPPORTED_SERVER_REQUESTS.has(method);
-}
+const codexSessions = new Map<string, CodexSession>();
 
 /** Expose the currently selected model for utility prompts (title/commit generation). */
 export function getCodexSessionModel(internalId: string): string | undefined {
@@ -70,23 +63,7 @@ function getAppServerClientInfo(): { name: string; title: string; version: strin
   };
 }
 
-/** Pick a valid model id from model/list, preferring the requested id when available. */
-function pickModelId(
-  requestedModel: string | undefined,
-  models: Array<CodexModel>,
-): string | undefined {
-  const requested = typeof requestedModel === "string" ? requestedModel.trim() : "";
-  if (requested.length > 0) {
-    const hasRequested = models.some((m) => m.id === requested);
-    if (hasRequested) return requested;
-  }
-
-  const defaultModel = models.find((m) => m.isDefault === true);
-  if (defaultModel) return defaultModel.id;
-
-  const first = models[0];
-  return first?.id;
-}
+// pickModelId imported from @shared/lib/codex-helpers
 
 function shortId(value: unknown, length = 8): string {
   return typeof value === "string" ? value.slice(0, length) : "n/a";
@@ -483,11 +460,22 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       },
     ) => {
       const session = codexSessions.get(data.sessionId);
-      if (!session) return;
+      if (!session) return { error: "Session not found" };
 
-      const result: Record<string, unknown> = { decision: data.decision };
-      if (data.acceptSettings) result.acceptSettings = data.acceptSettings;
-      session.rpc.respondToServer(data.rpcId, result);
+      try {
+        const result: Record<string, unknown> = { decision: data.decision };
+        if (data.acceptSettings) result.acceptSettings = data.acceptSettings;
+        session.rpc.respondToServer(data.rpcId, result);
+        return { ok: true };
+      } catch (err) {
+        return {
+          error: reportError("CODEX_APPROVAL_RESPONSE_ERR", err, {
+            engine: "codex",
+            sessionId: data.sessionId,
+            rpcId: data.rpcId,
+          }),
+        };
+      }
     },
   );
 
@@ -503,8 +491,19 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       },
     ) => {
       const session = codexSessions.get(data.sessionId);
-      if (!session) return;
-      session.rpc.respondToServer(data.rpcId, { answers: data.answers });
+      if (!session) return { error: "Session not found" };
+      try {
+        session.rpc.respondToServer(data.rpcId, { answers: data.answers });
+        return { ok: true };
+      } catch (err) {
+        return {
+          error: reportError("CODEX_USER_INPUT_RESPONSE_ERR", err, {
+            engine: "codex",
+            sessionId: data.sessionId,
+            rpcId: data.rpcId,
+          }),
+        };
+      }
     },
   );
 
@@ -521,8 +520,19 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       },
     ) => {
       const session = codexSessions.get(data.sessionId);
-      if (!session) return;
-      session.rpc.respondToServerError(data.rpcId, data.code, data.message);
+      if (!session) return { error: "Session not found" };
+      try {
+        session.rpc.respondToServerError(data.rpcId, data.code, data.message);
+        return { ok: true };
+      } catch (err) {
+        return {
+          error: reportError("CODEX_SERVER_REQUEST_ERROR_ERR", err, {
+            engine: "codex",
+            sessionId: data.sessionId,
+            rpcId: data.rpcId,
+          }),
+        };
+      }
     },
   );
 

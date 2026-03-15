@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, SessionMeta, SlashCommand } from "@/types";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption, ACPAvailableCommandsUpdate } from "@/types/acp";
 import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, mergeToolInput, pickAutoResponseOption } from "@/lib/acp-adapter";
@@ -416,7 +417,33 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
           behavior,
           tool: data.toolCall.title,
         });
-        window.claude.acp.respondPermission(data._sessionId, data.requestId, autoOptionId);
+        void window.claude.acp.respondPermission(data._sessionId, data.requestId, autoOptionId)
+          .then((result) => {
+            if (!result?.error) return;
+            toast.error("Failed to auto-respond to permission prompt", {
+              description: result.error,
+            });
+            acpPermissionRef.current = data;
+            setPendingPermission({
+              requestId: data.requestId,
+              toolName: data.toolCall.title,
+              toolInput: normalizeToolInput(data.toolCall.rawInput, data.toolCall.kind),
+              toolUseId: data.toolCall.toolCallId,
+            });
+          })
+          .catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            toast.error("Failed to auto-respond to permission prompt", {
+              description: message,
+            });
+            acpPermissionRef.current = data;
+            setPendingPermission({
+              requestId: data.requestId,
+              toolName: data.toolCall.title,
+              toolInput: normalizeToolInput(data.toolCall.rawInput, data.toolCall.kind),
+              toolUseId: data.toolCall.toolCallId,
+            });
+          });
         return;
       }
 
@@ -562,9 +589,21 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
       optionId,
     });
 
-    if (optionId) {
-      await window.claude.acp.respondPermission(sessionId, acpData.requestId, optionId);
+    if (!optionId) {
+      toast.error("Failed to respond to permission prompt", {
+        description: "No matching ACP permission option was available.",
+      });
+      return;
     }
+
+    const result = await window.claude.acp.respondPermission(sessionId, acpData.requestId, optionId);
+    if (result?.error) {
+      toast.error("Failed to respond to permission prompt", {
+        description: result.error,
+      });
+      return;
+    }
+
     setPendingPermission(null);
     acpPermissionRef.current = null;
   }, [sessionId, pendingPermission]);

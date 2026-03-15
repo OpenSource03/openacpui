@@ -45,6 +45,34 @@ interface SessionEntry {
 
 export const sessions = new Map<string, SessionEntry>();
 
+function applyPermissionModeOptions(
+  queryOptions: Record<string, unknown>,
+  permissionMode?: string,
+): void {
+  if (permissionMode) {
+    queryOptions.permissionMode = permissionMode;
+  }
+  // Harnss exposes "Allow All" as a runtime mode switch. The SDK only lets a
+  // live session enter bypass mode if this startup flag was present from launch.
+  queryOptions.allowDangerouslySkipPermissions = true;
+}
+
+async function setSessionPermissionMode(
+  sessionId: string,
+  session: SessionEntry,
+  permissionMode: string,
+  logLabel: string,
+): Promise<void> {
+  if (!session.queryHandle) {
+    throw new Error("No active query handle");
+  }
+  await session.queryHandle.setPermissionMode(permissionMode);
+  if (session.startOptions) {
+    session.startOptions.permissionMode = permissionMode;
+  }
+  log(logLabel, `session=${sessionId.slice(0, 8)} mode=${permissionMode}`);
+}
+
 function summarizeSpawnOptions(options: Record<string, unknown>): Record<string, unknown> {
   const mcpServers = options.mcpServers;
   const mcpSummary = mcpServers && typeof mcpServers === "object"
@@ -64,6 +92,7 @@ function summarizeSpawnOptions(options: Record<string, unknown>): Record<string,
     forkSession: options.forkSession,
     resumeSessionAt: options.resumeSessionAt,
     permissionMode: options.permissionMode,
+    allowDangerouslySkipPermissions: options.allowDangerouslySkipPermissions,
     model: options.model,
     includePartialMessages: options.includePartialMessages,
     thinking: options.thinking,
@@ -176,6 +205,9 @@ function startEventLoop(
 ): void {
   const logPrefix = `session=${sessionId.slice(0, 8)}`;
   let queryError: string | undefined;
+  // Maps tool_use_id → tool name, populated from assistant events so tool_result events can
+  // reference the name when capturing analytics.
+  const toolNameMap = new Map<string, string>();
   (async () => {
     try {
       for await (const message of queryHandle) {
@@ -187,6 +219,20 @@ function startEventLoop(
           log("EVENT_FULL", message);
         }
         safeSend(getMainWindow, "claude:event", { ...(message as object), _sessionId: sessionId });
+
+        // Index tool names from assistant tool_use blocks for later lookup by tool_use_id
+        if (msgObj.type === "assistant") {
+          const assistantMsg = msgObj.message as { content?: unknown } | undefined;
+          const blocks = assistantMsg?.content;
+          if (Array.isArray(blocks)) {
+            for (const block of blocks) {
+              const b = block as Record<string, unknown>;
+              if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+                toolNameMap.set(b.id, b.name);
+              }
+            }
+          }
+        }
 
         // Track session completion on result events
         if (msgObj.type === "result") {
@@ -206,10 +252,13 @@ function startEventLoop(
           if (Array.isArray(content) && content[0]?.type === "tool_result") {
             const isError = !!content[0].is_error;
             const toolMeta = msgObj.tool_use_result as Record<string, unknown> | undefined;
+            const toolUseId = content[0].tool_use_id as string | undefined;
+            const toolName = (toolUseId ? toolNameMap.get(toolUseId) : undefined) ?? "unknown";
             void captureEvent("tool_executed", {
               engine: "claude",
+              tool_name: toolName,
               is_error: isError,
-              is_mcp: false,
+              is_mcp: toolName.startsWith("mcp__"),
               is_async: !!toolMeta?.isAsync,
             });
           }
@@ -501,12 +550,7 @@ async function restartSession(
     },
   };
 
-  if (opts.permissionMode) {
-    queryOptions.permissionMode = opts.permissionMode;
-    if (opts.permissionMode === "bypassPermissions") {
-      queryOptions.allowDangerouslySkipPermissions = true;
-    }
-  }
+  applyPermissionModeOptions(queryOptions, opts.permissionMode);
   if (modelOverride ?? opts.model) queryOptions.model = modelOverride ?? opts.model;
   if (effortOverride ?? opts.effort) {
     queryOptions.effort = effortOverride ?? opts.effort;
@@ -614,12 +658,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         queryOptions.sessionId = sessionId;
       }
 
-      if (options.permissionMode) {
-        queryOptions.permissionMode = options.permissionMode;
-      }
-      if (options.permissionMode === "bypassPermissions") {
-        queryOptions.allowDangerouslySkipPermissions = true;
-      }
+      applyPermissionModeOptions(queryOptions, options.permissionMode);
       if (options.model) {
         queryOptions.model = options.model;
       }
@@ -694,17 +733,28 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("PERMISSION_RESPONSE", `ERROR: no pending permission for requestId=${requestId}`);
       return { error: "No pending permission request" };
     }
-    session.pendingPermissions.delete(requestId);
     log("PERMISSION_RESPONSE", `session=${sessionId.slice(0, 8)} behavior=${behavior} requestId=${requestId} newMode=${newPermissionMode ?? "none"} hasUpdatedPermissions=${!!updatedPermissions?.length}`);
 
-    if (newPermissionMode && session.queryHandle) {
+    if (newPermissionMode) {
       try {
-        await session.queryHandle.setPermissionMode(newPermissionMode);
-        log("PERMISSION_MODE_CHANGED", `session=${sessionId.slice(0, 8)} mode=${newPermissionMode}`);
+        await setSessionPermissionMode(
+          sessionId,
+          session,
+          newPermissionMode,
+          "PERMISSION_MODE_CHANGED",
+        );
       } catch (err) {
-        reportError("PERMISSION_MODE_ERR", err, { engine: "claude", sessionId });
+        const errMsg = reportError("PERMISSION_MODE_ERR", err, {
+          engine: "claude",
+          sessionId,
+          newPermissionMode,
+        });
+        log("PERMISSION_RESPONSE", `ERROR: session=${sessionId.slice(0, 8)} requestId=${requestId} modeChangeFailed=${errMsg}`);
+        return { error: errMsg };
       }
     }
+
+    session.pendingPermissions.delete(requestId);
 
     if (behavior === "allow") {
       pending.resolve({ behavior: "allow", updatedInput: toolInput, updatedPermissions });
@@ -729,8 +779,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { error: "No active query handle" };
     }
     try {
-      await session.queryHandle.setPermissionMode(permissionMode);
-      log("SET_PERM_MODE", `session=${sessionId.slice(0, 8)} mode=${permissionMode}`);
+      await setSessionPermissionMode(sessionId, session, permissionMode, "SET_PERM_MODE");
       return { ok: true };
     } catch (err) {
       const errMsg = reportError("SET_PERM_MODE_ERR", err, { engine: "claude", sessionId });

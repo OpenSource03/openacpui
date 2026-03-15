@@ -673,17 +673,24 @@ export function useAppOrchestrator() {
 
   // Sync InputBar controls when sessionInfo.permissionMode changes (e.g. ExitPlanMode)
   useEffect(() => {
+    if (!manager.activeSessionId || manager.isDraft) return;
     const mode = manager.sessionInfo?.permissionMode;
     if (!mode) return;
-    if (mode === "plan") {
-      if (!settings.planMode) settings.setPlanMode(true);
-      manager.setActivePlanMode(true);
-      return;
+    const activePlanMode = !!manager.activeSession?.planMode;
+    const nextPlanMode = mode === "plan";
+    if (settings.planMode !== nextPlanMode) settings.setPlanMode(nextPlanMode);
+    if (activePlanMode !== nextPlanMode) {
+      manager.setActivePlanMode(nextPlanMode);
     }
-    if (settings.planMode) settings.setPlanMode(false);
-    manager.setActivePlanMode(false);
-    if (mode !== settings.permissionMode) settings.setPermissionMode(mode);
-  }, [manager.sessionInfo?.permissionMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    manager.activeSessionId,
+    manager.activeSession?.planMode,
+    manager.isDraft,
+    manager.sessionInfo?.permissionMode,
+    manager.setActivePlanMode,
+    settings.planMode,
+    settings.setPlanMode,
+  ]);
 
   // Keep plan toggle scoped to the active chat session.
   useEffect(() => {

@@ -115,6 +115,7 @@ export function handleCodexEvent(
         const msgId = state.parentToolMap.get(item.id) ?? `codex-tool-${item.id}`;
         const msg = state.messages.find(m => m.id === msgId);
         if (msg) {
+          msg.toolInput = codexItemToToolInput(item);
           const result = codexItemToToolResult(item);
           if (result) msg.toolResult = result;
           const isError =

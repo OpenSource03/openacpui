@@ -19,31 +19,11 @@ async function getACP() {
   return _acp;
 }
 
-type ACPTextFileParams = { path?: string; uri?: string; content?: string };
-type ACPReadTextFileParams = ACPTextFileParams & { line?: number | null; limit?: number | null };
+import { resolveACPFilePath, applyReadRange } from "@shared/lib/acp-helpers";
+import type { ACPTextFileParams } from "@shared/lib/acp-helpers";
+
+type ACPReadTextFileParams = ACPTextFileParams & { content?: string; line?: number | null; limit?: number | null };
 type ACPWriteTextFileParams = ACPTextFileParams & { content: string };
-
-function resolveACPFilePath(params: ACPTextFileParams): string {
-  const filePath = params.path ?? params.uri;
-  if (!filePath) throw new Error("ACP fs request is missing path");
-  return filePath;
-}
-
-function normalizePositiveInt(value: number | null | undefined, fallback: number): number {
-  if (value == null || Number.isNaN(value)) return fallback;
-  const n = Math.trunc(value);
-  return n > 0 ? n : fallback;
-}
-
-function applyReadRange(content: string, line?: number | null, limit?: number | null): string {
-  if (line == null && limit == null) return content;
-  const lines = content.match(/[^\n]*\n|[^\n]+/g) ?? [];
-  const startLine = normalizePositiveInt(line, 1);
-  const startIndex = startLine - 1;
-  const lineLimit = limit == null ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.trunc(limit));
-  if (startIndex >= lines.length || lineLimit === 0) return "";
-  return lines.slice(startIndex, startIndex + lineLimit).join("");
-}
 
 async function acpReadTextFile(params: ACPReadTextFileParams): Promise<{ content: string; filePath: string }> {
   const filePath = resolveACPFilePath(params);

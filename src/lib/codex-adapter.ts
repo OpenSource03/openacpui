@@ -10,9 +10,19 @@ import type { CodexThreadItem } from "@/types/codex";
 import type { FileUpdateChange } from "@/types/codex-protocol/v2/FileUpdateChange";
 import type { PatchChangeKind } from "@/types/codex-protocol/v2/PatchChangeKind";
 import type { TurnPlanStep } from "@/types/codex-protocol/v2/TurnPlanStep";
+import type { WebSearchAction } from "@/types/codex-protocol/v2/WebSearchAction";
 import { parseUnifiedDiff } from "@/lib/unified-diff";
 
 export { SimpleStreamingBuffer as CodexStreamingBuffer } from "@/lib/streaming-buffer";
+
+interface CodexWebSearchToolPayload {
+  query: string;
+  actionType: WebSearchAction["type"];
+  actionQuery?: string;
+  queries?: string[];
+  url?: string;
+  pattern?: string;
+}
 
 // ── Item type → tool name mapping ──
 
@@ -93,7 +103,7 @@ export function codexItemToToolInput(item: CodexThreadItem): Record<string, unkn
     case "mcpToolCall":
       return (item.arguments ?? {}) as Record<string, unknown>;
     case "webSearch":
-      return { query: item.query ?? "" };
+      return codexWebSearchToToolPayload(item);
     case "imageView":
       return { file_path: item.path ?? "" };
     default:
@@ -182,8 +192,84 @@ export function codexItemToToolResult(item: CodexThreadItem): ToolUseResult | un
       }
       return undefined;
     }
+    case "webSearch": {
+      const structuredContent = codexWebSearchToToolPayload(item);
+      return {
+        type: "web_search",
+        status: "completed",
+        content: describeWebSearchAction(structuredContent),
+        structuredContent,
+      };
+    }
     default:
       return undefined;
+  }
+}
+
+function codexWebSearchToToolPayload(
+  item: Extract<CodexThreadItem, { type: "webSearch" }>,
+): CodexWebSearchToolPayload {
+  const action = item.action;
+  if (!action) {
+    return {
+      query: item.query ?? "",
+      actionType: "other",
+    };
+  }
+
+  switch (action.type) {
+    case "search":
+      return {
+        query: item.query ?? "",
+        actionType: action.type,
+        ...(action.query ? { actionQuery: action.query } : {}),
+        ...(action.queries && action.queries.length > 0 ? { queries: action.queries } : {}),
+      };
+    case "openPage":
+      return {
+        query: item.query ?? "",
+        actionType: action.type,
+        ...(action.url ? { url: action.url } : {}),
+      };
+    case "findInPage":
+      return {
+        query: item.query ?? "",
+        actionType: action.type,
+        ...(action.url ? { url: action.url } : {}),
+        ...(action.pattern ? { pattern: action.pattern } : {}),
+      };
+    case "other":
+      return {
+        query: item.query ?? "",
+        actionType: action.type,
+      };
+  }
+}
+
+function describeWebSearchAction(payload: CodexWebSearchToolPayload): string {
+  switch (payload.actionType) {
+    case "search": {
+      const queryCount = payload.queries?.length ?? 0;
+      if (queryCount > 0) {
+        return `Searched web with ${queryCount} quer${queryCount === 1 ? "y" : "ies"}`;
+      }
+      if (payload.actionQuery) {
+        return `Searched web for ${payload.actionQuery}`;
+      }
+      if (payload.query) {
+        return `Searched web for ${payload.query}`;
+      }
+      return "Searched web";
+    }
+    case "openPage":
+      return payload.url ? `Opened ${payload.url}` : "Opened search result";
+    case "findInPage":
+      if (payload.url && payload.pattern) {
+        return `Searched ${payload.url} for ${payload.pattern}`;
+      }
+      return "Searched within page";
+    case "other":
+      return payload.query ? `Web search: ${payload.query}` : "Completed web search";
   }
 }
 

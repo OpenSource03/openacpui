@@ -8,3 +8,5 @@ docs/
 /release/
 .claude/agent-memory/
 frontend/
+cli
+.idea/

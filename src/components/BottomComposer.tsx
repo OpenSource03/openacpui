@@ -27,6 +27,7 @@ export function BottomComposer({
         />
       ) : null}
       <div
+        hidden={hasPendingPermission}
         aria-hidden={hasPendingPermission}
         inert={hasPendingPermission || undefined}
       >

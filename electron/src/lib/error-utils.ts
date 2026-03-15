@@ -8,20 +8,8 @@
 import { log } from "./logger";
 import { captureException } from "./posthog";
 
-export function extractErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "object" && err !== null) {
-    const obj = err as Record<string, unknown>;
-    if (typeof obj.message === "string") return obj.message;
-    // Fallback: JSON stringify structured errors (e.g., JSON-RPC error objects)
-    try {
-      return JSON.stringify(err);
-    } catch {
-      return String(err);
-    }
-  }
-  return String(err);
-}
+export { extractErrorMessage } from "@shared/lib/error-utils";
+import { extractErrorMessage } from "@shared/lib/error-utils";
 
 /**
  * Log an error AND report it to PostHog exception tracking in one call.

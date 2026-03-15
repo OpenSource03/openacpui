@@ -549,7 +549,7 @@ Link: ${issue.url}`;
                   model={settings.model}
                   claudeEffort={settings.claudeEffort}
                   planMode={settings.planMode}
-                  permissionMode={settings.permissionMode}
+                  permissionMode={manager.sessionInfo?.permissionMode ?? settings.permissionMode}
                   onModelChange={handleModelChange}
                   onClaudeModelEffortChange={handleClaudeModelEffortChange}
                   onPlanModeChange={handlePlanModeChange}
