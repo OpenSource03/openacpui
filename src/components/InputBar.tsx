@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -677,9 +678,14 @@ function hasMeaningfulText(text: string): boolean {
 }
 
 /** Extract full text + mention paths from a contentEditable element */
-function extractEditableContent(el: HTMLElement): { text: string; mentionPaths: string[] } {
+function extractEditableContent(el: HTMLElement): {
+  text: string;
+  mentionPaths: string[];
+  deepMentionPaths: Set<string>;
+} {
   let text = "";
   const mentionPaths: string[] = [];
+  const deepMentionPaths = new Set<string>();
   const BLOCK_TAGS = new Set([
     "DIV",
     "P",
@@ -700,8 +706,12 @@ function extractEditableContent(el: HTMLElement): { text: string; mentionPaths: 
     } else if (node instanceof HTMLElement) {
       const mentionPath = node.dataset.mentionPath;
       if (mentionPath) {
-        text += `@${mentionPath}`;
+        const isDeep = node.dataset.mentionDeep === "true";
+        text += `@${isDeep ? "#" : ""}${mentionPath}`;
         mentionPaths.push(mentionPath);
+        if (isDeep) {
+          deepMentionPaths.add(mentionPath);
+        }
       } else if (node.tagName === "BR") {
         text += "\n";
       } else {
@@ -718,7 +728,47 @@ function extractEditableContent(el: HTMLElement): { text: string; mentionPaths: 
   return {
     text: text.replace(/\r\n/g, "\n").replace(/\u00a0/g, " "),
     mentionPaths: [...new Set(mentionPaths)],
+    deepMentionPaths,
   };
+}
+
+if (import.meta.vitest) {
+  const { it, describe, expect } = import.meta.vitest;
+
+  describe("extractEditableContent", () => {
+    it("extracts shallow mention paths from data attributes", () => {
+      const container = document.createElement("div");
+      const mention = document.createElement("span");
+      mention.dataset.mentionPath = "foo/bar";
+      container.appendChild(mention);
+
+      const result = extractEditableContent(container);
+
+      expect(result.text).toBe("@foo/bar");
+      expect(result.mentionPaths).toEqual(["foo/bar"]);
+      expect(result.deepMentionPaths.size).toBe(0);
+    });
+
+    it("extracts deep mention paths and formats text with @# prefix", () => {
+      const container = document.createElement("div");
+      const block = document.createElement("div");
+      const deepMention = document.createElement("span");
+
+      deepMention.dataset.mentionPath = "space/123";
+      deepMention.dataset.mentionDeep = "true";
+
+      block.appendChild(document.createTextNode("See "));
+      block.appendChild(deepMention);
+      container.appendChild(block);
+
+      const result = extractEditableContent(container);
+
+      // Block elements append a trailing newline.
+      expect(result.text).toBe("See @#space/123\n");
+      expect(result.mentionPaths).toEqual(["space/123"]);
+      expect(result.deepMentionPaths.has("space/123")).toBe(true);
+    });
+  });
 }
 
 export const InputBar = memo(function InputBar({
@@ -773,6 +823,16 @@ export const InputBar = memo(function InputBar({
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [editingAttachment, setEditingAttachment] = useState<ImageAttachment | null>(null);
+
+  // ── Deep folder confirmation ──
+  const [showDeepFolderConfirm, setShowDeepFolderConfirm] = useState(false);
+  const [deepFolderInfo, setDeepFolderInfo] = useState<{
+    fileCount: number;
+    totalSize: number;
+    estimatedTokens: number;
+    warnings: string[];
+  } | null>(null);
+  const pendingSendRef = useRef<(() => Promise<void>) | null>(null);
 
   // ── Voice dictation ──
   const speech = useSpeechRecognition({
@@ -1021,6 +1081,12 @@ export const InputBar = memo(function InputBar({
       range.setStart(node, mentionStartOffset.current);
       const curRange = sel.getRangeAt(0);
       range.setEnd(curRange.startContainer, curRange.startOffset);
+
+      // Check if @# was used (deep folder mode)
+      const deletedText = range.toString();
+      const isDeepMode = deletedText.startsWith("@#");
+      const isDeepDir = isDeepMode && entry.isDir;
+
       range.deleteContents();
 
       // Create chip element
@@ -1030,7 +1096,13 @@ export const InputBar = memo(function InputBar({
         "mention-chip inline-flex items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-xs text-accent-foreground font-mono align-baseline cursor-default select-none";
       chip.setAttribute("data-mention-path", entry.path);
       chip.setAttribute("data-mention-dir", String(entry.isDir));
-      chip.innerHTML = `${entry.isDir ? FOLDER_ICON_SVG : FILE_ICON_SVG}<span>${entry.path}</span>`;
+      if (isDeepDir) {
+        chip.setAttribute("data-mention-deep", "true");
+        // Add visual distinction for deep mode with a different background
+        chip.className =
+          "mention-chip inline-flex items-center gap-1 rounded-md bg-primary/60 px-1.5 py-0.5 text-xs text-primary-foreground font-mono align-baseline cursor-default select-none";
+      }
+      chip.innerHTML = `${entry.isDir ? FOLDER_ICON_SVG : FILE_ICON_SVG}<span>${isDeepDir ? "#" : ""}${entry.path}</span>`;
 
       // Insert chip at cursor
       range.insertNode(chip);
@@ -1057,15 +1129,10 @@ export const InputBar = memo(function InputBar({
     const el = editableRef.current;
     if (!el) return;
 
-    const { text: fullText, mentionPaths } = extractEditableContent(el);
+    const { text: fullText, mentionPaths, deepMentionPaths } = extractEditableContent(el);
     const trimmed = fullText.trim();
     const hasGrabs = grabbedElements && grabbedElements.length > 0;
     if (isAwaitingAcpOptions || (!trimmed && attachments.length === 0 && !hasGrabs) || isSending) return;
-
-    const currentImages = attachments.length > 0 ? [...attachments] : undefined;
-    const contextParts: string[] = [];
-    const grabbedElementDisplayTokens: string[] = [];
-    let hasContext = false;
 
     if (isClearCommandText(trimmed)) {
       try {
@@ -1076,11 +1143,50 @@ export const InputBar = memo(function InputBar({
       return;
     }
 
+    // Check if we need to warn about deep folder size
+    if (deepMentionPaths.size > 0 && projectPath) {
+      try {
+        const sizeInfo = await window.claude.files.calculateDeepSize(projectPath, Array.from(deepMentionPaths));
+
+        // Warn if estimated tokens > 50k (half the limit)
+        if (sizeInfo.estimatedTokens > 50_000) {
+          setDeepFolderInfo(sizeInfo);
+          setShowDeepFolderConfirm(true);
+
+          // Store the send logic to be called after confirmation
+          pendingSendRef.current = async () => {
+            await performSend(el, fullText, mentionPaths, deepMentionPaths, hasGrabs);
+          };
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to calculate deep folder size:", err);
+        // Continue with send anyway if size check fails
+      }
+    }
+
+    // No warning needed, send immediately
+    await performSend(el, fullText, mentionPaths, deepMentionPaths, hasGrabs);
+  }, [attachments, isAwaitingAcpOptions, isSending, projectPath, onClear, grabbedElements]);
+
+  const performSend = useCallback(async (
+    el: HTMLDivElement,
+    fullText: string,
+    mentionPaths: string[],
+    deepMentionPaths: Set<string>,
+    hasGrabs: boolean,
+  ) => {
+    const trimmed = fullText.trim();
+    const currentImages = attachments.length > 0 ? [...attachments] : undefined;
+    const contextParts: string[] = [];
+    const grabbedElementDisplayTokens: string[] = [];
+    let hasContext = false;
+
     // File mentions → <file>/<folder> context blocks
     if (mentionPaths.length > 0 && projectPath) {
       setIsSending(true);
       try {
-        const fileResults = await window.claude.files.readMultiple(projectPath, mentionPaths);
+        const fileResults = await window.claude.files.readMultiple(projectPath, mentionPaths, deepMentionPaths);
 
         for (const result of fileResults) {
           if (result.error) {
@@ -1098,7 +1204,7 @@ export const InputBar = memo(function InputBar({
     }
 
     // Grabbed elements → <element> context blocks
-    if (hasGrabs) {
+    if (hasGrabs && grabbedElements) {
       // Escape special chars for XML attribute values (webpage content can contain anything)
       const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const compact = (s: string) => s.trim().replace(/\s+/g, " ");
@@ -1146,7 +1252,16 @@ export const InputBar = memo(function InputBar({
     }
 
     clearComposer(el);
-  }, [attachments, isAwaitingAcpOptions, isSending, projectPath, onSend, onClear, clearComposer, grabbedElements]);
+  }, [attachments, projectPath, onSend, clearComposer, grabbedElements]);
+
+  const handleDeepFolderConfirm = useCallback(async () => {
+    if (pendingSendRef.current) {
+      await pendingSendRef.current();
+      pendingSendRef.current = null;
+    }
+    setShowDeepFolderConfirm(false);
+    setDeepFolderInfo(null);
+  }, []);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // Slash command picker keyboard navigation
@@ -1266,12 +1381,12 @@ export const InputBar = memo(function InputBar({
     const offset = range.startOffset;
     const scanStart = Math.max(0, offset - 256);
     const textBefore = nodeText.slice(scanStart, offset);
-    const atMatch = textBefore.match(/(^|[\s])@([^\s]*)$/);
+    const atMatch = textBefore.match(/(^|[\s])@(#?)([^\s]*)$/);
 
     if (atMatch && projectPath) {
       mentionStartNode.current = node;
       mentionStartOffset.current = scanStart + textBefore.lastIndexOf("@");
-      setMentionQuery(atMatch[2]);
+      setMentionQuery(atMatch[3]);
       setShowMentions(true);
       setMentionIndex(0);
     } else {
@@ -1829,6 +1944,45 @@ export const InputBar = memo(function InputBar({
           </div>
         </div>
       </div>
+
+      {/* Deep folder confirmation dialog */}
+      <ConfirmDialog
+        open={showDeepFolderConfirm}
+        onOpenChange={setShowDeepFolderConfirm}
+        onConfirm={handleDeepFolderConfirm}
+        title="Large Context Warning"
+        confirmLabel="Send Anyway"
+        cancelLabel="Cancel"
+        confirmVariant="default"
+        description={
+          deepFolderInfo && (
+            <div className="space-y-2 text-sm">
+              <p>
+                This deep folder includes <strong>{deepFolderInfo.fileCount} files</strong> totaling{" "}
+                <strong>{Math.round(deepFolderInfo.totalSize / 1024)}KB</strong> (~
+                <strong>{deepFolderInfo.estimatedTokens.toLocaleString()} tokens</strong>).
+              </p>
+              <p className="text-muted-foreground">
+                Sending this much content will consume a significant portion of the context window and may impact
+                response quality.
+              </p>
+              {deepFolderInfo.warnings.length > 0 && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  <p className="font-medium">Note: Some files will be skipped:</p>
+                  <ul className="ms-4 list-disc">
+                    {deepFolderInfo.warnings.slice(0, 3).map((warning, i) => (
+                      <li key={i}>{warning}</li>
+                    ))}
+                    {deepFolderInfo.warnings.length > 3 && (
+                      <li>... and {deepFolderInfo.warnings.length - 3} more</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )
+        }
+      />
     </div>
   );
 });
