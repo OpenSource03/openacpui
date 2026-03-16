@@ -166,9 +166,10 @@ export const MessageBubble = memo(function MessageBubble({
   const time = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
   const displayContent = useMemo(() => isUser ? (message.displayContent ?? stripFileContext(message.content)) : message.content, [isUser, message.content, message.displayContent]);
 
+  const isOpenClawStream = message.id.startsWith("openclaw-stream");
   const proseRef = useStreamingTextReveal(
-    message.role === "assistant" ? message.isStreaming : undefined,
-    message.role === "assistant" ? message.content : "",
+    message.role === "assistant" && !isOpenClawStream ? message.isStreaming : undefined,
+    message.role === "assistant" && !isOpenClawStream ? message.content : "",
   );
 
   if (message.role === "system") {
