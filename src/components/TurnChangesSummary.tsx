@@ -136,7 +136,7 @@ export const TurnChangesSummary = memo(function TurnChangesSummary({
   }, []);
 
   return (
-    <div className="mx-4 my-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
+    <div className="flow-root mx-4 my-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
       {/* Collapsed header bar */}
       <button
         type="button"

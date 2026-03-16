@@ -73,6 +73,11 @@ export function useEngineBase({
 
   // Reset state when sessionId changes, restoring background state if available
   useEffect(() => {
+    // Cancel any pending rAF flush from the previous session to prevent stale
+    // streaming data from overwriting the new session's messages.
+    cancelAnimationFrame(rafId.current);
+    pendingFlush.current = false;
+
     setMessages(initialMessages ?? []);
     if (initialMeta) {
       setIsProcessing(initialMeta.isProcessing);

@@ -334,7 +334,7 @@ export const MessageBubble = memo(function MessageBubble({
     <div className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : "py-1.5"}`}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="min-w-0 wrap-break-word max-w-[85%]">
+          <div className="flow-root min-w-0 max-w-[85%] wrap-break-word">
             {showThinking && message.thinking && (
               <div className={message.content ? "mb-2" : undefined}>
                 <ThinkingBlock
@@ -347,7 +347,7 @@ export const MessageBubble = memo(function MessageBubble({
             {message.content ? (
               <div
                 ref={proseRef}
-                className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
+                className="flow-root prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
               >
                 <IsStreamingMarkdownContext.Provider value={!!message.isStreaming}>
                   <ReactMarkdown

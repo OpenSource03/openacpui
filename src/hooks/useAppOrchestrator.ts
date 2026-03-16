@@ -478,49 +478,55 @@ export function useAppOrchestrator() {
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(map));
   }, [manager.activeSessionId, manager.isDraft, manager.sessions, projectManager.projects, readLastSessionMap]);
 
-  // When activeSpaceId changes, switch to last used session in that space
+  // When activeSpaceId changes, switch to last used session in that space.
+  // Debounced by 60ms to coalesce rapid space switches and prevent race conditions
+  // between concurrent switchSession/createSession calls.
   useEffect(() => {
     const prev = prevSpaceIdRef.current;
     const next = spaceManager.activeSpaceId;
     prevSpaceIdRef.current = next;
     if (prev === next) return;
 
-    // Find projects in the new space
-    const spaceProjectIds = new Set(
-      projectManager.projects
-        .filter((p) => (p.spaceId || "default") === next)
-        .map((p) => p.id),
-    );
-
-    // Check if current session is already in the new space
-    if (manager.activeSession && spaceProjectIds.has(manager.activeSession.projectId)) {
-      return; // Already in the right space
-    }
-
-    // Try to restore the last used session in this space
-    const map = readLastSessionMap();
-    const lastSessionId = map[next];
-    if (lastSessionId) {
-      const session = manager.sessions.find(
-        (s) => s.id === lastSessionId && spaceProjectIds.has(s.projectId),
+    const timer = setTimeout(() => {
+      // Find projects in the new space
+      const spaceProjectIds = new Set(
+        projectManager.projects
+          .filter((p) => (p.spaceId || "default") === next)
+          .map((p) => p.id),
       );
-      if (session) {
-        manager.switchSession(session.id);
-        return;
-      }
-    }
 
-    // No remembered chat for this space: open a fresh draft chat in the space.
-    // If the space has no projects, we can't create a draft chat yet.
-    const firstProjectInSpace = projectManager.projects.find(
-      (p) => (p.spaceId || "default") === next,
-    );
-    if (firstProjectInSpace) {
-      void handleNewChat(firstProjectInSpace.id);
-    } else {
-      // No projects in this space — deselect
-      manager.deselectSession();
-    }
+      // Check if current session is already in the new space
+      if (manager.activeSession && spaceProjectIds.has(manager.activeSession.projectId)) {
+        return; // Already in the right space
+      }
+
+      // Try to restore the last used session in this space
+      const map = readLastSessionMap();
+      const lastSessionId = map[next];
+      if (lastSessionId) {
+        const session = manager.sessions.find(
+          (s) => s.id === lastSessionId && spaceProjectIds.has(s.projectId),
+        );
+        if (session) {
+          manager.switchSession(session.id);
+          return;
+        }
+      }
+
+      // No remembered chat for this space: open a fresh draft chat in the space.
+      // If the space has no projects, we can't create a draft chat yet.
+      const firstProjectInSpace = projectManager.projects.find(
+        (p) => (p.spaceId || "default") === next,
+      );
+      if (firstProjectInSpace) {
+        void handleNewChat(firstProjectInSpace.id);
+      } else {
+        // No projects in this space — deselect
+        manager.deselectSession();
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
   }, [spaceManager.activeSpaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync model from loaded session (canonical runtime names -> picker values)

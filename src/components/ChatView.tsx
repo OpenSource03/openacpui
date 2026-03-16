@@ -302,7 +302,10 @@ export const ChatView = memo(function ChatView(props: ChatViewProps) {
     );
   }
 
-  return <ChatViewContent {...props} />;
+  // Key by sessionId to force a clean remount on session/space switch.
+  // This guarantees a fresh Virtualizer instance with no stale itemSizeCache,
+  // measurementsCache, or ResizeObserver subscriptions from the previous session.
+  return <ChatViewContent key={props.sessionId ?? "__empty__"} {...props} />;
 });
 
 // ── ChatViewContent (inner, module-level, virtualized rendering) ──
@@ -494,6 +497,10 @@ function ChatViewContent({
     estimateSize: (index) => estimateRowHeight(rows[index]),
     getItemKey: (index) => getRowKey(rows[index]),
     overscan: 5,
+    // Row heights change via markdown margins, collapsibles, and tool-group
+    // morph animations. Measure inside rAF so ResizeObserver updates align
+    // with paint and don't race mid-transition.
+    useAnimationFrameWithResizeObserver: true,
   });
 
   // ── Scroll handling (rerender-defer-reads, rerender-use-ref-transient-values) ──
@@ -658,6 +665,7 @@ function ChatViewContent({
             key={getRowKey(rows[virtualRow.index])}
             ref={virtualizer.measureElement}
             data-index={virtualRow.index}
+            className="flow-root"
             style={{
               position: "absolute",
               top: 0,

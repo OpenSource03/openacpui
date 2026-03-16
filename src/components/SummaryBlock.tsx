@@ -47,7 +47,7 @@ export const SummaryBlock = memo(function SummaryBlock({ message }: SummaryBlock
   const fallbackLabel = isCompact ? "Context compacted" : "Context resumed from previous conversation";
 
   return (
-    <div className="mx-4 my-2">
+    <div className="flow-root mx-4 my-2">
       <button
         type="button"
         onClick={() => hasContent && setIsOpen((prev) => !prev)}
