@@ -84,6 +84,7 @@ let shared: {
   chatBuffer: string;
   lastEmittedCleanLength: number;
   processedCurrentTurn: boolean;
+  processedFilePaths: Set<string>;
 } | null = null;
 
 function rpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -149,7 +150,7 @@ function processCompletedMessage(
   const results: string[] = [];
   const readAttachments: { id: string; dataUrl: string; mimeType: string }[] = [];
   let hadFileOps = false;
-  const processedPaths = new Set<string>();
+  const processedPaths = state.processedFilePaths;
   let totalOps = 0;
 
   function safePath(relPath: string): string | null {
@@ -413,19 +414,14 @@ function handleMessage(raw: string): void {
         const phase = data.phase as string;
         if (phase === "start") {
           shared.processedCurrentTurn = false;
-          shared.chatBuffer = "";
-          shared.lastEmittedCleanLength = 0;
           emitToSessions("lifecycle:start", {});
         }
         else if (phase === "error") emitToSessions("chat:error", { message: (data.error as string) ?? "Agent error" });
         else if (phase === "end" || phase === "done") {
           if (shared.chatBuffer.length > 0 && !shared.processedCurrentTurn) {
             shared.processedCurrentTurn = true;
-            const fullText = shared.chatBuffer;
-            shared.chatBuffer = "";
-            processCompletedMessage(fullText, shared, emitToSessions, rpc);
+            processCompletedMessage(shared.chatBuffer, shared, emitToSessions, rpc);
           } else {
-            shared.chatBuffer = "";
             emitToSessions("lifecycle:end", {});
           }
         }
@@ -498,6 +494,7 @@ async function ensureConnection(getMainWindow: () => BrowserWindow | null): Prom
       chatBuffer: "",
       lastEmittedCleanLength: 0,
       processedCurrentTurn: false,
+      processedFilePaths: new Set(),
     };
   } else {
     shared.ws = ws;
@@ -858,6 +855,10 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     try {
       await ensureConnection(getMainWindow);
       shared!.activeSessionIds.add(sessionId);
+      shared!.chatBuffer = "";
+      shared!.lastEmittedCleanLength = 0;
+      shared!.processedCurrentTurn = false;
+      shared!.processedFilePaths.clear();
 
       const attachments: { id: string; dataUrl: string; mimeType: string }[] = [];
 

@@ -86,7 +86,6 @@ export function useOpenClaw({ sessionId, initialMessages, initialMeta, initialPe
 
       switch (event.type) {
         case "lifecycle:start":
-          finalizeStreamingMessage();
           setIsProcessing(true);
           break;
 
