@@ -266,12 +266,6 @@ html.glass-enabled #root {
     linear-gradient(135deg, oklch(0 0 0 / 0.10), oklch(0 0 0 / 0.04) 50%, oklch(0 0 0 / 0.10)) border-box;
 }
 
-/* Skip layout/paint for off-screen messages — large chats render instantly */
-.message-item {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-}
-
 /* Keep text crisp in light mode: forced transform compositing can blur fonts.
    Preserve the old GPU pre-promotion only in dark mode where it is less noticeable. */
 .island {

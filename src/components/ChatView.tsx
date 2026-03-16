@@ -1,10 +1,10 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback, memo } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useMemo, useCallback, memo } from "react";
 import { motion } from "motion/react";
 import { Minus } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { InstalledAgent, UIMessage } from "@/types";
 import { AgentIcon } from "./AgentIcon";
 import { getAgentIcon } from "@/lib/engine-icons";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageBubble } from "./MessageBubble";
 import { SummaryBlock } from "./SummaryBlock";
 import { ToolCall } from "./ToolCall";
@@ -12,7 +12,7 @@ import { ToolGroupBlock } from "./ToolGroupBlock";
 import { TurnChangesSummary } from "./TurnChangesSummary";
 import { extractTurnSummaries } from "@/lib/turn-changes";
 import type { TurnSummary } from "@/lib/turn-changes";
-import { computeToolGroups, type ToolGroupInfo } from "@/lib/tool-groups";
+import { computeToolGroups, type ToolGroup, type ToolGroupInfo } from "@/lib/tool-groups";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import {
   BOTTOM_LOCK_THRESHOLD_PX,
@@ -23,16 +23,194 @@ import {
 } from "@/lib/chat-scroll";
 import { CHAT_CONTENT_RESIZED_EVENT } from "@/lib/events";
 
-const LARGE_CHAT_THRESHOLD = 300;
-const SESSION_SWITCH_TAIL_COUNT = 80;
-const INITIAL_RENDER_TAIL_COUNT = 180;
-const PREPEND_CHUNK_SIZE = 200;
-const PREPEND_TRIGGER_PX = 160;
+// ── Row model ──
+
+type RowDescriptor =
+  | { kind: "message"; msg: UIMessage; originalIndex: number }
+  | { kind: "tool_group"; group: ToolGroup; originalIndex: number; groupTurnSummary?: TurnSummary }
+  | { kind: "turn_summary"; summary: TurnSummary }
+  | { kind: "processing" };
+
 const EMPTY_TOOL_GROUP_INFO: ToolGroupInfo = {
   groups: new Map(),
   groupedIndices: new Set(),
 };
 
+// ── Module-level pure functions (rerender-no-inline-components, rendering-hoist-jsx) ──
+
+function buildRows(
+  messages: UIMessage[],
+  toolGroups: Map<number, ToolGroup>,
+  groupedIndices: Set<number>,
+  turnSummaryByEndIndex: Map<number, TurnSummary>,
+  showProcessingIndicator: boolean,
+): RowDescriptor[] {
+  const rows: RowDescriptor[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    if (msg.role === "tool_call") {
+      const group = toolGroups.get(i);
+      if (group?.isFinalized) {
+        // Collect turn summaries inside the group range
+        let groupTurnSummary: TurnSummary | undefined;
+        for (let gi = group.startIndex; gi <= group.endIndex; gi++) {
+          const ts = turnSummaryByEndIndex.get(gi);
+          if (ts) groupTurnSummary = ts;
+        }
+        rows.push({ kind: "tool_group", group, originalIndex: i, groupTurnSummary });
+        continue;
+      }
+      if (groupedIndices.has(i)) continue;
+      rows.push({ kind: "message", msg, originalIndex: i });
+    } else if (msg.role === "tool_result") {
+      continue;
+    } else if (groupedIndices.has(i)) {
+      continue;
+    } else {
+      rows.push({ kind: "message", msg, originalIndex: i });
+    }
+
+    // Append turn summary after this row if applicable
+    const turnSummary = turnSummaryByEndIndex.get(i);
+    if (turnSummary) {
+      rows.push({ kind: "turn_summary", summary: turnSummary });
+    }
+  }
+
+  if (showProcessingIndicator) {
+    rows.push({ kind: "processing" });
+  }
+
+  return rows;
+}
+
+function estimateRowHeight(row: RowDescriptor): number {
+  if (row.kind === "processing") return 40;
+  if (row.kind === "turn_summary") return 52;
+  if (row.kind === "tool_group") return 44;
+  const msg = row.msg;
+  if (msg.role === "system") return 32;
+  if (msg.role === "summary") return 52;
+  if (msg.role === "tool_call") return 44;
+  if (msg.role === "user") return Math.max(48, Math.min(200, Math.ceil((msg.content?.length ?? 0) / 60) * 24));
+  // assistant: estimate based on content length
+  const lines = Math.ceil((msg.content?.length ?? 0) / 80);
+  return Math.max(40, Math.min(600, lines * 22));
+}
+
+function getRowKey(row: RowDescriptor): string {
+  if (row.kind === "processing") return "__processing__";
+  if (row.kind === "turn_summary") return `ts-${row.summary.userMessageId}`;
+  if (row.kind === "tool_group") return `group-${row.group.tools[0].id}`;
+  return row.msg.id;
+}
+
+// ── ChatMessageRow (module-level, memo with custom comparator) ──
+
+interface ChatMessageRowProps {
+  row: RowDescriptor;
+  showThinking: boolean;
+  autoExpandTools: boolean;
+  animatingGroupKeys: Set<string>;
+  continuationIds: Set<string>;
+  onRevert?: (checkpointId: string) => void;
+  onFullRevert?: (checkpointId: string) => void;
+  onSendQueuedNow?: (messageId: string) => void;
+  onUnqueueQueuedMessage?: (messageId: string) => void;
+}
+
+const ChatMessageRow = memo(function ChatMessageRow({
+  row,
+  showThinking,
+  autoExpandTools,
+  animatingGroupKeys,
+  continuationIds,
+  onRevert,
+  onFullRevert,
+  onSendQueuedNow,
+  onUnqueueQueuedMessage,
+}: ChatMessageRowProps) {
+  if (row.kind === "processing") {
+    return (
+      <div className="flex justify-start px-4 py-1.5">
+        <div className="flex items-center gap-1.5 text-xs">
+          <Minus className="h-3 w-3 text-foreground/40" />
+          <TextShimmer as="span" className="italic opacity-60" duration={1.8} spread={1.5}>
+            Planning next moves
+          </TextShimmer>
+        </div>
+      </div>
+    );
+  }
+
+  if (row.kind === "turn_summary") {
+    return <TurnChangesSummary summary={row.summary} />;
+  }
+
+  if (row.kind === "tool_group") {
+    const groupKey = row.group.tools[0].id;
+    const isNewGroup = animatingGroupKeys.has(groupKey);
+    return (
+      <Fragment>
+        <ToolGroupBlock
+          tools={row.group.tools}
+          messages={row.group.messages}
+          showThinking={showThinking}
+          autoExpandTools={autoExpandTools}
+          animate={isNewGroup}
+        />
+        {row.groupTurnSummary ? <TurnChangesSummary summary={row.groupTurnSummary} /> : null}
+      </Fragment>
+    );
+  }
+
+  // row.kind === "message"
+  const msg = row.msg;
+
+  if (msg.role === "summary") {
+    return (
+      <div data-message-id={msg.id}>
+        <SummaryBlock message={msg} />
+      </div>
+    );
+  }
+
+  if (msg.role === "tool_call") {
+    return (
+      <div data-message-id={msg.id}>
+        <ToolCall message={msg} autoExpandTools={autoExpandTools} />
+      </div>
+    );
+  }
+
+  return (
+    <div data-message-id={msg.id}>
+      <MessageBubble
+        message={msg}
+        showThinking={showThinking}
+        isContinuation={continuationIds.has(msg.id)}
+        onRevert={onRevert}
+        onFullRevert={onFullRevert}
+        onSendQueuedNow={onSendQueuedNow}
+        onUnqueueQueued={onUnqueueQueuedMessage}
+      />
+    </div>
+  );
+}, (prev, next) =>
+  prev.row === next.row &&
+  prev.showThinking === next.showThinking &&
+  prev.autoExpandTools === next.autoExpandTools &&
+  prev.animatingGroupKeys === next.animatingGroupKeys &&
+  prev.continuationIds === next.continuationIds &&
+  prev.onRevert === next.onRevert &&
+  prev.onFullRevert === next.onFullRevert &&
+  prev.onSendQueuedNow === next.onSendQueuedNow &&
+  prev.onUnqueueQueuedMessage === next.onUnqueueQueuedMessage,
+);
+
+// ── ChatViewProps ──
 
 interface ChatViewProps {
   messages: UIMessage[];
@@ -44,570 +222,22 @@ interface ChatViewProps {
   extraBottomPadding?: boolean;
   scrollToMessageId?: string;
   onScrolledToMessage?: () => void;
-  /** Session ID — used to force-scroll to bottom on session switch */
   sessionId?: string;
-  /** Called when user clicks "Revert files only" on a user message */
   onRevert?: (checkpointId: string) => void;
-  /** Called when user clicks "Revert files + chat" on a user message */
   onFullRevert?: (checkpointId: string) => void;
-  /** Reports whether the chat is scrolled away from the top (scrollTop > 4px) */
-  onScrolledFromTop?: (scrolled: boolean) => void;
-  /** Reports smooth top-scroll transition progress [0..1] for header/fade blending */
   onTopScrollProgress?: (progress: number) => void;
-  /** Send this queued user message next (interrupting current turn at safe boundary) */
   onSendQueuedNow?: (messageId: string) => void;
-  /** Remove this queued user message without sending it */
   onUnqueueQueuedMessage?: (messageId: string) => void;
-  /** Message ID explicitly marked as "send next" by the user */
   sendNextId?: string | null;
-  /** Available agents for the engine picker in the empty state */
   agents?: InstalledAgent[];
-  /** Currently selected agent */
   selectedAgent?: InstalledAgent | null;
-  /** Switch to a different agent/engine */
   onAgentChange?: (agent: InstalledAgent | null) => void;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits, autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, onUnqueueQueuedMessage, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<HTMLElement | null>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const bottomLockedRef = useRef(true);
-  const userScrollIntentUntilRef = useRef(0);
-  const suppressScrollTrackingRef = useRef(0);
-  const observedContentHeightRef = useRef(0);
-  const observedViewportHeightRef = useRef(0);
-  const settleRafRef = useRef<number | null>(null);
-  const scrollRafPending = useRef(false);
-  // Ref avoids stale closure in the scroll handler
-  const onScrolledFromTopRef = useRef(onScrolledFromTop);
-  onScrolledFromTopRef.current = onScrolledFromTop;
-  const onTopScrollProgressRef = useRef(onTopScrollProgress);
-  onTopScrollProgressRef.current = onTopScrollProgress;
-  const lastTopProgressRef = useRef(-1);
-  const prependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
-  const lastSessionIdRef = useRef<string | undefined | null>(sessionId);
-  const [visibleStartIndex, setVisibleStartIndex] = useState(() =>
-    messages.length > LARGE_CHAT_THRESHOLD
-      ? Math.max(0, messages.length - SESSION_SWITCH_TAIL_COUNT)
-      : 0,
-  );
+// ── ChatView (outer, handles empty state) ──
 
-  const getViewport = useCallback(() => {
-    if (viewportRef.current && !viewportRef.current.isConnected) {
-      viewportRef.current = null;
-    }
-    if (!viewportRef.current) {
-      viewportRef.current = scrollAreaRef.current?.querySelector<HTMLElement>(
-        "[data-radix-scroll-area-viewport]",
-      ) ?? null;
-    }
-    return viewportRef.current;
-  }, []);
-
-  const expandRenderedHistory = useCallback((nextStart?: number) => {
-    if (visibleStartIndex === 0) return;
-    const viewport = getViewport();
-    if (viewport) {
-      prependAnchorRef.current = {
-        scrollHeight: viewport.scrollHeight,
-        scrollTop: viewport.scrollTop,
-      };
-    }
-    setVisibleStartIndex((prev) => {
-      if (prev === 0) return 0;
-      return nextStart !== undefined
-        ? Math.max(0, Math.min(prev, nextStart))
-        : Math.max(0, prev - PREPEND_CHUNK_SIZE);
-    });
-  }, [getViewport, visibleStartIndex]);
-
-  useEffect(() => {
-    const didSessionChange = lastSessionIdRef.current !== sessionId;
-    lastSessionIdRef.current = sessionId;
-
-    if (didSessionChange) {
-      setVisibleStartIndex(
-        messages.length > LARGE_CHAT_THRESHOLD
-          ? Math.max(0, messages.length - SESSION_SWITCH_TAIL_COUNT)
-          : 0,
-      );
-      prependAnchorRef.current = null;
-      return;
-    }
-
-    setVisibleStartIndex((prev) => {
-      if (messages.length <= LARGE_CHAT_THRESHOLD) return 0;
-      return Math.min(prev, Math.max(0, messages.length - INITIAL_RENDER_TAIL_COUNT));
-    });
-  }, [messages.length, sessionId]);
-
-  useEffect(() => {
-    if (messages.length <= LARGE_CHAT_THRESHOLD) return;
-    const targetStart = Math.max(0, messages.length - INITIAL_RENDER_TAIL_COUNT);
-    if (visibleStartIndex <= targetStart) return;
-
-    let idleId: number | null = null;
-    let timerId: ReturnType<typeof setTimeout> | null = null;
-
-    const expandToSteadyState = () => {
-      expandRenderedHistory(targetStart);
-    };
-
-    if (typeof window.requestIdleCallback === "function") {
-      idleId = window.requestIdleCallback(expandToSteadyState, { timeout: 500 });
-    } else {
-      timerId = setTimeout(expandToSteadyState, 120);
-    }
-
-    return () => {
-      if (idleId !== null && typeof window.cancelIdleCallback === "function") {
-        window.cancelIdleCallback(idleId);
-      }
-      if (timerId !== null) {
-        clearTimeout(timerId);
-      }
-    };
-  }, [expandRenderedHistory, messages.length, visibleStartIndex]);
-
-  const publishTopProgress = useCallback((progress: number) => {
-    const clamped = Math.max(0, Math.min(1, progress));
-    const last = lastTopProgressRef.current;
-    if (last < 0 || Math.abs(clamped - last) >= 0.01 || clamped === 0 || clamped === 1) {
-      lastTopProgressRef.current = clamped;
-      onTopScrollProgressRef.current?.(clamped);
-    }
-  }, []);
-
-  const syncViewportState = useCallback((viewport: HTMLElement) => {
-    const { scrollTop, scrollHeight, clientHeight } = viewport;
-    onScrolledFromTopRef.current?.(scrollTop > 4);
-    publishTopProgress(getTopScrollProgress(scrollTop));
-    return { scrollTop, scrollHeight, clientHeight };
-  }, [publishTopProgress]);
-
-  useLayoutEffect(() => {
-    const anchor = prependAnchorRef.current;
-    if (!anchor) return;
-
-    const viewport = getViewport();
-    if (!viewport) return;
-
-    const delta = viewport.scrollHeight - anchor.scrollHeight;
-    viewport.scrollTop = anchor.scrollTop + delta;
-    syncViewportState(viewport);
-    prependAnchorRef.current = null;
-  }, [getViewport, syncViewportState, visibleStartIndex]);
-
-  const visibleMessages = useMemo(
-    () => visibleStartIndex === 0 ? messages : messages.slice(visibleStartIndex),
-    [messages, visibleStartIndex],
-  );
-
-  const jumpToBottom = useCallback((opts?: { force?: boolean }) => {
-    const shouldForce = opts?.force === true;
-    if (!shouldForce && !bottomLockedRef.current) return;
-
-    const viewport = getViewport();
-    if (!viewport) return;
-
-    const applyBottom = (targetViewport: HTMLElement) => {
-      const targetScrollTop = Math.max(0, targetViewport.scrollHeight - targetViewport.clientHeight);
-      if (shouldForce || Math.abs(targetViewport.scrollTop - targetScrollTop) > 1) {
-        targetViewport.scrollTop = targetScrollTop;
-      }
-      syncViewportState(targetViewport);
-    };
-
-    suppressScrollTrackingRef.current += 1;
-    applyBottom(viewport);
-    window.requestAnimationFrame(() => {
-      const nextViewport = getViewport();
-      if (nextViewport) applyBottom(nextViewport);
-      suppressScrollTrackingRef.current = Math.max(0, suppressScrollTrackingRef.current - 1);
-    });
-  }, [getViewport, syncViewportState]);
-
-  const clearSettleTimers = useCallback(() => {
-    if (settleRafRef.current !== null) {
-      window.cancelAnimationFrame(settleRafRef.current);
-      settleRafRef.current = null;
-    }
-  }, []);
-
-  const scheduleSettleToBottom = useCallback((opts?: { force?: boolean }) => {
-    const shouldForce = opts?.force === true;
-    if (!shouldForce && !bottomLockedRef.current) return;
-    clearSettleTimers();
-    // Single rAF is sufficient — the ResizeObserver handles ongoing content growth
-    settleRafRef.current = window.requestAnimationFrame(() => {
-      settleRafRef.current = null;
-      jumpToBottom({ force: shouldForce });
-    });
-  }, [clearSettleTimers, jumpToBottom]);
-
-  useEffect(() => {
-    scheduleSettleToBottom();
-  }, [messages.length, isProcessing, scheduleSettleToBottom]);
-
-  useLayoutEffect(() => {
-    if (!sessionId) return;
-    bottomLockedRef.current = true;
-    userScrollIntentUntilRef.current = 0;
-    lastTopProgressRef.current = -1;
-    jumpToBottom({ force: true });
-  }, [jumpToBottom, sessionId]);
-
-  // Track whether user is near the bottom; this drives sticky auto-follow behavior.
-  useEffect(() => {
-    const viewport = getViewport();
-    if (!viewport) return;
-
-    const updateAutoFollow = () => {
-      const { scrollTop, scrollHeight, clientHeight } = syncViewportState(viewport);
-      // Auto-follow tracking is suppressed during programmatic scrolls to
-      // prevent them from unlocking sticky follow mode
-      if (suppressScrollTrackingRef.current > 0) {
-        if (isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
-          bottomLockedRef.current = true;
-        }
-        return;
-      }
-
-      if (scrollTop <= PREPEND_TRIGGER_PX && visibleStartIndex > 0) {
-        expandRenderedHistory();
-      }
-
-      const hasRecentUserIntent = Date.now() <= userScrollIntentUntilRef.current;
-      if (shouldUnlockBottomLock({
-        scrollTop,
-        scrollHeight,
-        clientHeight,
-        hasRecentUserIntent,
-        threshold: BOTTOM_LOCK_THRESHOLD_PX,
-      })) {
-        bottomLockedRef.current = false;
-        clearSettleTimers();
-        return;
-      }
-
-      if (isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
-        bottomLockedRef.current = true;
-      }
-    };
-
-    const markUserScrollIntent = () => {
-      userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_WINDOW_MS;
-    };
-    const handleKeydown = (event: KeyboardEvent) => {
-      if (
-        event.key === "ArrowUp"
-        || event.key === "PageUp"
-        || event.key === "Home"
-        || (event.key === " " && event.shiftKey)
-      ) {
-        markUserScrollIntent();
-      }
-    };
-
-    // Throttle scroll handler behind a rAF gate to avoid layout thrashing
-    const throttledUpdateAutoFollow = () => {
-      if (scrollRafPending.current) return;
-      scrollRafPending.current = true;
-      window.requestAnimationFrame(() => {
-        scrollRafPending.current = false;
-        updateAutoFollow();
-      });
-    };
-
-    updateAutoFollow();
-    viewport.addEventListener("wheel", markUserScrollIntent, { passive: true });
-    viewport.addEventListener("touchmove", markUserScrollIntent, { passive: true });
-    viewport.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
-    viewport.addEventListener("keydown", handleKeydown);
-    viewport.addEventListener("scroll", throttledUpdateAutoFollow, { passive: true });
-    return () => {
-      viewport.removeEventListener("wheel", markUserScrollIntent);
-      viewport.removeEventListener("touchmove", markUserScrollIntent);
-      viewport.removeEventListener("pointerdown", markUserScrollIntent);
-      viewport.removeEventListener("keydown", handleKeydown);
-      viewport.removeEventListener("scroll", throttledUpdateAutoFollow);
-    };
-  }, [messages.length, clearSettleTimers, expandRenderedHistory, getViewport, syncViewportState, visibleStartIndex]);
-
-  // Force-scroll to bottom again after session changes so late layout shifts
-  // still settle at the bottom even after the immediate layout pass above.
-  useEffect(() => {
-    if (!sessionId) return;
-    bottomLockedRef.current = true;
-    userScrollIntentUntilRef.current = 0;
-    scheduleSettleToBottom({ force: true });
-  }, [sessionId, scheduleSettleToBottom]);
-
-  useEffect(() => {
-    const handleAsyncContentResize = () => {
-      scheduleSettleToBottom();
-    };
-
-    window.addEventListener(CHAT_CONTENT_RESIZED_EVENT, handleAsyncContentResize);
-    return () => {
-      window.removeEventListener(CHAT_CONTENT_RESIZED_EVENT, handleAsyncContentResize);
-    };
-  }, [scheduleSettleToBottom]);
-
-  // ResizeObserver on the scroll viewport + content: catches both content growth
-  // and late layout changes that alter the visible viewport height on open.
-  useEffect(() => {
-    const viewport = getViewport();
-    const content = contentRef.current;
-    if (!viewport || !content) return;
-
-    observedContentHeightRef.current = content.getBoundingClientRect().height;
-    observedViewportHeightRef.current = viewport.clientHeight;
-
-    const observer = new ResizeObserver((entries) => {
-      const contentEntry = entries.find((entry) => entry.target === content);
-      const viewportEntry = entries.find((entry) => entry.target === viewport);
-      const nextHeight = contentEntry?.contentRect.height ?? content.getBoundingClientRect().height;
-      const previousHeight = observedContentHeightRef.current;
-      const nextViewportHeight = viewportEntry?.contentRect.height ?? viewport.clientHeight;
-      const previousViewportHeight = observedViewportHeightRef.current;
-
-      observedContentHeightRef.current = nextHeight;
-      observedViewportHeightRef.current = nextViewportHeight;
-
-      const contentHeightChanged = Math.abs(nextHeight - previousHeight) >= 1;
-      const viewportHeightChanged = Math.abs(nextViewportHeight - previousViewportHeight) >= 1;
-      if (!contentHeightChanged && !viewportHeightChanged) return;
-      jumpToBottom();
-    });
-    observer.observe(viewport);
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, [getViewport, jumpToBottom]);
-
-  useEffect(() => clearSettleTimers, [clearSettleTimers]);
-
-  // Scroll to specific message (from search navigation)
-  useEffect(() => {
-    if (!scrollToMessageId) return;
-    const targetIndex = messages.findIndex((msg) => msg.id === scrollToMessageId);
-    if (targetIndex >= 0 && targetIndex < visibleStartIndex) {
-      expandRenderedHistory(Math.max(0, targetIndex - 24));
-      return;
-    }
-    bottomLockedRef.current = false;
-    clearSettleTimers();
-    const el = scrollAreaRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Flash highlight
-      el.classList.add("search-highlight");
-      const timer = setTimeout(() => {
-        el.classList.remove("search-highlight");
-        onScrolledToMessage?.();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-    // If element not found yet (messages still loading), try again
-    const retry = setTimeout(() => {
-      const retryEl = scrollAreaRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
-      if (retryEl) {
-        retryEl.scrollIntoView({ behavior: "smooth", block: "center" });
-        retryEl.classList.add("search-highlight");
-        setTimeout(() => {
-          retryEl.classList.remove("search-highlight");
-          onScrolledToMessage?.();
-        }, 1500);
-      } else {
-        onScrolledToMessage?.();
-      }
-    }, 500);
-    return () => clearTimeout(retry);
-  }, [clearSettleTimers, expandRenderedHistory, messages, onScrolledToMessage, scrollToMessageId, visibleStartIndex]);
-
-  // Single-pass partition: split visible messages into non-queued and queued.
-  // Short-circuits when no queued messages exist (the common case) to preserve
-  // referential equality and avoid downstream useMemo recomputations.
-  const { nonQueuedMessages, queuedMessages } = useMemo(() => {
-    const hasQueued = visibleMessages.some((m) => m.isQueued);
-    if (!hasQueued) {
-      return { nonQueuedMessages: visibleMessages, queuedMessages: [] as UIMessage[] };
-    }
-    const nonQueued: UIMessage[] = [];
-    const queued: UIMessage[] = [];
-    for (const m of visibleMessages) {
-      (m.isQueued ? queued : nonQueued).push(m);
-    }
-    return { nonQueuedMessages: nonQueued, queuedMessages: queued };
-  }, [visibleMessages]);
-
-  // Pre-compute continuation IDs in O(n) forward pass
-  const continuationIds = useMemo(() => {
-    const ids = new Set<string>();
-    let lastRole: string | null = null;
-    // Use nonQueuedMessages + queuedMessages directly instead of a separate concat
-    const allMessages = queuedMessages.length > 0
-      ? [...nonQueuedMessages, ...queuedMessages]
-      : nonQueuedMessages;
-    for (const msg of allMessages) {
-      if (msg.role === "assistant") {
-        if (lastRole === "assistant" || lastRole === "tool_call" || lastRole === "tool_result" || lastRole === "system" || lastRole === "summary") {
-          ids.add(msg.id);
-        }
-        lastRole = "assistant";
-      } else if (msg.role === "user") {
-        lastRole = "user";
-      } else {
-        // tool_call, tool_result, system, summary: don't reset assistant chain
-        if (lastRole !== null) {
-          lastRole = lastRole === "user" ? "user" : lastRole;
-        }
-      }
-    }
-    return ids;
-  }, [nonQueuedMessages, queuedMessages]);
-
-  // Stable-identity cache for expensive derived computations.
-  // During streaming, only the last message's content changes — the message list
-  // structure (length + IDs) stays the same. We skip recomputation when the
-  // structure hasn't changed since these functions only care about message roles
-  // and tool results, not streaming text content.
-  const prevMsgStructureRef = useRef<{ length: number; lastId: string | undefined; lastToolResultCount: number }>({ length: 0, lastId: undefined, lastToolResultCount: 0 });
-  const cachedTurnSummaryRef = useRef<Map<number, TurnSummary>>(new Map());
-  const cachedToolGroupsRef = useRef<ToolGroupInfo>(EMPTY_TOOL_GROUP_INFO);
-  const prevIsProcessingRef = useRef(isProcessing);
-  const prevAutoGroupRef = useRef(autoGroupTools);
-  const prevAvoidEditRef = useRef(avoidGroupingEdits);
-
-  // Check if the message structure actually changed (new messages added, tool results arrived, etc.)
-  const msgStructure = useMemo(() => {
-    // Count tool results to detect when a tool_call gets its result
-    let toolResultCount = 0;
-    for (let i = nonQueuedMessages.length - 1; i >= Math.max(0, nonQueuedMessages.length - 10); i--) {
-      if (nonQueuedMessages[i].role === "tool_call" && nonQueuedMessages[i].toolResult) toolResultCount++;
-    }
-    return {
-      length: nonQueuedMessages.length,
-      lastId: nonQueuedMessages[nonQueuedMessages.length - 1]?.id,
-      lastToolResultCount: toolResultCount,
-    };
-  }, [nonQueuedMessages]);
-
-  const structureChanged =
-    msgStructure.length !== prevMsgStructureRef.current.length ||
-    msgStructure.lastId !== prevMsgStructureRef.current.lastId ||
-    msgStructure.lastToolResultCount !== prevMsgStructureRef.current.lastToolResultCount ||
-    isProcessing !== prevIsProcessingRef.current;
-
-  // Pre-compute per-turn change summaries, keyed by the last message index of each turn.
-  // Only completed turns with file changes get a summary block rendered after them.
-  const turnSummaryByEndIndex = useMemo(() => {
-    if (!structureChanged && cachedTurnSummaryRef.current.size >= 0) {
-      // Structure unchanged (streaming content update only) — reuse cache
-      if (prevMsgStructureRef.current.length > 0) return cachedTurnSummaryRef.current;
-    }
-    prevMsgStructureRef.current = msgStructure;
-    prevIsProcessingRef.current = isProcessing;
-    const summaries = extractTurnSummaries(nonQueuedMessages, isProcessing);
-    const map = new Map<number, TurnSummary>();
-    for (const s of summaries) {
-      map.set(s.endMessageIndex, s);
-    }
-    cachedTurnSummaryRef.current = map;
-    return map;
-  }, [nonQueuedMessages, isProcessing, structureChanged, msgStructure]);
-
-  // Pre-compute tool groups when enabled: contiguous tool_call sequences between
-  // assistant text messages, also absorbing any in-between thinking-only rows.
-  const { groups: toolGroups, groupedIndices } = useMemo(() => {
-    if (!autoGroupTools) return EMPTY_TOOL_GROUP_INFO;
-    const settingsChanged = autoGroupTools !== prevAutoGroupRef.current || avoidGroupingEdits !== prevAvoidEditRef.current;
-    prevAutoGroupRef.current = autoGroupTools;
-    prevAvoidEditRef.current = avoidGroupingEdits;
-    if (!structureChanged && !settingsChanged && cachedToolGroupsRef.current !== EMPTY_TOOL_GROUP_INFO) {
-      return cachedToolGroupsRef.current;
-    }
-    const result = computeToolGroups(nonQueuedMessages, isProcessing, avoidGroupingEdits);
-    cachedToolGroupsRef.current = result;
-    return result;
-  }, [autoGroupTools, avoidGroupingEdits, nonQueuedMessages, isProcessing, structureChanged]);
-
-  // Finalized group keys (first tool message ID), used to detect newly formed groups.
-  const finalizedGroupKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const group of toolGroups.values()) {
-      if (group.isFinalized && group.tools.length > 0) {
-        keys.add(group.tools[0].id);
-      }
-    }
-    return keys;
-  }, [toolGroups]);
-
-  // Track group animation per viewed session.
-  // A group only morphs if this view previously rendered its first tool_call
-  // as a standalone message before the assistant finalized the group.
-  const knownGroupKeysRef = useRef<Set<string>>(new Set());
-  const seenUngroupedToolKeysRef = useRef<Set<string>>(new Set());
-  const trackedSessionIdRef = useRef<string | undefined | null>(null);
-
-  if (trackedSessionIdRef.current !== sessionId) {
-    trackedSessionIdRef.current = sessionId;
-    knownGroupKeysRef.current = new Set();
-    seenUngroupedToolKeysRef.current = new Set();
-  }
-
-  const visibleUngroupedToolKeys = useMemo(() => {
-    const keys = new Set<string>();
-    nonQueuedMessages.forEach((msg, index) => {
-      if (msg.role !== "tool_call") return;
-      const group = toolGroups.get(index);
-      if (group?.isFinalized || groupedIndices.has(index)) return;
-      keys.add(msg.id);
-    });
-    return keys;
-  }, [groupedIndices, nonQueuedMessages, toolGroups]);
-
-  // Groups finalized in this render animate only if this view previously showed
-  // their first tool as an individual tool_call before grouping.
-  const animatingGroupKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const key of finalizedGroupKeys) {
-      if (
-        !knownGroupKeysRef.current.has(key) &&
-        seenUngroupedToolKeysRef.current.has(key)
-      ) {
-        keys.add(key);
-      }
-    }
-    return keys;
-  }, [finalizedGroupKeys]);
-
-  // Record standalone tool_calls after commit so a later finalization can morph once.
-  useEffect(() => {
-    if (visibleUngroupedToolKeys.size === 0) return;
-    const seen = seenUngroupedToolKeysRef.current;
-    for (const key of visibleUngroupedToolKeys) {
-      seen.add(key);
-    }
-  }, [visibleUngroupedToolKeys]);
-
-  // Mark finalized groups as known after commit so they never re-animate.
-  useEffect(() => {
-    const known = knownGroupKeysRef.current;
-    for (const key of finalizedGroupKeys) {
-      known.add(key);
-    }
-  }, [finalizedGroupKeys]);
-
-  // Memoized processing indicator check — avoids O(n) .some() scan inside JSX on every render
-  const showProcessingIndicator = useMemo(() => {
-    if (!isProcessing) return false;
-    return !nonQueuedMessages.some((m) =>
-      (m.role === "assistant" && m.isStreaming && (m.content || m.thinking)) ||
-      (m.role === "tool_call" && !m.toolResult),
-    );
-  }, [isProcessing, nonQueuedMessages]);
+export const ChatView = memo(function ChatView(props: ChatViewProps) {
+  const { messages, agents, selectedAgent, onAgentChange } = props;
 
   if (messages.length === 0) {
     const showAgentPicker = agents && agents.length > 1 && onAgentChange;
@@ -672,126 +302,398 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     );
   }
 
+  return <ChatViewContent {...props} />;
+});
+
+// ── ChatViewContent (inner, module-level, virtualized rendering) ──
+
+function ChatViewContent({
+  messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits,
+  autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage,
+  sessionId, onRevert, onFullRevert, onTopScrollProgress,
+  onSendQueuedNow, onUnqueueQueuedMessage, sendNextId,
+}: ChatViewProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // ── Scroll state (refs, not state — rerender-use-ref-transient-values) ──
+  const bottomLockedRef = useRef(true);
+  const userScrollIntentRef = useRef(0);
+  const lastRowCountRef = useRef(0);
+  const scrollRafPending = useRef(false);
+  // Store callback in ref to avoid effect re-subscriptions (advanced-event-handler-refs)
+  const onTopScrollProgressRef = useRef(onTopScrollProgress);
+  onTopScrollProgressRef.current = onTopScrollProgress;
+  const lastTopProgressRef = useRef(-1);
+
+  // ── Single-pass partition: queued vs non-queued (js-combine-iterations) ──
+  const { nonQueuedMessages, queuedMessages } = useMemo(() => {
+    const hasQueued = messages.some((m) => m.isQueued);
+    if (!hasQueued) {
+      return { nonQueuedMessages: messages, queuedMessages: [] as UIMessage[] };
+    }
+    const nonQueued: UIMessage[] = [];
+    const queued: UIMessage[] = [];
+    for (const m of messages) {
+      (m.isQueued ? queued : nonQueued).push(m);
+    }
+    return { nonQueuedMessages: nonQueued, queuedMessages: queued };
+  }, [messages]);
+
+  // ── Continuation IDs (O(n) forward pass) ──
+  const continuationIds = useMemo(() => {
+    const ids = new Set<string>();
+    let lastRole: string | null = null;
+    const allMessages = queuedMessages.length > 0
+      ? [...nonQueuedMessages, ...queuedMessages]
+      : nonQueuedMessages;
+    for (const msg of allMessages) {
+      if (msg.role === "assistant") {
+        if (lastRole === "assistant" || lastRole === "tool_call" || lastRole === "tool_result" || lastRole === "system" || lastRole === "summary") {
+          ids.add(msg.id);
+        }
+        lastRole = "assistant";
+      } else if (msg.role === "user") {
+        lastRole = "user";
+      } else {
+        if (lastRole !== null) {
+          lastRole = lastRole === "user" ? "user" : lastRole;
+        }
+      }
+    }
+    return ids;
+  }, [nonQueuedMessages, queuedMessages]);
+
+  // ── Structural identity caching for expensive derived data ──
+  const prevMsgStructureRef = useRef<{ length: number; lastId: string | undefined; lastToolResultCount: number }>({ length: 0, lastId: undefined, lastToolResultCount: 0 });
+  const cachedTurnSummaryRef = useRef<Map<number, TurnSummary>>(new Map());
+  const cachedToolGroupsRef = useRef<ToolGroupInfo>(EMPTY_TOOL_GROUP_INFO);
+  const prevIsProcessingRef = useRef(isProcessing);
+  const prevAutoGroupRef = useRef(autoGroupTools);
+  const prevAvoidEditRef = useRef(avoidGroupingEdits);
+
+  const msgStructure = useMemo(() => {
+    let toolResultCount = 0;
+    for (let i = nonQueuedMessages.length - 1; i >= Math.max(0, nonQueuedMessages.length - 10); i--) {
+      if (nonQueuedMessages[i].role === "tool_call" && nonQueuedMessages[i].toolResult) toolResultCount++;
+    }
+    return {
+      length: nonQueuedMessages.length,
+      lastId: nonQueuedMessages[nonQueuedMessages.length - 1]?.id,
+      lastToolResultCount: toolResultCount,
+    };
+  }, [nonQueuedMessages]);
+
+  const structureChanged =
+    msgStructure.length !== prevMsgStructureRef.current.length ||
+    msgStructure.lastId !== prevMsgStructureRef.current.lastId ||
+    msgStructure.lastToolResultCount !== prevMsgStructureRef.current.lastToolResultCount ||
+    isProcessing !== prevIsProcessingRef.current;
+
+  // ── Turn summaries (rerender-derived-state-no-effect) ──
+  const turnSummaryByEndIndex = useMemo(() => {
+    if (!structureChanged && cachedTurnSummaryRef.current.size >= 0) {
+      if (prevMsgStructureRef.current.length > 0) return cachedTurnSummaryRef.current;
+    }
+    prevMsgStructureRef.current = msgStructure;
+    prevIsProcessingRef.current = isProcessing;
+    const summaries = extractTurnSummaries(nonQueuedMessages, isProcessing);
+    const map = new Map<number, TurnSummary>();
+    for (const s of summaries) {
+      map.set(s.endMessageIndex, s);
+    }
+    cachedTurnSummaryRef.current = map;
+    return map;
+  }, [nonQueuedMessages, isProcessing, structureChanged, msgStructure]);
+
+  // ── Tool groups (js-index-maps, js-set-map-lookups) ──
+  const { groups: toolGroups, groupedIndices } = useMemo(() => {
+    if (!autoGroupTools) return EMPTY_TOOL_GROUP_INFO;
+    const settingsChanged = autoGroupTools !== prevAutoGroupRef.current || avoidGroupingEdits !== prevAvoidEditRef.current;
+    prevAutoGroupRef.current = autoGroupTools;
+    prevAvoidEditRef.current = avoidGroupingEdits;
+    if (!structureChanged && !settingsChanged && cachedToolGroupsRef.current !== EMPTY_TOOL_GROUP_INFO) {
+      return cachedToolGroupsRef.current;
+    }
+    const result = computeToolGroups(nonQueuedMessages, isProcessing, avoidGroupingEdits);
+    cachedToolGroupsRef.current = result;
+    return result;
+  }, [autoGroupTools, avoidGroupingEdits, nonQueuedMessages, isProcessing, structureChanged]);
+
+  // ── Tool group animation tracking ──
+  const finalizedGroupKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const group of toolGroups.values()) {
+      if (group.isFinalized && group.tools.length > 0) {
+        keys.add(group.tools[0].id);
+      }
+    }
+    return keys;
+  }, [toolGroups]);
+
+  const knownGroupKeysRef = useRef<Set<string>>(new Set());
+  const seenUngroupedToolKeysRef = useRef<Set<string>>(new Set());
+  const trackedSessionIdRef = useRef<string | undefined | null>(null);
+
+  if (trackedSessionIdRef.current !== sessionId) {
+    trackedSessionIdRef.current = sessionId;
+    knownGroupKeysRef.current = new Set();
+    seenUngroupedToolKeysRef.current = new Set();
+  }
+
+  const visibleUngroupedToolKeys = useMemo(() => {
+    const keys = new Set<string>();
+    nonQueuedMessages.forEach((msg, index) => {
+      if (msg.role !== "tool_call") return;
+      const group = toolGroups.get(index);
+      if (group?.isFinalized || groupedIndices.has(index)) return;
+      keys.add(msg.id);
+    });
+    return keys;
+  }, [groupedIndices, nonQueuedMessages, toolGroups]);
+
+  const animatingGroupKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const key of finalizedGroupKeys) {
+      if (!knownGroupKeysRef.current.has(key) && seenUngroupedToolKeysRef.current.has(key)) {
+        keys.add(key);
+      }
+    }
+    return keys;
+  }, [finalizedGroupKeys]);
+
+  useEffect(() => {
+    if (visibleUngroupedToolKeys.size === 0) return;
+    const seen = seenUngroupedToolKeysRef.current;
+    for (const key of visibleUngroupedToolKeys) seen.add(key);
+  }, [visibleUngroupedToolKeys]);
+
+  useEffect(() => {
+    const known = knownGroupKeysRef.current;
+    for (const key of finalizedGroupKeys) known.add(key);
+  }, [finalizedGroupKeys]);
+
+  // ── Processing indicator (useMemo for O(n) scan) ──
+  const showProcessingIndicator = useMemo(() => {
+    if (!isProcessing) return false;
+    return !nonQueuedMessages.some((m) =>
+      (m.role === "assistant" && m.isStreaming && (m.content || m.thinking)) ||
+      (m.role === "tool_call" && !m.toolResult),
+    );
+  }, [isProcessing, nonQueuedMessages]);
+
+  // ── Build rows (single O(n) pass — js-combine-iterations) ──
+  const rows = useMemo(
+    () => buildRows(nonQueuedMessages, toolGroups, groupedIndices, turnSummaryByEndIndex, showProcessingIndicator),
+    [nonQueuedMessages, toolGroups, groupedIndices, turnSummaryByEndIndex, showProcessingIndicator],
+  );
+
+  // ── Virtualizer ──
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: (index) => estimateRowHeight(rows[index]),
+    overscan: 5,
+  });
+
+  // ── Scroll handling (rerender-defer-reads, rerender-use-ref-transient-values) ──
+
+  const publishTopProgress = useCallback((progress: number) => {
+    const clamped = Math.max(0, Math.min(1, progress));
+    const last = lastTopProgressRef.current;
+    if (last < 0 || Math.abs(clamped - last) >= 0.01 || clamped === 0 || clamped === 1) {
+      lastTopProgressRef.current = clamped;
+      onTopScrollProgressRef.current?.(clamped);
+    }
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (scrollRafPending.current) return;
+    scrollRafPending.current = true;
+    requestAnimationFrame(() => {
+      scrollRafPending.current = false;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = el;
+
+      // Top scroll progress for fade overlay
+      publishTopProgress(getTopScrollProgress(scrollTop));
+
+      // Bottom lock detection (rerender-derived-state — boolean, not continuous value)
+      const hasRecentUserIntent = Date.now() <= userScrollIntentRef.current;
+      if (shouldUnlockBottomLock({ scrollTop, scrollHeight, clientHeight, hasRecentUserIntent, threshold: BOTTOM_LOCK_THRESHOLD_PX })) {
+        bottomLockedRef.current = false;
+        return;
+      }
+      if (isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
+        bottomLockedRef.current = true;
+      }
+    });
+  }, [publishTopProgress]);
+
+  const markUserIntent = useCallback(() => {
+    userScrollIntentRef.current = Date.now() + USER_SCROLL_INTENT_WINDOW_MS;
+  }, []);
+
+  // ── Auto-follow on new messages ──
+  useEffect(() => {
+    if (rows.length === lastRowCountRef.current) return;
+    lastRowCountRef.current = rows.length;
+    if (bottomLockedRef.current && rows.length > 0) {
+      // Defer to next frame so virtualizer has measured
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+      });
+    }
+  }, [rows.length, virtualizer]);
+
+  // ── Auto-follow during streaming (content height grows without row count change) ──
+  useEffect(() => {
+    if (!isProcessing || !bottomLockedRef.current) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver(() => {
+      if (bottomLockedRef.current) {
+        virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+      }
+    });
+
+    // Observe the inner content container for height changes
+    const inner = el.firstElementChild;
+    if (inner) observer.observe(inner);
+    return () => observer.disconnect();
+  }, [isProcessing, virtualizer, rows.length]);
+
+  // ── Session switch — force scroll to bottom (rerender-dependencies — primitive dep) ──
+  useLayoutEffect(() => {
+    if (!sessionId) return;
+    bottomLockedRef.current = true;
+    userScrollIntentRef.current = 0;
+    lastTopProgressRef.current = -1;
+    lastRowCountRef.current = 0;
+    requestAnimationFrame(() => {
+      if (rows.length > 0) {
+        virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+      }
+      publishTopProgress(0);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  // ── Content resize (mermaid diagrams etc.) ──
+  useEffect(() => {
+    const handleContentResize = () => {
+      virtualizer.measure();
+      if (bottomLockedRef.current && rows.length > 0) {
+        virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+      }
+    };
+    window.addEventListener(CHAT_CONTENT_RESIZED_EVENT, handleContentResize);
+    return () => window.removeEventListener(CHAT_CONTENT_RESIZED_EVENT, handleContentResize);
+  }, [virtualizer, rows.length]);
+
+  // ── Scroll-to-message (search navigation) ──
+  useEffect(() => {
+    if (!scrollToMessageId) return;
+
+    const rowIndex = rows.findIndex((row) => {
+      if (row.kind === "message") return row.msg.id === scrollToMessageId;
+      if (row.kind === "tool_group") return row.group.tools.some((t) => t.id === scrollToMessageId);
+      return false;
+    });
+
+    if (rowIndex >= 0) {
+      bottomLockedRef.current = false;
+      virtualizer.scrollToIndex(rowIndex, { align: "center" });
+
+      // Flash highlight after scroll settles
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const el = scrollContainerRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
+          if (el) {
+            el.classList.add("search-highlight");
+            setTimeout(() => {
+              el.classList.remove("search-highlight");
+              onScrolledToMessage?.();
+            }, 1500);
+          } else {
+            onScrolledToMessage?.();
+          }
+        }, 100);
+      });
+    } else {
+      onScrolledToMessage?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToMessageId]);
+
+  // ── Render ──
+
+  const virtualItems = virtualizer.getVirtualItems();
+
   return (
-    <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
-      <div ref={contentRef} className={`pt-14 ${extraBottomPadding ? "pb-[280px]" : "pb-36"}`}>
-        {visibleStartIndex > 0 && (
-          <div className="sticky top-14 z-[6] flex justify-center px-4 pb-2">
-            <button
-              type="button"
-              className="rounded-full border border-border/50 bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-foreground"
-              onClick={() => expandRenderedHistory()}
-            >
-              Load {Math.min(PREPEND_CHUNK_SIZE, visibleStartIndex)} earlier messages
-            </button>
-          </div>
-        )}
-        {nonQueuedMessages.map((msg, index) => {
-          // Determine the turn summary to render after this message (if any)
-          const turnSummary = turnSummaryByEndIndex.get(index);
-
-          if (msg.role === "tool_call") {
-            // Check if this tool_call is part of a finalized group
-            const group = toolGroups.get(index);
-            if (group && group.isFinalized) {
-              // This is the start of a finalized group — render ToolGroupBlock
-              const groupKey = group.tools[0].id;
-              const isNewGroup = animatingGroupKeys.has(groupKey);
-
-              // Collect any turn summaries that fall within this group's range
-              let groupTurnSummary: TurnSummary | undefined;
-              for (let gi = group.startIndex; gi <= group.endIndex; gi++) {
-                const ts = turnSummaryByEndIndex.get(gi);
-                if (ts) groupTurnSummary = ts;
-              }
-
-              return (
-                <Fragment key={`group-${groupKey}`}>
-                  <ToolGroupBlock
-                    tools={group.tools}
-                    messages={group.messages}
-                    showThinking={showThinking}
-                    autoExpandTools={autoExpandTools}
-                    animate={isNewGroup}
-                  />
-                  {groupTurnSummary && (
-                    <TurnChangesSummary summary={groupTurnSummary} />
-                  )}
-                </Fragment>
-              );
-            }
-            if (groupedIndices.has(index)) {
-              // This tool_call is inside a finalized group but not the start — skip
-              return null;
-            }
-            // Not in a finalized group — render individually (Feature 1 auto-collapse applies)
-            return (
-              <Fragment key={msg.id}>
-                <div data-message-id={msg.id} className="message-item"><ToolCall message={msg} autoExpandTools={autoExpandTools} /></div>
-                {turnSummary && (
-                  <TurnChangesSummary summary={turnSummary} />
-                )}
-              </Fragment>
-            );
-          }
-          if (groupedIndices.has(index)) return null;
-          if (msg.role === "tool_result") return null;
-          if (msg.role === "summary") {
-            return (
-              <Fragment key={msg.id}>
-                <div data-message-id={msg.id} className="message-item"><SummaryBlock message={msg} /></div>
-                {turnSummary && (
-                  <TurnChangesSummary summary={turnSummary} />
-                )}
-              </Fragment>
-            );
-          }
-
-          return (
-            <Fragment key={msg.id}>
-              <div data-message-id={msg.id} className="message-item">
-                <MessageBubble
-                  message={msg}
-                  showThinking={showThinking}
-                  isContinuation={continuationIds.has(msg.id)}
-                  onRevert={onRevert}
-                  onFullRevert={onFullRevert}
-                  onSendQueuedNow={onSendQueuedNow}
-                  onUnqueueQueued={onUnqueueQueuedMessage}
-                />
-              </div>
-              {turnSummary && (
-                <TurnChangesSummary summary={turnSummary} />
-              )}
-            </Fragment>
-          );
-        })}
-        {/* Session-level processing indicator: shows while model is working but not outputting text or running tools */}
-        {showProcessingIndicator && (
-          <div className="flex justify-start px-4 py-1.5">
-            <div className="flex items-center gap-1.5 text-xs">
-              <Minus className="h-3 w-3 text-foreground/40" />
-              <TextShimmer as="span" className="italic opacity-60" duration={1.8} spread={1.5}>
-                Planning next moves
-              </TextShimmer>
-            </div>
-          </div>
-        )}
-        {queuedMessages.map((msg) => (
-          <div key={msg.id} data-message-id={msg.id} className="message-item">
-            <MessageBubble
-              message={msg}
-              isSendNextQueued={sendNextId === msg.id}
+    <div
+      ref={scrollContainerRef}
+      className="min-h-0 flex-1 overflow-y-auto"
+      onScroll={handleScroll}
+      onWheel={markUserIntent}
+      onTouchMove={markUserIntent}
+      onPointerDown={markUserIntent}
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize() + 56 + (extraBottomPadding ? 280 : 144)}px`,
+          position: "relative",
+        }}
+      >
+        {virtualItems.map((virtualRow) => (
+          <div
+            key={getRowKey(rows[virtualRow.index])}
+            ref={virtualizer.measureElement}
+            data-index={virtualRow.index}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              transform: `translateY(${virtualRow.start + 56}px)`, // +56px for header space
+            }}
+          >
+            <ChatMessageRow
+              row={rows[virtualRow.index]}
               showThinking={showThinking}
-              isContinuation={continuationIds.has(msg.id)}
+              autoExpandTools={autoExpandTools}
+              animatingGroupKeys={animatingGroupKeys}
+              continuationIds={continuationIds}
               onRevert={onRevert}
               onFullRevert={onFullRevert}
               onSendQueuedNow={onSendQueuedNow}
-              onUnqueueQueued={onUnqueueQueuedMessage}
+              onUnqueueQueuedMessage={onUnqueueQueuedMessage}
             />
           </div>
         ))}
       </div>
-    </ScrollArea>
+
+      {/* Queued messages rendered below virtual list (always small count) */}
+      {queuedMessages.length > 0 && (
+        <div>
+          {queuedMessages.map((msg) => (
+            <div key={msg.id} data-message-id={msg.id}>
+              <MessageBubble
+                message={msg}
+                isSendNextQueued={sendNextId === msg.id}
+                showThinking={showThinking}
+                isContinuation={continuationIds.has(msg.id)}
+                onRevert={onRevert}
+                onFullRevert={onFullRevert}
+                onSendQueuedNow={onSendQueuedNow}
+                onUnqueueQueued={onUnqueueQueuedMessage}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
-});
+}
