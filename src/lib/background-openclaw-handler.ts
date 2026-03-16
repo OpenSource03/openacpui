@@ -35,7 +35,7 @@ export function handleOpenClawEvent(state: InternalState, event: OpenClawSession
       ensureStreamingMsg(state);
       if (state.currentStreamingMsgId) {
         const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
-        if (target) target.content += (event.payload.text as string) ?? "";
+        if (target) target.content = (event.payload.text as string) ?? "";
       }
       break;
 

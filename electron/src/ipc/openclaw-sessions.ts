@@ -321,8 +321,7 @@ function processCompletedMessage(
   const cleanedText = stripFileTagsForDisplay(fullText);
 
   if (hadFileOps && results.length > 0) {
-    state.lastEmittedCleanLength = cleanedText.length;
-    emit("chat:delta", { text: cleanedText });
+    emit("chat:final", { message: cleanedText });
 
     const feedbackParams: Record<string, unknown> = {
       sessionKey: state.sessionKey,
@@ -331,6 +330,10 @@ function processCompletedMessage(
       idempotencyKey: crypto.randomUUID(),
     };
     if (readAttachments.length > 0) feedbackParams.attachments = readAttachments;
+
+    state.chatBuffer = "";
+    state.lastEmittedCleanLength = 0;
+    state.processedFilePaths.clear();
 
     rpcCall("chat.send", feedbackParams).then((result) => {
       state.currentRunId = ((result as Record<string, unknown>)?.runId as string) ?? null;
@@ -438,17 +441,11 @@ function handleMessage(raw: string): void {
       } else if (stream === "thinking_done") {
         emitToSessions("thinking:done", {});
       } else if (stream === "assistant") {
-        const raw = (data.text ?? data.delta ?? "") as string;
-        if (raw && !shared.processedCurrentTurn) {
-          if (raw.length >= shared.chatBuffer.length && raw.startsWith(shared.chatBuffer)) {
-            shared.chatBuffer = raw;
-          } else if (shared.chatBuffer.startsWith(raw)) {
-            return;
-          } else {
-            shared.chatBuffer += raw;
-          }
+        const delta = (data.delta ?? "") as string;
+        if (delta && !shared.processedCurrentTurn) {
+          shared.chatBuffer += delta;
           const cleaned = stripFileTagsForDisplay(shared.chatBuffer);
-          if (cleaned.length > shared.lastEmittedCleanLength || cleaned !== shared.chatBuffer.slice(0, cleaned.length)) {
+          if (cleaned.length > shared.lastEmittedCleanLength) {
             shared.lastEmittedCleanLength = cleaned.length;
             emitToSessions("chat:delta", { text: cleaned });
           }
@@ -871,33 +868,13 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       let contextPrefix = "";
       const sessionKey = shared!.sessionKey;
-      if (shared!.cwd && !injectedSessions.has(sessionKey)) {
+      if (shared!.cwd) {
+        const isFirstMessage = !injectedSessions.has(sessionKey);
         injectedSessions.add(sessionKey);
         try {
           const cwd = shared!.cwd;
-          let fileTree = "";
-          try {
-            const files = await listFilesGit(cwd);
-            fileTree = buildTreeFromPaths(files, MAX_TREE_DEPTH);
-          } catch {}
 
-          const contextParts: string[] = [];
-          for (const file of CONTEXT_FILES) {
-            const filePath = path.join(cwd, file);
-            try {
-              const stat = fs.statSync(filePath);
-              if (!stat.isFile()) continue;
-              contextParts.push(`--- ${file} ---\n${fs.readFileSync(filePath, "utf-8").slice(0, MAX_CONTEXT_FILE_SIZE)}`);
-            } catch { continue; }
-          }
-
-          contextPrefix = [
-            `[SYSTEM] You are connected to the user's local code editor. The project "${path.basename(cwd)}" is open at ${cwd}.`,
-            "",
-            "Project file tree:",
-            fileTree,
-            contextParts.length > 0 ? contextParts.join("\n\n") : "",
-            "",
+          const toolInstructions = [
             "You have FULL ACCESS to read, write, edit, and delete files in this project. Use these tags in your responses and the editor will execute them automatically:",
             "",
             "READ a file:",
@@ -926,11 +903,47 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             "- For edit_file, the SEARCH block must match the file content exactly (including whitespace).",
             "- For edit_file, you can include multiple SEARCH/REPLACE blocks in one tag.",
             "- NEVER tell the user to manually run commands, copy/paste, or edit files. ALWAYS use these tags.",
-            "[END SYSTEM]",
-            "",
           ].join("\n");
 
-          log("OPENCLAW_CONTEXT_INJECTED", { cwd, prefixLength: contextPrefix.length });
+          if (isFirstMessage) {
+            let fileTree = "";
+            try {
+              const files = await listFilesGit(cwd);
+              fileTree = buildTreeFromPaths(files, MAX_TREE_DEPTH);
+            } catch {}
+
+            const contextParts: string[] = [];
+            for (const file of CONTEXT_FILES) {
+              const filePath = path.join(cwd, file);
+              try {
+                const stat = fs.statSync(filePath);
+                if (!stat.isFile()) continue;
+                contextParts.push(`--- ${file} ---\n${fs.readFileSync(filePath, "utf-8").slice(0, MAX_CONTEXT_FILE_SIZE)}`);
+              } catch { continue; }
+            }
+
+            contextPrefix = [
+              `[SYSTEM] You are connected to the user's local code editor. The project "${path.basename(cwd)}" is open at ${cwd}.`,
+              "",
+              "Project file tree:",
+              fileTree,
+              contextParts.length > 0 ? contextParts.join("\n\n") : "",
+              "",
+              toolInstructions,
+              "[END SYSTEM]",
+              "",
+            ].join("\n");
+          } else {
+            contextPrefix = [
+              `[SYSTEM] Reminder: You are connected to the user's local code editor. Project "${path.basename(cwd)}" at ${cwd}.`,
+              "",
+              toolInstructions,
+              "[END SYSTEM]",
+              "",
+            ].join("\n");
+          }
+
+          log("OPENCLAW_CONTEXT_INJECTED", { cwd, prefixLength: contextPrefix.length, isFirstMessage });
         } catch (err) {
           log("OPENCLAW_CONTEXT_ERR", (err as Error).message);
         }
