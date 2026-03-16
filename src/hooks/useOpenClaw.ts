@@ -89,11 +89,16 @@ export function useOpenClaw({ sessionId, initialMessages, initialMeta, initialPe
           setIsProcessing(true);
           break;
 
-        case "chat:delta":
+        case "chat:delta": {
           ensureStreamingMessage();
-          buffer.current.appendText((event.payload.text as string) ?? "");
-          scheduleFlush();
+          const deltaText = (event.payload.text as string) ?? "";
+          if (buffer.current.messageId) {
+            setMessages(prev => prev.map(m =>
+              m.id === buffer.current.messageId ? { ...m, content: deltaText } : m
+            ));
+          }
           break;
+        }
 
         case "thinking:delta": {
           ensureStreamingMessage();

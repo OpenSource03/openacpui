@@ -450,10 +450,9 @@ function handleMessage(raw: string): void {
             shared.chatBuffer += raw;
           }
           const cleaned = stripFileTagsForDisplay(shared.chatBuffer);
-          const delta = cleaned.slice(shared.lastEmittedCleanLength);
-          if (delta) {
+          if (cleaned.length > shared.lastEmittedCleanLength || cleaned !== shared.chatBuffer.slice(0, cleaned.length)) {
             shared.lastEmittedCleanLength = cleaned.length;
-            emitToSessions("chat:delta", { text: delta });
+            emitToSessions("chat:delta", { text: cleaned });
           }
         }
       } else if (stream === "tool") {
