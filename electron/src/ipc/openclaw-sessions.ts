@@ -82,6 +82,7 @@ let shared: {
   currentRunId: string | null;
   cwd: string | null;
   chatBuffer: string;
+  processedCurrentTurn: boolean;
 } | null = null;
 
 function rpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -113,6 +114,214 @@ function emitToSessions(type: string, payload: Record<string, unknown>): void {
       type,
       payload,
       _seq: 0,
+    });
+  }
+}
+
+function stripFileTagsForDisplay(text: string): string {
+  let result = text;
+  result = result.replace(/<read_file\s+path="[^"]+"\s*\/>/g, "");
+  result = result.replace(/<write_file\s+path="[^"]+">([\s\S]*?)<\/write_file>/g, "");
+  result = result.replace(/<edit_file\s+path="[^"]+">([\s\S]*?)<\/edit_file>/g, "");
+  result = result.replace(/<delete_file\s+path="[^"]+"\s*\/>/g, "");
+  result = result.replace(/<write_file\s+path="[^"]*"?>[\s\S]*$/g, "");
+  result = result.replace(/<edit_file\s+path="[^"]*"?>[\s\S]*$/g, "");
+  result = result.replace(/<(?:read_file|write_file|edit_file|delete_file)[\s\S]*$/g, "");
+  result = result.replace(/\n{3,}/g, "\n\n");
+  return result;
+}
+
+type SharedState = NonNullable<typeof shared>;
+type EmitFn = typeof emitToSessions;
+type RpcFn = typeof rpc;
+
+const MAX_FILE_OPS_PER_TURN = 10;
+
+function processCompletedMessage(
+  fullText: string,
+  state: SharedState,
+  emit: EmitFn,
+  rpcCall: RpcFn,
+): void {
+  state.currentRunId = null;
+  const cwd = state.cwd;
+  const results: string[] = [];
+  const readAttachments: { id: string; dataUrl: string; mimeType: string }[] = [];
+  let hadFileOps = false;
+  const processedPaths = new Set<string>();
+  let totalOps = 0;
+
+  function safePath(relPath: string): string | null {
+    if (!cwd) return null;
+    const abs = path.resolve(cwd, relPath);
+    if (!abs.startsWith(cwd)) return null;
+    return abs;
+  }
+
+  let m: RegExpExecArray | null;
+
+  const readPattern = /<read_file\s+path="([^"]+)"\s*\/>/g;
+  while ((m = readPattern.exec(fullText)) !== null) {
+    const relPath = m[1];
+    const dedupeKey = `read:${relPath}`;
+    if (processedPaths.has(dedupeKey) || totalOps >= MAX_FILE_OPS_PER_TURN) continue;
+    processedPaths.add(dedupeKey);
+    totalOps++;
+    hadFileOps = true;
+    const toolUseId = `openclaw-read-${crypto.randomUUID().slice(0, 8)}`;
+    emit("tool:start", { toolUseId, toolName: "Read", input: { file_path: relPath } });
+    const abs = safePath(relPath);
+    if (!abs) {
+      results.push(`Read ${relPath}: path outside project`);
+      emit("tool:result", { toolUseId, toolName: "Read", result: { error: "path outside project" } });
+      continue;
+    }
+    try {
+      const stat = fs.statSync(abs);
+      if (stat.size > MAX_FILE_READ_SIZE) {
+        results.push(`Read ${relPath}: too large (${stat.size} bytes)`);
+        emit("tool:result", { toolUseId, toolName: "Read", result: { error: `file too large (${stat.size} bytes)` } });
+        continue;
+      }
+      const fileContent = fs.readFileSync(abs, "utf-8");
+      readAttachments.push(fileToAttachment(relPath, fileContent));
+      results.push(`Read ${relPath}: OK (${stat.size} bytes)`);
+      log("OPENCLAW_FILE_READ", { file: relPath, size: stat.size });
+      emit("tool:result", { toolUseId, toolName: "Read", result: { content: fileContent.slice(0, 500) + (fileContent.length > 500 ? "\n..." : "") } });
+    } catch {
+      results.push(`Read ${relPath}: file not found`);
+      emit("tool:result", { toolUseId, toolName: "Read", result: { error: "file not found" } });
+    }
+  }
+
+  const writePattern = /<write_file\s+path="([^"]+)">([\s\S]*?)<\/write_file>/g;
+  while ((m = writePattern.exec(fullText)) !== null) {
+    const relPath = m[1];
+    const dedupeKey = `write:${relPath}`;
+    if (processedPaths.has(dedupeKey) || totalOps >= MAX_FILE_OPS_PER_TURN) continue;
+    processedPaths.add(dedupeKey);
+    totalOps++;
+    hadFileOps = true;
+    const fileContent = m[2].replace(/^\n/, "");
+    const toolUseId = `openclaw-write-${crypto.randomUUID().slice(0, 8)}`;
+    emit("tool:start", { toolUseId, toolName: "Write", input: { file_path: relPath, content: fileContent.slice(0, 200) + (fileContent.length > 200 ? "..." : "") } });
+    const abs = safePath(relPath);
+    if (!abs) {
+      results.push(`Write ${relPath}: path outside project`);
+      emit("tool:result", { toolUseId, toolName: "Write", result: { error: "path outside project" } });
+      continue;
+    }
+    try {
+      const dir = path.dirname(abs);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(abs, fileContent, "utf-8");
+      results.push(`Write ${relPath}: OK (${fileContent.length} bytes)`);
+      log("OPENCLAW_FILE_WRITE", { file: relPath, size: fileContent.length });
+      emit("tool:result", { toolUseId, toolName: "Write", result: { status: "ok", bytesWritten: fileContent.length } });
+    } catch (err) {
+      const errMsg2 = (err as Error).message;
+      results.push(`Write ${relPath}: ${errMsg2}`);
+      emit("tool:result", { toolUseId, toolName: "Write", result: { error: errMsg2 } });
+    }
+  }
+
+  const editPattern = /<edit_file\s+path="([^"]+)">([\s\S]*?)<\/edit_file>/g;
+  while ((m = editPattern.exec(fullText)) !== null) {
+    const relPath = m[1];
+    const dedupeKey = `edit:${relPath}:${m[2].slice(0, 50)}`;
+    if (processedPaths.has(dedupeKey) || totalOps >= MAX_FILE_OPS_PER_TURN) continue;
+    processedPaths.add(dedupeKey);
+    totalOps++;
+    hadFileOps = true;
+    const editBody = m[2];
+    const toolUseId = `openclaw-edit-${crypto.randomUUID().slice(0, 8)}`;
+    emit("tool:start", { toolUseId, toolName: "Edit", input: { file_path: relPath } });
+    const abs = safePath(relPath);
+    if (!abs) {
+      results.push(`Edit ${relPath}: path outside project`);
+      emit("tool:result", { toolUseId, toolName: "Edit", result: { error: "path outside project" } });
+      continue;
+    }
+    try {
+      let fileContent = fs.readFileSync(abs, "utf-8");
+      const blockPattern = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+      let blockMatch: RegExpExecArray | null;
+      let replacements = 0;
+      while ((blockMatch = blockPattern.exec(editBody)) !== null) {
+        const search = blockMatch[1];
+        const replace = blockMatch[2];
+        if (fileContent.includes(search)) {
+          fileContent = fileContent.replace(search, replace);
+          replacements++;
+        }
+      }
+      if (replacements > 0) {
+        fs.writeFileSync(abs, fileContent, "utf-8");
+        results.push(`Edit ${relPath}: OK (${replacements} replacement${replacements > 1 ? "s" : ""})`);
+        log("OPENCLAW_FILE_EDIT", { file: relPath, replacements });
+        emit("tool:result", { toolUseId, toolName: "Edit", result: { status: "ok", replacements } });
+      } else {
+        results.push(`Edit ${relPath}: no matching blocks found`);
+        emit("tool:result", { toolUseId, toolName: "Edit", result: { error: "no matching SEARCH blocks found in file" } });
+      }
+    } catch (err) {
+      const errMsg2 = (err as Error).message;
+      results.push(`Edit ${relPath}: ${errMsg2}`);
+      emit("tool:result", { toolUseId, toolName: "Edit", result: { error: errMsg2 } });
+    }
+  }
+
+  const deletePattern = /<delete_file\s+path="([^"]+)"\s*\/>/g;
+  while ((m = deletePattern.exec(fullText)) !== null) {
+    const relPath = m[1];
+    const dedupeKey = `delete:${relPath}`;
+    if (processedPaths.has(dedupeKey) || totalOps >= MAX_FILE_OPS_PER_TURN) continue;
+    processedPaths.add(dedupeKey);
+    totalOps++;
+    hadFileOps = true;
+    const toolUseId = `openclaw-delete-${crypto.randomUUID().slice(0, 8)}`;
+    emit("tool:start", { toolUseId, toolName: "Delete", input: { file_path: relPath } });
+    const abs = safePath(relPath);
+    if (!abs) {
+      results.push(`Delete ${relPath}: path outside project`);
+      emit("tool:result", { toolUseId, toolName: "Delete", result: { error: "path outside project" } });
+      continue;
+    }
+    try {
+      fs.unlinkSync(abs);
+      results.push(`Delete ${relPath}: OK`);
+      log("OPENCLAW_FILE_DELETE", { file: relPath });
+      emit("tool:result", { toolUseId, toolName: "Delete", result: { status: "ok" } });
+    } catch (err) {
+      const errMsg2 = (err as Error).message;
+      results.push(`Delete ${relPath}: ${errMsg2}`);
+      emit("tool:result", { toolUseId, toolName: "Delete", result: { error: errMsg2 } });
+    }
+  }
+
+  const cleanedText = fullText
+    .replace(/<read_file\s+path="[^"]+"\s*\/>/g, "")
+    .replace(/<write_file\s+path="[^"]+">([\s\S]*?)<\/write_file>/g, "")
+    .replace(/<edit_file\s+path="[^"]+">([\s\S]*?)<\/edit_file>/g, "")
+    .replace(/<delete_file\s+path="[^"]+"\s*\/>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  emit("chat:final", { message: cleanedText });
+
+  if (hadFileOps && results.length > 0) {
+    const feedbackParams: Record<string, unknown> = {
+      sessionKey: state.sessionKey,
+      message: results.join("\n"),
+      deliver: false,
+      idempotencyKey: crypto.randomUUID(),
+    };
+    if (readAttachments.length > 0) feedbackParams.attachments = readAttachments;
+
+    rpcCall("chat.send", feedbackParams).then((result) => {
+      state.currentRunId = ((result as Record<string, unknown>)?.runId as string) ?? null;
+      emit("lifecycle:start", {});
+    }).catch((err) => {
+      log("OPENCLAW_FILE_SEND_ERR", (err as Error).message);
     });
   }
 }
@@ -179,183 +388,6 @@ function handleMessage(raw: string): void {
   }
 
   if (msg.method === "chat" && msg.params) {
-    const params = msg.params as Record<string, unknown>;
-    if (params.sessionKey && params.sessionKey !== shared.sessionKey) return;
-    const delta = params.delta as string | undefined;
-    const content = params.content as string | undefined;
-    const done = params.done as boolean | undefined;
-
-    if (delta) {
-      shared.chatBuffer += delta;
-      emitToSessions("chat:delta", { text: delta });
-    }
-
-    if (done) {
-      shared.currentRunId = null;
-      const fullText = content || shared.chatBuffer;
-      shared.chatBuffer = "";
-      const cwd = shared.cwd;
-      const results: string[] = [];
-      const readAttachments: { id: string; dataUrl: string; mimeType: string }[] = [];
-      let hadFileOps = false;
-
-      function safePath(relPath: string): string | null {
-        if (!cwd) return null;
-        const abs = path.resolve(cwd, relPath);
-        if (!abs.startsWith(cwd)) return null;
-        return abs;
-      }
-
-      const readPattern = /<read_file\s+path="([^"]+)"\s*\/>/g;
-      let m: RegExpExecArray | null;
-      while ((m = readPattern.exec(fullText)) !== null) {
-        hadFileOps = true;
-        const relPath = m[1];
-        const toolUseId = `openclaw-read-${crypto.randomUUID().slice(0, 8)}`;
-        emitToSessions("tool:start", { toolUseId, toolName: "Read", input: { file_path: relPath } });
-        const abs = safePath(relPath);
-        if (!abs) {
-          results.push(`Read ${relPath}: path outside project`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { error: "path outside project" } });
-          continue;
-        }
-        try {
-          const stat = fs.statSync(abs);
-          if (stat.size > MAX_FILE_READ_SIZE) {
-            results.push(`Read ${relPath}: too large (${stat.size} bytes)`);
-            emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { error: `file too large (${stat.size} bytes)` } });
-            continue;
-          }
-          const fileContent = fs.readFileSync(abs, "utf-8");
-          readAttachments.push(fileToAttachment(relPath, fileContent));
-          results.push(`Read ${relPath}: OK (${stat.size} bytes)`);
-          log("OPENCLAW_FILE_READ", { file: relPath, size: stat.size });
-          emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { content: fileContent.slice(0, 500) + (fileContent.length > 500 ? "\n..." : "") } });
-        } catch {
-          results.push(`Read ${relPath}: file not found`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { error: "file not found" } });
-        }
-      }
-
-      const writePattern = /<write_file\s+path="([^"]+)">([\s\S]*?)<\/write_file>/g;
-      while ((m = writePattern.exec(fullText)) !== null) {
-        hadFileOps = true;
-        const relPath = m[1];
-        const fileContent = m[2].replace(/^\n/, "");
-        const toolUseId = `openclaw-write-${crypto.randomUUID().slice(0, 8)}`;
-        emitToSessions("tool:start", { toolUseId, toolName: "Write", input: { file_path: relPath, content: fileContent.slice(0, 200) + (fileContent.length > 200 ? "..." : "") } });
-        const abs = safePath(relPath);
-        if (!abs) {
-          results.push(`Write ${relPath}: path outside project`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Write", result: { error: "path outside project" } });
-          continue;
-        }
-        try {
-          const dir = path.dirname(abs);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(abs, fileContent, "utf-8");
-          results.push(`Write ${relPath}: OK (${fileContent.length} bytes)`);
-          log("OPENCLAW_FILE_WRITE", { file: relPath, size: fileContent.length });
-          emitToSessions("tool:result", { toolUseId, toolName: "Write", result: { status: "ok", bytesWritten: fileContent.length } });
-        } catch (err) {
-          const msg2 = (err as Error).message;
-          results.push(`Write ${relPath}: ${msg2}`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Write", result: { error: msg2 } });
-        }
-      }
-
-      const editPattern = /<edit_file\s+path="([^"]+)">([\s\S]*?)<\/edit_file>/g;
-      while ((m = editPattern.exec(fullText)) !== null) {
-        hadFileOps = true;
-        const relPath = m[1];
-        const editBody = m[2];
-        const toolUseId = `openclaw-edit-${crypto.randomUUID().slice(0, 8)}`;
-        emitToSessions("tool:start", { toolUseId, toolName: "Edit", input: { file_path: relPath } });
-        const abs = safePath(relPath);
-        if (!abs) {
-          results.push(`Edit ${relPath}: path outside project`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { error: "path outside project" } });
-          continue;
-        }
-        try {
-          let fileContent = fs.readFileSync(abs, "utf-8");
-          const blockPattern = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
-          let blockMatch: RegExpExecArray | null;
-          let replacements = 0;
-          while ((blockMatch = blockPattern.exec(editBody)) !== null) {
-            const search = blockMatch[1];
-            const replace = blockMatch[2];
-            if (fileContent.includes(search)) {
-              fileContent = fileContent.replace(search, replace);
-              replacements++;
-            }
-          }
-          if (replacements > 0) {
-            fs.writeFileSync(abs, fileContent, "utf-8");
-            results.push(`Edit ${relPath}: OK (${replacements} replacement${replacements > 1 ? "s" : ""})`);
-            log("OPENCLAW_FILE_EDIT", { file: relPath, replacements });
-            emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { status: "ok", replacements } });
-          } else {
-            results.push(`Edit ${relPath}: no matching blocks found`);
-            emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { error: "no matching SEARCH blocks found in file" } });
-          }
-        } catch (err) {
-          const msg2 = (err as Error).message;
-          results.push(`Edit ${relPath}: ${msg2}`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { error: msg2 } });
-        }
-      }
-
-      const deletePattern = /<delete_file\s+path="([^"]+)"\s*\/>/g;
-      while ((m = deletePattern.exec(fullText)) !== null) {
-        hadFileOps = true;
-        const relPath = m[1];
-        const toolUseId = `openclaw-delete-${crypto.randomUUID().slice(0, 8)}`;
-        emitToSessions("tool:start", { toolUseId, toolName: "Delete", input: { file_path: relPath } });
-        const abs = safePath(relPath);
-        if (!abs) {
-          results.push(`Delete ${relPath}: path outside project`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Delete", result: { error: "path outside project" } });
-          continue;
-        }
-        try {
-          fs.unlinkSync(abs);
-          results.push(`Delete ${relPath}: OK`);
-          log("OPENCLAW_FILE_DELETE", { file: relPath });
-          emitToSessions("tool:result", { toolUseId, toolName: "Delete", result: { status: "ok" } });
-        } catch (err) {
-          const msg2 = (err as Error).message;
-          results.push(`Delete ${relPath}: ${msg2}`);
-          emitToSessions("tool:result", { toolUseId, toolName: "Delete", result: { error: msg2 } });
-        }
-      }
-
-      const cleanedText = fullText
-        .replace(/<read_file\s+path="[^"]+"\s*\/>/g, "")
-        .replace(/<write_file\s+path="[^"]+">([\s\S]*?)<\/write_file>/g, "")
-        .replace(/<edit_file\s+path="[^"]+">([\s\S]*?)<\/edit_file>/g, "")
-        .replace(/<delete_file\s+path="[^"]+"\s*\/>/g, "")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-      emitToSessions("chat:final", { message: cleanedText });
-
-      if (hadFileOps && results.length > 0) {
-        const feedbackParams: Record<string, unknown> = {
-          sessionKey: shared.sessionKey,
-          message: results.join("\n"),
-          deliver: false,
-          idempotencyKey: crypto.randomUUID(),
-        };
-        if (readAttachments.length > 0) feedbackParams.attachments = readAttachments;
-
-        rpc("chat.send", feedbackParams).then((result) => {
-          shared!.currentRunId = ((result as Record<string, unknown>)?.runId as string) ?? null;
-          emitToSessions("lifecycle:start", {});
-        }).catch((err) => {
-          log("OPENCLAW_FILE_SEND_ERR", (err as Error).message);
-        });
-      }
-    }
     return;
   }
 
@@ -371,15 +403,42 @@ function handleMessage(raw: string): void {
       const stream = payload.stream as string;
       if (stream === "lifecycle") {
         const phase = data.phase as string;
-        if (phase === "start") emitToSessions("lifecycle:start", {});
+        if (phase === "start") {
+          shared.processedCurrentTurn = false;
+          shared.chatBuffer = "";
+          emitToSessions("lifecycle:start", {});
+        }
         else if (phase === "error") emitToSessions("chat:error", { message: (data.error as string) ?? "Agent error" });
-        else if (phase === "end" || phase === "done") emitToSessions("lifecycle:end", {});
+        else if (phase === "end" || phase === "done") {
+          if (shared.chatBuffer.length > 0 && !shared.processedCurrentTurn) {
+            shared.processedCurrentTurn = true;
+            const fullText = shared.chatBuffer;
+            shared.chatBuffer = "";
+            processCompletedMessage(fullText, shared, emitToSessions, rpc);
+          } else {
+            shared.chatBuffer = "";
+            emitToSessions("lifecycle:end", {});
+          }
+        }
       } else if (stream === "thinking") {
         emitToSessions("thinking:delta", { text: (data.text ?? data.delta ?? "") as string });
       } else if (stream === "thinking_done") {
         emitToSessions("thinking:done", {});
       } else if (stream === "assistant") {
-        emitToSessions("chat:delta", { text: (data.text ?? data.delta ?? "") as string });
+        const raw = (data.text ?? data.delta ?? "") as string;
+        if (raw && !shared.processedCurrentTurn) {
+          if (raw.length >= shared.chatBuffer.length && raw.startsWith(shared.chatBuffer)) {
+            shared.chatBuffer = raw;
+          } else if (shared.chatBuffer.startsWith(raw)) {
+            return;
+          } else {
+            shared.chatBuffer += raw;
+          }
+          const cleaned = stripFileTagsForDisplay(shared.chatBuffer);
+          if (cleaned) {
+            emitToSessions("chat:delta", { text: cleaned });
+          }
+        }
       } else if (stream === "tool") {
         const phase = (data.phase ?? data.status) as string | undefined;
         if (phase === "end" || phase === "completed" || phase === "done") {
@@ -426,6 +485,7 @@ async function ensureConnection(getMainWindow: () => BrowserWindow | null): Prom
       currentRunId: null,
       cwd: null,
       chatBuffer: "",
+      processedCurrentTurn: false,
     };
   } else {
     shared.ws = ws;

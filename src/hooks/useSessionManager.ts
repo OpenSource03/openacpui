@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatSession, UIMessage, PermissionRequest, McpServerStatus, McpServerConfig, ModelInfo, AcpPermissionBehavior, EngineId, Project } from "../types";
 import type { ACPConfigOption, ACPPermissionEvent } from "../types/acp";
 import { toMcpStatusState } from "../lib/mcp-utils";
@@ -154,6 +154,12 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
   const onSpaceChangeRef = useRef(onSpaceChange);
   onSpaceChangeRef.current = onSpaceChange;
   const backgroundStoreRef = useRef(new BackgroundSessionStore());
+
+  useEffect(() => {
+    if (!engine.isConnected && activeSessionId && activeSessionId !== DRAFT_ID) {
+      liveSessionIdsRef.current.delete(activeSessionId);
+    }
+  }, [engine.isConnected, activeSessionId]);
 
   // ── Codex effort helpers (kept in orchestrator — too small to extract) ──
   const setCodexEffortFromUser = useCallback((effort: string) => {
