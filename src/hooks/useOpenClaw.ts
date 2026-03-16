@@ -114,10 +114,18 @@ export function useOpenClaw({ sessionId, initialMessages, initialMeta, initialPe
           }));
           break;
 
-        case "chat:final":
-          finalizeStreamingMessage();
+        case "chat:final": {
+          const finalMsg = (event.payload.message as string) ?? "";
+          const buf2 = buffer.current;
+          if (buf2.messageId) {
+            setMessages(prev => prev.map(m =>
+              m.id === buf2.messageId ? { ...m, content: finalMsg, isStreaming: false } : m
+            ));
+            buf2.reset();
+          }
           setIsProcessing(false);
           break;
+        }
 
         case "chat:error":
           finalizeStreamingMessage();

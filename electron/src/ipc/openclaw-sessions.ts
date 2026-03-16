@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
+import { execFile, exec } from "child_process";
 import { log } from "../lib/logger";
 import { safeSend } from "../lib/safe-send";
 import { reportError } from "../lib/error-utils";
@@ -79,6 +80,8 @@ let shared: {
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   activeSessionIds: Set<string>;
   currentRunId: string | null;
+  cwd: string | null;
+  chatBuffer: string;
 } | null = null;
 
 function rpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -147,19 +150,211 @@ function handleMessage(raw: string): void {
     return;
   }
 
+  if (msg.type === "req" && msg.id && msg.method) {
+    const method = msg.method as string;
+    const params = (msg.params ?? {}) as Record<string, unknown>;
+
+    if (method === "tool.execute" || method === "tool.call") {
+      const tool = (params.tool ?? params.name ?? params.toolName) as string;
+      const input = (params.input ?? params.args ?? params.params ?? {}) as Record<string, unknown>;
+      emitToSessions("tool:start", { toolUseId: msg.id, toolName: tool, input });
+      handleToolRequest(msg.id as string, tool, input).then(() => {
+        emitToSessions("tool:result", { toolUseId: msg.id, toolName: tool, result: {} });
+      });
+      return;
+    }
+
+    if (method === "file.read" || method === "file.write" || method === "file.edit" ||
+        method === "file.list" || method === "file.search" || method === "shell.exec") {
+      const toolMap: Record<string, string> = {
+        "file.read": "read_file", "file.write": "write_file", "file.edit": "edit_file",
+        "file.list": "list_files", "file.search": "search", "shell.exec": "shell",
+      };
+      emitToSessions("tool:start", { toolUseId: msg.id, toolName: method, input: params });
+      handleToolRequest(msg.id as string, toolMap[method], params).then(() => {
+        emitToSessions("tool:result", { toolUseId: msg.id, toolName: method, result: {} });
+      });
+      return;
+    }
+  }
+
   if (msg.method === "chat" && msg.params) {
     const params = msg.params as Record<string, unknown>;
+    if (params.sessionKey && params.sessionKey !== shared.sessionKey) return;
     const delta = params.delta as string | undefined;
     const content = params.content as string | undefined;
     const done = params.done as boolean | undefined;
 
     if (delta) {
+      shared.chatBuffer += delta;
       emitToSessions("chat:delta", { text: delta });
     }
 
     if (done) {
       shared.currentRunId = null;
-      emitToSessions("chat:final", { message: content ?? "" });
+      const fullText = content || shared.chatBuffer;
+      shared.chatBuffer = "";
+      const cwd = shared.cwd;
+      const results: string[] = [];
+      const readAttachments: { id: string; dataUrl: string; mimeType: string }[] = [];
+      let hadFileOps = false;
+
+      function safePath(relPath: string): string | null {
+        if (!cwd) return null;
+        const abs = path.resolve(cwd, relPath);
+        if (!abs.startsWith(cwd)) return null;
+        return abs;
+      }
+
+      const readPattern = /<read_file\s+path="([^"]+)"\s*\/>/g;
+      let m: RegExpExecArray | null;
+      while ((m = readPattern.exec(fullText)) !== null) {
+        hadFileOps = true;
+        const relPath = m[1];
+        const toolUseId = `openclaw-read-${crypto.randomUUID().slice(0, 8)}`;
+        emitToSessions("tool:start", { toolUseId, toolName: "Read", input: { file_path: relPath } });
+        const abs = safePath(relPath);
+        if (!abs) {
+          results.push(`Read ${relPath}: path outside project`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { error: "path outside project" } });
+          continue;
+        }
+        try {
+          const stat = fs.statSync(abs);
+          if (stat.size > MAX_FILE_READ_SIZE) {
+            results.push(`Read ${relPath}: too large (${stat.size} bytes)`);
+            emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { error: `file too large (${stat.size} bytes)` } });
+            continue;
+          }
+          const fileContent = fs.readFileSync(abs, "utf-8");
+          readAttachments.push(fileToAttachment(relPath, fileContent));
+          results.push(`Read ${relPath}: OK (${stat.size} bytes)`);
+          log("OPENCLAW_FILE_READ", { file: relPath, size: stat.size });
+          emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { content: fileContent.slice(0, 500) + (fileContent.length > 500 ? "\n..." : "") } });
+        } catch {
+          results.push(`Read ${relPath}: file not found`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Read", result: { error: "file not found" } });
+        }
+      }
+
+      const writePattern = /<write_file\s+path="([^"]+)">([\s\S]*?)<\/write_file>/g;
+      while ((m = writePattern.exec(fullText)) !== null) {
+        hadFileOps = true;
+        const relPath = m[1];
+        const fileContent = m[2].replace(/^\n/, "");
+        const toolUseId = `openclaw-write-${crypto.randomUUID().slice(0, 8)}`;
+        emitToSessions("tool:start", { toolUseId, toolName: "Write", input: { file_path: relPath, content: fileContent.slice(0, 200) + (fileContent.length > 200 ? "..." : "") } });
+        const abs = safePath(relPath);
+        if (!abs) {
+          results.push(`Write ${relPath}: path outside project`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Write", result: { error: "path outside project" } });
+          continue;
+        }
+        try {
+          const dir = path.dirname(abs);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(abs, fileContent, "utf-8");
+          results.push(`Write ${relPath}: OK (${fileContent.length} bytes)`);
+          log("OPENCLAW_FILE_WRITE", { file: relPath, size: fileContent.length });
+          emitToSessions("tool:result", { toolUseId, toolName: "Write", result: { status: "ok", bytesWritten: fileContent.length } });
+        } catch (err) {
+          const msg2 = (err as Error).message;
+          results.push(`Write ${relPath}: ${msg2}`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Write", result: { error: msg2 } });
+        }
+      }
+
+      const editPattern = /<edit_file\s+path="([^"]+)">([\s\S]*?)<\/edit_file>/g;
+      while ((m = editPattern.exec(fullText)) !== null) {
+        hadFileOps = true;
+        const relPath = m[1];
+        const editBody = m[2];
+        const toolUseId = `openclaw-edit-${crypto.randomUUID().slice(0, 8)}`;
+        emitToSessions("tool:start", { toolUseId, toolName: "Edit", input: { file_path: relPath } });
+        const abs = safePath(relPath);
+        if (!abs) {
+          results.push(`Edit ${relPath}: path outside project`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { error: "path outside project" } });
+          continue;
+        }
+        try {
+          let fileContent = fs.readFileSync(abs, "utf-8");
+          const blockPattern = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+          let blockMatch: RegExpExecArray | null;
+          let replacements = 0;
+          while ((blockMatch = blockPattern.exec(editBody)) !== null) {
+            const search = blockMatch[1];
+            const replace = blockMatch[2];
+            if (fileContent.includes(search)) {
+              fileContent = fileContent.replace(search, replace);
+              replacements++;
+            }
+          }
+          if (replacements > 0) {
+            fs.writeFileSync(abs, fileContent, "utf-8");
+            results.push(`Edit ${relPath}: OK (${replacements} replacement${replacements > 1 ? "s" : ""})`);
+            log("OPENCLAW_FILE_EDIT", { file: relPath, replacements });
+            emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { status: "ok", replacements } });
+          } else {
+            results.push(`Edit ${relPath}: no matching blocks found`);
+            emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { error: "no matching SEARCH blocks found in file" } });
+          }
+        } catch (err) {
+          const msg2 = (err as Error).message;
+          results.push(`Edit ${relPath}: ${msg2}`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Edit", result: { error: msg2 } });
+        }
+      }
+
+      const deletePattern = /<delete_file\s+path="([^"]+)"\s*\/>/g;
+      while ((m = deletePattern.exec(fullText)) !== null) {
+        hadFileOps = true;
+        const relPath = m[1];
+        const toolUseId = `openclaw-delete-${crypto.randomUUID().slice(0, 8)}`;
+        emitToSessions("tool:start", { toolUseId, toolName: "Delete", input: { file_path: relPath } });
+        const abs = safePath(relPath);
+        if (!abs) {
+          results.push(`Delete ${relPath}: path outside project`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Delete", result: { error: "path outside project" } });
+          continue;
+        }
+        try {
+          fs.unlinkSync(abs);
+          results.push(`Delete ${relPath}: OK`);
+          log("OPENCLAW_FILE_DELETE", { file: relPath });
+          emitToSessions("tool:result", { toolUseId, toolName: "Delete", result: { status: "ok" } });
+        } catch (err) {
+          const msg2 = (err as Error).message;
+          results.push(`Delete ${relPath}: ${msg2}`);
+          emitToSessions("tool:result", { toolUseId, toolName: "Delete", result: { error: msg2 } });
+        }
+      }
+
+      const cleanedText = fullText
+        .replace(/<read_file\s+path="[^"]+"\s*\/>/g, "")
+        .replace(/<write_file\s+path="[^"]+">([\s\S]*?)<\/write_file>/g, "")
+        .replace(/<edit_file\s+path="[^"]+">([\s\S]*?)<\/edit_file>/g, "")
+        .replace(/<delete_file\s+path="[^"]+"\s*\/>/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      emitToSessions("chat:final", { message: cleanedText });
+
+      if (hadFileOps && results.length > 0) {
+        const feedbackParams: Record<string, unknown> = {
+          sessionKey: shared.sessionKey,
+          message: results.join("\n"),
+          deliver: false,
+          idempotencyKey: crypto.randomUUID(),
+        };
+        if (readAttachments.length > 0) feedbackParams.attachments = readAttachments;
+
+        rpc("chat.send", feedbackParams).then((result) => {
+          shared!.currentRunId = ((result as Record<string, unknown>)?.runId as string) ?? null;
+          emitToSessions("lifecycle:start", {});
+        }).catch((err) => {
+          log("OPENCLAW_FILE_SEND_ERR", (err as Error).message);
+        });
+      }
     }
     return;
   }
@@ -167,6 +362,7 @@ function handleMessage(raw: string): void {
   if (msg.type === "event") {
     const event = msg.event as string;
     const payload = (msg.payload ?? {}) as Record<string, unknown>;
+    if (payload.sessionKey && payload.sessionKey !== shared.sessionKey) return;
     const data = (payload.data ?? {}) as Record<string, unknown>;
 
     if (event === "tick" || event === "health" || event === "presence" || event === "heartbeat" || event === "connect.challenge" || event === "chat") return;
@@ -214,7 +410,7 @@ async function ensureConnection(getMainWindow: () => BrowserWindow | null): Prom
 
   const gatewayUrl = getGatewayUrl();
   const agentId = getAgentId();
-  const sessionKey = `agent:${agentId}:editor`;
+  const sessionKey = shared?.sessionKey || `agent:${agentId}:editor`;
 
   const ws = new WebSocket(gatewayUrl, { rejectUnauthorized: false });
 
@@ -228,6 +424,8 @@ async function ensureConnection(getMainWindow: () => BrowserWindow | null): Prom
       reconnectTimer: null,
       activeSessionIds: new Set(),
       currentRunId: null,
+      cwd: null,
+      chatBuffer: "",
     };
   } else {
     shared.ws = ws;
@@ -345,10 +543,221 @@ async function ensureConnection(getMainWindow: () => BrowserWindow | null): Prom
   log("OPENCLAW_CONNECTED", { gatewayUrl, agentId, sessionKey });
 }
 
+const MAX_FILE_READ_SIZE = 512 * 1024;
+const MAX_SHELL_OUTPUT = 256 * 1024;
+const SHELL_TIMEOUT = 30_000;
+
+function resolvePath(filePath: string): string | null {
+  if (!shared?.cwd) return null;
+  const resolved = path.resolve(shared.cwd, filePath);
+  if (!resolved.startsWith(shared.cwd)) return null;
+  return resolved;
+}
+
+function sendResponse(id: string, result: unknown, error?: string): void {
+  if (!shared?.ws || shared.ws.readyState !== WebSocket.OPEN) return;
+  const frame: Record<string, unknown> = { type: "res", id };
+  if (error) {
+    frame.ok = false;
+    frame.error = { message: error };
+  } else {
+    frame.ok = true;
+    frame.result = result;
+  }
+  shared.ws.send(JSON.stringify(frame));
+}
+
+async function handleToolRequest(id: string, tool: string, input: Record<string, unknown>): Promise<void> {
+  try {
+    switch (tool) {
+      case "read_file":
+      case "Read": {
+        const filePath = (input.file_path ?? input.path) as string;
+        const resolved = resolvePath(filePath);
+        if (!resolved) { sendResponse(id, null, `Invalid path: ${filePath}`); return; }
+        const stat = fs.statSync(resolved);
+        if (stat.size > MAX_FILE_READ_SIZE) { sendResponse(id, null, `File too large: ${stat.size} bytes`); return; }
+        const content = fs.readFileSync(resolved, "utf-8");
+        sendResponse(id, { content, size: stat.size });
+        return;
+      }
+
+      case "write_file":
+      case "Write": {
+        const filePath = (input.file_path ?? input.path) as string;
+        const content = (input.content ?? input.text) as string;
+        const resolved = resolvePath(filePath);
+        if (!resolved) { sendResponse(id, null, `Invalid path: ${filePath}`); return; }
+        const dir = path.dirname(resolved);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(resolved, content, "utf-8");
+        sendResponse(id, { written: true, path: filePath });
+        return;
+      }
+
+      case "edit_file":
+      case "Edit": {
+        const filePath = (input.file_path ?? input.path) as string;
+        const oldStr = (input.old_string ?? input.old) as string;
+        const newStr = (input.new_string ?? input.new) as string;
+        const resolved = resolvePath(filePath);
+        if (!resolved) { sendResponse(id, null, `Invalid path: ${filePath}`); return; }
+        if (!fs.existsSync(resolved)) { sendResponse(id, null, `File not found: ${filePath}`); return; }
+        const original = fs.readFileSync(resolved, "utf-8");
+        if (!original.includes(oldStr)) { sendResponse(id, null, "old_string not found in file"); return; }
+        const updated = original.replace(oldStr, newStr);
+        fs.writeFileSync(resolved, updated, "utf-8");
+        sendResponse(id, { edited: true, path: filePath });
+        return;
+      }
+
+      case "list_files":
+      case "Glob": {
+        const pattern = (input.pattern ?? input.glob ?? "") as string;
+        const cwd = shared!.cwd!;
+        try {
+          const files = await listFilesGit(cwd);
+          const filtered = pattern ? files.filter(f => f.includes(pattern.replace(/\*/g, ""))) : files;
+          sendResponse(id, { files: filtered.slice(0, 500) });
+        } catch {
+          sendResponse(id, { files: [] });
+        }
+        return;
+      }
+
+      case "search":
+      case "Grep": {
+        const searchPattern = (input.pattern ?? input.query) as string;
+        const searchPath = (input.path ?? input.file_path ?? ".") as string;
+        const cwd = shared!.cwd!;
+        const resolved = path.resolve(cwd, searchPath);
+        if (!resolved.startsWith(cwd)) { sendResponse(id, null, `Invalid path: ${searchPath}`); return; }
+        await new Promise<void>((resolve) => {
+          execFile("grep", ["-rn", "--include=*.{ts,tsx,js,jsx,py,go,rs,java,rb,css,html,json,yaml,yml,md,sh}", "-l", searchPattern, resolved], { maxBuffer: MAX_SHELL_OUTPUT, timeout: SHELL_TIMEOUT }, (err, stdout) => {
+            if (err && !stdout) {
+              sendResponse(id, { matches: [] });
+            } else {
+              const matches = stdout.trim().split("\n").filter(Boolean).map(f => path.relative(cwd, f)).slice(0, 100);
+              sendResponse(id, { matches });
+            }
+            resolve();
+          });
+        });
+        return;
+      }
+
+      case "shell":
+      case "Bash": {
+        const command = (input.command ?? input.cmd) as string;
+        if (!command) { sendResponse(id, null, "No command provided"); return; }
+        const cwd = shared!.cwd!;
+        emitToSessions("tool:start", { toolName: "Bash", input: { command } });
+        await new Promise<void>((resolve) => {
+          exec(command, { cwd, maxBuffer: MAX_SHELL_OUTPUT, timeout: SHELL_TIMEOUT }, (err, stdout, stderr) => {
+            const output = stdout + (stderr ? `\n${stderr}` : "");
+            sendResponse(id, {
+              stdout: stdout.slice(0, MAX_SHELL_OUTPUT),
+              stderr: stderr.slice(0, MAX_SHELL_OUTPUT),
+              exitCode: err ? (err as NodeJS.ErrnoException & { code?: number }).code ?? 1 : 0,
+            });
+            emitToSessions("tool:result", { toolName: "Bash", result: { output: output.slice(0, 2000) } });
+            resolve();
+          });
+        });
+        return;
+      }
+
+      default:
+        sendResponse(id, null, `Unknown tool: ${tool}`);
+    }
+  } catch (err) {
+    sendResponse(id, null, (err as Error).message);
+  }
+}
+
+const CONTEXT_FILES = ["README.md", "package.json", "tsconfig.json", "pyproject.toml", "Cargo.toml", "go.mod"];
+const MAX_CONTEXT_FILE_SIZE = 1500;
+const MAX_TREE_DEPTH = 4;
+
+const EXT_MIME: Record<string, string> = {
+  ts: "text/typescript", tsx: "text/typescript",
+  js: "text/javascript", jsx: "text/javascript",
+  py: "text/x-python", json: "application/json",
+  html: "text/html", css: "text/css",
+  md: "text/markdown", yaml: "text/yaml", yml: "text/yaml",
+  sh: "text/x-shellscript", bash: "text/x-shellscript",
+  rs: "text/x-rust", go: "text/x-go",
+  java: "text/x-java", cpp: "text/x-c++src", c: "text/x-csrc",
+  rb: "text/x-ruby", swift: "text/x-swift",
+  toml: "text/plain", mod: "text/plain", sql: "text/plain",
+  xml: "text/xml", svg: "image/svg+xml", txt: "text/plain",
+};
+
+const CODE_EXTENSIONS = new Set(Object.keys(EXT_MIME));
+
+function fileToAttachment(filePath: string, content: string): { id: string; dataUrl: string; mimeType: string } {
+  const ext = (filePath.split(".").pop() ?? "").toLowerCase();
+  const mimeType = EXT_MIME[ext] ?? "text/plain";
+  return {
+    id: crypto.randomUUID(),
+    dataUrl: `data:${mimeType};base64,${Buffer.from(content, "utf-8").toString("base64")}`,
+    mimeType,
+  };
+}
+
+
+function listFilesGit(cwd: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return reject(err);
+      resolve(stdout.trim().split("\n").filter(Boolean).sort());
+    });
+  });
+}
+
+function buildTreeFromPaths(files: string[], maxDepth: number): string {
+  const tree: Map<string, Set<string>> = new Map();
+  for (const file of files) {
+    const parts = file.split("/");
+    for (let i = 0; i < Math.min(parts.length, maxDepth); i++) {
+      const dir = parts.slice(0, i).join("/") || ".";
+      const entry = parts[i] + (i < parts.length - 1 ? "/" : "");
+      if (!tree.has(dir)) tree.set(dir, new Set());
+      tree.get(dir)!.add(entry);
+    }
+  }
+
+  function render(dir: string, prefix: string, depth: number): string {
+    if (depth >= maxDepth) return "";
+    const entries = tree.get(dir);
+    if (!entries) return "";
+    let result = "";
+    const sorted = [...entries].sort((a, b) => {
+      const aDir = a.endsWith("/");
+      const bDir = b.endsWith("/");
+      if (aDir !== bDir) return aDir ? -1 : 1;
+      return a.localeCompare(b);
+    });
+    for (const entry of sorted) {
+      result += `${prefix}${entry}\n`;
+      if (entry.endsWith("/")) {
+        const childDir = dir === "." ? entry.slice(0, -1) : `${dir}/${entry.slice(0, -1)}`;
+        result += render(childDir, prefix + "  ", depth + 1);
+      }
+    }
+    return result;
+  }
+
+  return render(".", "", 0);
+}
+
+
+const injectedSessions = new Set<string>();
+
 export const openclawSessions = new Map<string, boolean>();
 
 export function register(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle("openclaw:start", async (_event, _options: {
+  ipcMain.handle("openclaw:start", async (_event, options: {
     cwd: string;
     gatewayUrl?: string;
     model?: string;
@@ -357,8 +766,14 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     const sessionId = crypto.randomUUID();
     try {
       await ensureConnection(getMainWindow);
+
+      const agentId = getAgentId();
+      shared!.sessionKey = `agent:${agentId}:editor-${sessionId.slice(0, 8)}`;
+      injectedSessions.clear();
+
       shared!.activeSessionIds.add(sessionId);
       openclawSessions.set(sessionId, true);
+      if (options.cwd) shared!.cwd = options.cwd;
       log("OPENCLAW_START", { sessionId: sessionId.slice(0, 8), sessionKey: shared!.sessionKey });
       return { sessionId };
     } catch (err) {
@@ -373,40 +788,84 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       shared!.activeSessionIds.add(sessionId);
 
       const attachments: { id: string; dataUrl: string; mimeType: string }[] = [];
+
+      let contextPrefix = "";
+      const sessionKey = shared!.sessionKey;
+      if (shared!.cwd && !injectedSessions.has(sessionKey)) {
+        injectedSessions.add(sessionKey);
+        try {
+          const cwd = shared!.cwd;
+          let fileTree = "";
+          try {
+            const files = await listFilesGit(cwd);
+            fileTree = buildTreeFromPaths(files, MAX_TREE_DEPTH);
+          } catch {}
+
+          const contextParts: string[] = [];
+          for (const file of CONTEXT_FILES) {
+            const filePath = path.join(cwd, file);
+            try {
+              const stat = fs.statSync(filePath);
+              if (!stat.isFile()) continue;
+              contextParts.push(`--- ${file} ---\n${fs.readFileSync(filePath, "utf-8").slice(0, MAX_CONTEXT_FILE_SIZE)}`);
+            } catch { continue; }
+          }
+
+          contextPrefix = [
+            `[SYSTEM] You are connected to the user's local code editor. The project "${path.basename(cwd)}" is open at ${cwd}.`,
+            "",
+            "Project file tree:",
+            fileTree,
+            contextParts.length > 0 ? contextParts.join("\n\n") : "",
+            "",
+            "You have FULL ACCESS to read, write, edit, and delete files in this project. Use these tags in your responses and the editor will execute them automatically:",
+            "",
+            "READ a file:",
+            '<read_file path="src/demo.tsx"/>',
+            "",
+            "WRITE/CREATE a file (full content):",
+            '<write_file path="src/new-file.ts">',
+            "file content here",
+            "</write_file>",
+            "",
+            "EDIT a file (search and replace):",
+            '<edit_file path="src/demo.tsx">',
+            "<<<<<<< SEARCH",
+            "old code to find",
+            "=======",
+            "new code to replace with",
+            ">>>>>>> REPLACE",
+            "</edit_file>",
+            "",
+            "DELETE a file:",
+            '<delete_file path="src/old-file.ts"/>',
+            "",
+            "Rules:",
+            "- Always use paths relative to the project root.",
+            "- You can use multiple tags in a single response.",
+            "- For edit_file, the SEARCH block must match the file content exactly (including whitespace).",
+            "- For edit_file, you can include multiple SEARCH/REPLACE blocks in one tag.",
+            "- NEVER tell the user to manually run commands, copy/paste, or edit files. ALWAYS use these tags.",
+            "[END SYSTEM]",
+            "",
+          ].join("\n");
+
+          log("OPENCLAW_CONTEXT_INJECTED", { cwd, prefixLength: contextPrefix.length });
+        } catch (err) {
+          log("OPENCLAW_CONTEXT_ERR", (err as Error).message);
+        }
+      }
       const cleanText = text.replace(/<file path="([^"]+)">\n([\s\S]*?)\n<\/file>/g, (_match, filePath: string, content: string) => {
-        const ext = (filePath.split(".").pop() ?? "").toLowerCase();
-        const mimeMap: Record<string, string> = {
-          ts: "text/typescript", tsx: "text/typescript",
-          js: "text/javascript", jsx: "text/javascript",
-          py: "text/x-python", json: "application/json",
-          html: "text/html", css: "text/css",
-          md: "text/markdown", yaml: "text/yaml", yml: "text/yaml",
-          sh: "text/x-shellscript", bash: "text/x-shellscript",
-          rs: "text/x-rust", go: "text/x-go",
-          java: "text/x-java", cpp: "text/x-c++src", c: "text/x-csrc",
-          rb: "text/x-ruby", swift: "text/x-swift",
-        };
-        const mimeType = mimeMap[ext] ?? "text/plain";
-        const base64 = Buffer.from(content, "utf-8").toString("base64");
-        attachments.push({
-          id: crypto.randomUUID(),
-          dataUrl: `data:${mimeType};base64,${base64}`,
-          mimeType,
-        });
+        attachments.push(fileToAttachment(filePath, content));
         return "";
       }).replace(/<folder path="([^"]+)">\n([\s\S]*?)\n<\/folder>/g, (_match, folderPath: string, tree: string) => {
-        const base64 = Buffer.from(`Directory listing: ${folderPath}\n\n${tree}`, "utf-8").toString("base64");
-        attachments.push({
-          id: crypto.randomUUID(),
-          dataUrl: `data:text/plain;base64,${base64}`,
-          mimeType: "text/plain",
-        });
+        attachments.push(fileToAttachment(folderPath, `Directory listing: ${folderPath}\n\n${tree}`));
         return "";
       }).replace(/\n{3,}/g, "\n\n").trim();
 
       const params: Record<string, unknown> = {
         sessionKey: shared!.sessionKey,
-        message: cleanText || text,
+        message: contextPrefix + (cleanText || text),
         deliver: false,
         idempotencyKey: crypto.randomUUID(),
       };
