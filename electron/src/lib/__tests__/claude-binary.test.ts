@@ -7,6 +7,11 @@ const {
   mockGetCliPath,
   mockLog,
   mockSpawn,
+  mockExistsSync,
+  mockReadFileSync,
+  mockWriteFileSync,
+  mockMkdirSync,
+  mockTmpdir,
 } = vi.hoisted(() => ({
   mockAccessSync: vi.fn(),
   mockExecFileSync: vi.fn(),
@@ -18,18 +23,28 @@ const {
   mockGetCliPath: vi.fn(() => "/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk/cli.js"),
   mockLog: vi.fn(),
   mockSpawn: vi.fn(),
+  mockExistsSync: vi.fn(),
+  mockReadFileSync: vi.fn(),
+  mockWriteFileSync: vi.fn(),
+  mockMkdirSync: vi.fn(),
+  mockTmpdir: vi.fn(() => "/tmp"),
 }));
 
 vi.mock("fs", () => ({
   default: {
     accessSync: mockAccessSync,
     constants: { X_OK: 1 },
+    existsSync: mockExistsSync,
+    readFileSync: mockReadFileSync,
+    writeFileSync: mockWriteFileSync,
+    mkdirSync: mockMkdirSync,
   },
 }));
 
 vi.mock("os", () => ({
   default: {
     homedir: () => "/Users/tester",
+    tmpdir: mockTmpdir,
   },
 }));
 
@@ -77,6 +92,13 @@ describe("claude binary resolution", () => {
     mockGetCliPath.mockReturnValue("/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk/cli.js");
     mockLog.mockReset();
     mockSpawn.mockReset();
+    mockExistsSync.mockReset();
+    mockExistsSync.mockReturnValue(false);
+    mockReadFileSync.mockReset();
+    mockWriteFileSync.mockReset();
+    mockMkdirSync.mockReset();
+    mockTmpdir.mockReset();
+    mockTmpdir.mockReturnValue("/tmp");
   });
 
   it("uses a valid custom executable path", async () => {
@@ -136,6 +158,31 @@ describe("claude binary resolution", () => {
       "CLAUDE_BINARY_SELECTED",
       "strategy=sdk-fallback path=/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk/cli.js",
     );
+  });
+
+  it("wraps a WSL-installed Claude binary on Windows", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    try {
+      mockExecFileSync.mockImplementation((command: string, args?: string[]) => {
+        if (command === "where") throw new Error("missing");
+        if (command === "wsl.exe") {
+          expect(args).toEqual(["-e", "which", "claude"]);
+          return "/home/user/.local/bin/claude\n";
+        }
+        throw new Error("unexpected");
+      });
+      mockReadFileSync.mockImplementation(() => {
+        throw new Error("missing");
+      });
+      const wrapperPath = "/tmp/harnss-claude-wsl/claude-wsl-wrapper.cmd";
+      allowExecutable(wrapperPath);
+
+      const mod = await loadModule();
+
+      await expect(mod.getClaudeBinaryPath({ installIfMissing: false })).resolves.toBe(wrapperPath);
+    } finally {
+      platform.mockRestore();
+    }
   });
 
   it("reports status without triggering install", async () => {

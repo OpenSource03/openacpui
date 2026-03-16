@@ -8,7 +8,7 @@ import { log } from "./logger";
 import { getCliPath } from "./sdk";
 
 export type ClaudeBinarySource = "auto" | "managed" | "custom";
-export type ClaudeBinaryResolutionStrategy = "custom" | "env" | "known" | "path" | "sdk-fallback";
+export type ClaudeBinaryResolutionStrategy = "custom" | "env" | "known" | "path" | "wsl" | "sdk-fallback";
 
 interface ResolveClaudeBinaryOptions {
   installIfMissing?: boolean;
@@ -62,6 +62,35 @@ function getKnownPaths(): string[] {
   return [path.join(os.homedir(), ".local", "bin", "claude")];
 }
 
+const WSL_WRAPPER_DIR = path.join(os.tmpdir(), "harnss-claude-wsl");
+const WSL_WRAPPER_NAME = "claude-wsl-wrapper.cmd";
+
+function getWslWrapperPath(): string {
+  return path.join(WSL_WRAPPER_DIR, WSL_WRAPPER_NAME);
+}
+
+function ensureWslWrapper(wslPath: string): string | null {
+  const wrapperPath = getWslWrapperPath();
+  const script = `@echo off\r\nwsl.exe -e ${wslPath} %*\r\n`;
+
+  try {
+    const existing = fs.readFileSync(wrapperPath, "utf-8");
+    if (existing === script) return wrapperPath;
+  } catch {
+    // Missing or unreadable — fall through to rewrite
+  }
+
+  try {
+    fs.mkdirSync(WSL_WRAPPER_DIR, { recursive: true });
+    fs.writeFileSync(wrapperPath, script, { encoding: "utf-8" });
+  } catch {
+    // If we fail to create the wrapper, fall back to null so other strategies can try
+    return null;
+  }
+
+  return wrapperPath;
+}
+
 function isScriptExecutable(filePath: string): boolean {
   return [".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"].includes(path.extname(filePath));
 }
@@ -106,6 +135,23 @@ function resolveFromPathLookup(): ClaudeBinaryResolution | null {
   }
 }
 
+function resolveFromWsl(): ClaudeBinaryResolution | null {
+  if (process.platform !== "win32") return null;
+  try {
+    const output = execFileSync("wsl.exe", ["-e", "which", "claude"], {
+      encoding: "utf-8",
+      timeout: 10000,
+      windowsHide: true,
+    }).trim();
+    if (!output || !output.startsWith("/")) return null;
+    const wrapper = ensureWslWrapper(output);
+    if (!wrapper) return null;
+    return { strategy: "wsl", path: wrapper };
+  } catch {
+    return null;
+  }
+}
+
 function resolveSdkFallback(): ClaudeBinaryResolution | null {
   const cliPath = getCliPath();
   return cliPath ? { strategy: "sdk-fallback", path: cliPath } : null;
@@ -122,7 +168,8 @@ function resolveClaudeBinarySync(options?: ResolveClaudeBinaryOptions): ClaudeBi
   const resolution =
     resolveFromEnv() ??
     resolveFromKnownPaths() ??
-    resolveFromPathLookup();
+    resolveFromPathLookup() ??
+    resolveFromWsl();
 
   if (resolution) return resolution;
   if (allowSdkFallback && source === "auto") {

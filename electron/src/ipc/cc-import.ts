@@ -4,6 +4,7 @@ import fs from "fs";
 import crypto from "crypto";
 import os from "os";
 import { reportError } from "../lib/error-utils";
+import { getLikelyWslHome, getWslWindowsPrefix, parseWslPath } from "../lib/wsl-path";
 
 interface SessionPreview {
   firstUserMessage: string;
@@ -27,7 +28,15 @@ interface UIMessage {
 }
 
 function getCCProjectDir(projectPath: string): string {
-  const hash = projectPath.replace(/\//g, "-");
+  const wsl = parseWslPath(projectPath);
+  if (process.platform === "win32" && wsl) {
+    const hash = wsl.unixPath.replace(/\//g, "-");
+    const wslHome = getLikelyWslHome(wsl.unixPath);
+    const wslPrefix = getWslWindowsPrefix(wsl.distro);
+    return path.join(wslPrefix, wslHome.replace(/\//g, "\\"), ".claude", "projects", hash);
+  }
+
+  const hash = projectPath.replace(/[\\/]/g, "-");
   return path.join(os.homedir(), ".claude", "projects", hash);
 }
 
