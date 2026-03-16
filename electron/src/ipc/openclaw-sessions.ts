@@ -841,7 +841,8 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       await ensureConnection(getMainWindow);
 
       const agentId = getAgentId();
-      shared!.sessionKey = `agent:${agentId}:editor-${sessionId.slice(0, 8)}`;
+      const projectName = options.cwd ? path.basename(options.cwd) : sessionId.slice(0, 8);
+      shared!.sessionKey = `agent:${agentId}:editor-${projectName}`;
       injectedSessions.clear();
 
       shared!.activeSessionIds.add(sessionId);
