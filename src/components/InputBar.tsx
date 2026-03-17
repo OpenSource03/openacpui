@@ -219,45 +219,86 @@ function PermissionDropdown({
   onPermissionModeChange: (mode: string) => void;
   showDetails?: boolean;
 }) {
+  const isAllowAll = permissionMode === "bypassPermissions";
+  const previousModeRef = useRef("default");
+
+  if (!isAllowAll) {
+    previousModeRef.current = permissionMode;
+  }
+
+  const handleToggleAllowAll = useCallback(() => {
+    if (isAllowAll) {
+      onPermissionModeChange(previousModeRef.current);
+    } else {
+      onPermissionModeChange("bypassPermissions");
+    }
+  }, [isAllowAll, onPermissionModeChange]);
+
   const selectedMode =
     PERMISSION_MODES.find((m) => m.id === permissionMode) ?? PERMISSION_MODES[0];
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-        >
-          <Shield className="h-3 w-3" />
-          {selectedMode.label}
-          <ChevronDown className="h-3 w-3" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {PERMISSION_MODES.map((m) => {
-          const details = showDetails ? CODEX_PERMISSION_MODE_DETAILS[m.id] : undefined;
-          return (
-            <DropdownMenuItem
-              key={m.id}
-              onClick={() => onPermissionModeChange(m.id)}
-              className={m.id === permissionMode ? "bg-accent" : ""}
-            >
-              {details ? (
-                <div className="flex min-w-0 flex-col">
-                  <span>{m.label}</span>
-                  <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <span className="font-mono text-foreground/80">{details.policy}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{details.description}</span>
-                  </span>
-                </div>
-              ) : (
-                m.label
-              )}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex shrink-0 items-center">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={handleToggleAllowAll}
+            className={`flex shrink-0 items-center gap-1 rounded-s-lg border-e border-foreground/5 px-2 py-1 text-xs transition-colors ${
+              isAllowAll
+                ? "bg-amber-500/15 text-amber-400"
+                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            }`}
+          >
+            <Shield className="h-3 w-3" />
+            {isAllowAll ? "Allow All" : selectedMode.label}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <p className="text-xs">
+            {isAllowAll
+              ? "Click to restore approval prompts"
+              : "Click to allow all tools without prompts"}
+          </p>
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className={`flex shrink-0 items-center rounded-e-lg px-1 py-1 text-xs transition-colors ${
+              isAllowAll
+                ? "bg-amber-500/15 text-amber-400"
+                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            }`}
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {PERMISSION_MODES.map((m) => {
+            const details = showDetails ? CODEX_PERMISSION_MODE_DETAILS[m.id] : undefined;
+            return (
+              <DropdownMenuItem
+                key={m.id}
+                onClick={() => onPermissionModeChange(m.id)}
+                className={m.id === permissionMode ? "bg-accent" : ""}
+              >
+                {details ? (
+                  <div className="flex min-w-0 flex-col">
+                    <span>{m.label}</span>
+                    <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="font-mono text-foreground/80">{details.policy}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{details.description}</span>
+                    </span>
+                  </div>
+                ) : (
+                  m.label
+                )}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
