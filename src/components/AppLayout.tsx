@@ -116,6 +116,17 @@ export function AppLayout() {
   const handleFocusPane0 = useCallback(() => handleFocusPane(0), [handleFocusPane]);
   const handleFocusPane1 = useCallback(() => handleFocusPane(1), [handleFocusPane]);
 
+  const [openclawAgentId, setOpenclawAgentId] = useState("");
+  useEffect(() => {
+    window.claude.settings.get().then((s) => {
+      if (s?.openclawDefaultAgent) setOpenclawAgentId(s.openclawDefaultAgent);
+    });
+  }, []);
+  const handleOpenclawAgentChange = useCallback((agentId: string) => {
+    setOpenclawAgentId(agentId);
+    window.claude.settings.set({ openclawDefaultAgent: agentId });
+  }, []);
+
   const [grabbedElements, setGrabbedElements] = useState<GrabbedElement[]>([]);
 
   const handleElementGrab = useCallback((element: GrabbedElement) => {
@@ -751,6 +762,8 @@ Link: ${issue.url}`;
                   lockedEngine={lockedEngine}
                   lockedAgentId={lockedAgentId}
                   isIslandLayout={isIsland}
+                  openclawAgentId={openclawAgentId}
+                  onOpenclawAgentChange={handleOpenclawAgentChange}
                 />
               </div>
               </>
@@ -912,6 +925,8 @@ Link: ${issue.url}`;
                     lockedEngine={lockedEngine}
                     lockedAgentId={lockedAgentId}
                     isIslandLayout={isIsland}
+                    openclawAgentId={openclawAgentId}
+                    onOpenclawAgentChange={handleOpenclawAgentChange}
                   />
                 </div>
                 </>

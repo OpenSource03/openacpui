@@ -1018,10 +1018,12 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle("openclaw:list-agents", async (_event, _sessionId: string) => {
+  ipcMain.handle("openclaw:list-agents", async (_event, _sessionId?: string) => {
     try {
-      const result = await rpc("agent.list", {});
-      return { ok: true, agents: result };
+      await ensureConnection(getMainWindow);
+      const result = await rpc("status", {}) as { heartbeat?: { agents?: Array<{ agentId: string }> } };
+      const agents = result?.heartbeat?.agents?.map((a) => a.agentId).filter(Boolean) ?? [];
+      return { ok: true, agents };
     } catch {
       return { ok: true, agents: [] };
     }

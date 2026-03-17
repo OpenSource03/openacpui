@@ -292,6 +292,81 @@ function PlanModeToggle({
   );
 }
 
+function OpenClawAgentDropdown({
+  agentId,
+  onAgentChange,
+  disabled,
+}: {
+  agentId: string;
+  onAgentChange: (id: string) => void;
+  disabled?: boolean;
+}) {
+  const [agents, setAgents] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const fetched = useRef(false);
+
+  const fetchAgents = useCallback(() => {
+    if (fetched.current || loading) return;
+    setLoading(true);
+    window.claude.openclaw.listAgents().then((result) => {
+      fetched.current = true;
+      setLoading(false);
+      if (result.agents && Array.isArray(result.agents)) {
+        const ids = result.agents.map((a: unknown) =>
+          typeof a === "string" ? a : (a as { id?: string; name?: string })?.id ?? (a as { name?: string })?.name ?? ""
+        ).filter(Boolean);
+        setAgents(ids);
+      }
+    }).catch(() => {
+      setLoading(false);
+    });
+  }, [loading]);
+
+  return (
+    <DropdownMenu onOpenChange={(open) => { if (open) fetchAgents(); }}>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          disabled={disabled}
+        >
+          {agentId || "default"}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
+        {loading && agents.length === 0 ? (
+          <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading agents...
+          </div>
+        ) : agents.length === 0 ? (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            No agents found
+          </div>
+        ) : (
+          <>
+            <DropdownMenuItem
+              onClick={() => onAgentChange("")}
+              className={!agentId ? "bg-accent" : ""}
+            >
+              default
+            </DropdownMenuItem>
+            {agents.map((id) => (
+              <DropdownMenuItem
+                key={id}
+                onClick={() => onAgentChange(id)}
+                className={agentId === id ? "bg-accent" : ""}
+              >
+                {id}
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function EngineControls({
   isCodexAgent,
   isACPAgent,
@@ -319,6 +394,8 @@ function EngineControls({
   acpConfigOptions,
   acpConfigOptionsLoading,
   onACPConfigChange,
+  openclawAgentId,
+  onOpenclawAgentChange,
 }: {
   isCodexAgent: boolean;
   isACPAgent: boolean;
@@ -346,6 +423,8 @@ function EngineControls({
   acpConfigOptions?: ACPConfigOption[];
   acpConfigOptionsLoading?: boolean;
   onACPConfigChange?: (configId: string, value: string) => void;
+  openclawAgentId?: string;
+  onOpenclawAgentChange?: (agentId: string) => void;
 }) {
   if (isCodexAgent) {
     return (
@@ -398,6 +477,13 @@ function EngineControls({
   if (isOpenClawAgent) {
     return (
       <>
+        {onOpenclawAgentChange && (
+          <OpenClawAgentDropdown
+            agentId={openclawAgentId ?? ""}
+            onAgentChange={onOpenclawAgentChange}
+            disabled={isProcessing}
+          />
+        )}
         <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
       </>
     );
@@ -608,6 +694,8 @@ interface InputBarProps {
   codeSnippets?: CodeSnippet[];
   onRemoveCodeSnippet?: (id: string) => void;
   isIslandLayout?: boolean;
+  openclawAgentId?: string;
+  onOpenclawAgentChange?: (agentId: string) => void;
 }
 
 function fuzzyMatch(query: string, target: string): { match: boolean; score: number } {
@@ -745,6 +833,8 @@ export const InputBar = memo(function InputBar({
   onRemoveGrabbedElement,
   codeSnippets,
   onRemoveCodeSnippet,
+  openclawAgentId,
+  onOpenclawAgentChange,
 }: InputBarProps) {
   const [hasContent, setHasContent] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
@@ -1749,6 +1839,8 @@ export const InputBar = memo(function InputBar({
               acpConfigOptions={acpConfigOptions}
               acpConfigOptionsLoading={acpConfigOptionsLoading}
               onACPConfigChange={onACPConfigChange}
+              openclawAgentId={openclawAgentId}
+              onOpenclawAgentChange={onOpenclawAgentChange}
             />
           </div>
 

@@ -330,7 +330,7 @@ declare global {
         status: () => Promise<{ available: boolean; error?: string }>;
         pair: () => Promise<{ ok: boolean; paired?: boolean; version?: string; error?: string }>;
         spawnAgent: (sessionId: string, agentName: string, prompt: string, skills?: string[]) => Promise<{ ok?: boolean; agentId?: string; error?: string }>;
-        listAgents: (sessionId: string) => Promise<{ ok?: boolean; agents?: unknown; error?: string }>;
+        listAgents: (sessionId?: string) => Promise<{ ok?: boolean; agents?: unknown; error?: string }>;
         onEvent: (callback: (data: OpenClawSessionEvent) => void) => () => void;
         onExit: (callback: (data: OpenClawExitEvent) => void) => () => void;
       };
