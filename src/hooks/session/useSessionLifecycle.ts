@@ -2,6 +2,7 @@ import { startTransition, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type { UIMessage, ChatSession, PersistedSession, ImageAttachment, McpServerConfig, Project, ClaudeEffort, CodeSnippet } from "../../types";
 import type { ACPConfigOption } from "../../types/acp";
+import type { AgentSlot } from "../../types/groups";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
@@ -70,7 +71,7 @@ export function useSessionLifecycle({
   clearQueue,
   resetCodexEffortToModelDefault,
 }: UseSessionLifecycleParams) {
-  const { claude, acp, codex, openclaw, engine } = engines;
+  const { claude, acp, codex, openclaw, group, engine } = engines;
   const {
     setSessions,
     setActiveSessionId,
@@ -134,12 +135,21 @@ export function useSessionLifecycle({
   }, []);
 
   const applyLoadedSession = useCallback((id: string, data: PersistedSession) => {
+    if (data.engine === "group" && (data as unknown as Record<string, unknown>).groupId) {
+      window.claude.groups.resumeSession(id, data.projectId).catch((err) => {
+        console.error("[GROUP_RESUME_ERR]", id, err);
+      });
+    }
     startTransition(() => {
       setStartOptions((prev) => ({
         ...prev,
         planMode: !!data.planMode,
       }));
-      setInitialMessages(data.messages);
+      setInitialMessages(
+        data.engine === "group"
+          ? data.messages.filter((m) => m.content?.trim() !== "[PASS]")
+          : data.messages,
+      );
       setInitialMeta({
         isProcessing: false,
         isConnected: false,
@@ -177,13 +187,13 @@ export function useSessionLifecycle({
     setStartOptions,
   ]);
 
-  useEffect(() => {
-    if (projects.length === 0) {
+  const reloadSessions = useCallback(() => {
+    if (refs.projectsRef.current.length === 0) {
       setSessions([]);
       return;
     }
     Promise.all(
-      projects.map((p) => window.claude.sessions.list(p.id)),
+      refs.projectsRef.current.map((p) => window.claude.sessions.list(p.id)),
     ).then((results) => {
       const all = results.flat().map((s) => ({
         id: s.id,
@@ -200,7 +210,17 @@ export function useSessionLifecycle({
       }));
       setSessions(all);
     }).catch(() => { });
+  }, []);
+
+  useEffect(() => {
+    reloadSessions();
   }, [projects]);
+
+  useEffect(() => {
+    const handler = () => reloadSessions();
+    window.addEventListener("harnss:session-saved", handler);
+    return () => window.removeEventListener("harnss:session-saved", handler);
+  }, [reloadSessions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -313,7 +333,8 @@ export function useSessionLifecycle({
       seedBackgroundStore();
       void saveCurrentSession();
       const draftEngine = options?.engine ?? "claude";
-      setStartOptions(options ?? {});
+      const preservedGroupId = draftEngine === "group" ? (options?.groupId ?? startOptionsRef.current.groupId) : undefined;
+      setStartOptions({ ...(options ?? {}), ...(preservedGroupId ? { groupId: preservedGroupId } : {}) });
       setDraftProjectId(projectId);
       setInitialMessages([]);
       setInitialMeta(null);
@@ -1302,6 +1323,26 @@ export function useSessionLifecycle({
           return;
         }
 
+        if (draftEngine === "group") {
+          trackMessageSent();
+          group.setIsProcessing(true);
+          group.setMessages((prev) => [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: "user",
+              content: text,
+              timestamp: Date.now(),
+            },
+          ]);
+          const sessionId = await materializeDraft(text, images, displayText);
+          if (!sessionId) {
+            group.setIsProcessing(false);
+            return;
+          }
+          return;
+        }
+
         trackMessageSent();
         const sessionId = await materializeDraft(text);
         if (!sessionId) return;
@@ -1396,6 +1437,12 @@ export function useSessionLifecycle({
         return;
       }
 
+      if (activeSessionEngine === "group") {
+        trackMessageSent();
+        await group.send(text);
+        return;
+      }
+
       if (liveSessionIdsRef.current.has(activeId)) {
         const sent = await claude.send(text, images, displayText, codeSnippets);
         if (sent) return;
@@ -1419,6 +1466,9 @@ export function useSessionLifecycle({
       openclaw.send,
       openclaw.setMessages,
       openclaw.setIsProcessing,
+      group.send,
+      group.setMessages,
+      group.setIsProcessing,
       materializeDraft,
       reviveSession,
       reviveAcpSession,
@@ -1426,6 +1476,13 @@ export function useSessionLifecycle({
       enqueueMessage,
     ],
   );
+
+  const setDraftGroupId = useCallback((groupId: string | null, slots?: AgentSlot[]) => {
+    setStartOptions((prev) => ({ ...prev, groupId: groupId ?? undefined }));
+    if (slots) {
+      group.registerSlotMeta(slots);
+    }
+  }, [group.registerSlotMeta]);
 
   return {
     createSession,
@@ -1435,6 +1492,7 @@ export function useSessionLifecycle({
     deselectSession,
     importCCSession,
     setDraftAgent,
+    setDraftGroupId,
     setActiveModel,
     setActivePermissionMode,
     setActivePlanMode,

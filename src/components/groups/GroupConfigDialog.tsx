@@ -19,9 +19,10 @@ const CLAUDE_MODELS = [
 ];
 
 const TURN_ORDERS = [
-  { id: "round-robin" as const, label: "Round Robin", desc: "Each agent responds in order" },
-  { id: "leader-decides" as const, label: "Leader Decides", desc: "Members respond, then leader synthesizes" },
-  { id: "parallel" as const, label: "Parallel", desc: "All agents respond simultaneously" },
+  { id: "chat" as const, label: "Chat", desc: "Group chat — all respond in parallel, one round per message" },
+  { id: "round-robin" as const, label: "Round Robin", desc: "Each agent responds in order, loops until done" },
+  { id: "leader-decides" as const, label: "Leader Decides", desc: "Leader coordinates, members execute" },
+  { id: "parallel" as const, label: "Parallel", desc: "All respond simultaneously, loops until done" },
 ];
 
 function createSlotId(): string {
@@ -44,7 +45,7 @@ export const GroupConfigDialog = memo(function GroupConfigDialog({
   onClose,
 }: GroupConfigDialogProps) {
   const [name, setName] = useState(group?.name ?? "");
-  const [turnOrder, setTurnOrder] = useState(group?.turnOrder ?? "round-robin");
+  const [turnOrder, setTurnOrder] = useState(group?.turnOrder ?? "chat");
   const [slots, setSlots] = useState<AgentSlot[]>(
     group?.slots ?? [
       {
@@ -94,9 +95,9 @@ Respond with ONLY valid JSON in this exact format, no other text:
 
 Task: ${aiPrompt.trim()}`;
 
-      const result = await window.claude.generateTitle(systemPrompt);
-      if (result?.title) {
-        const jsonMatch = result.title.match(/\{[\s\S]*\}/);
+      const result = await window.claude.groups.generateTeam({ prompt: systemPrompt });
+      if (result?.ok && result.result) {
+        const jsonMatch = result.result.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.name) setName(parsed.name);
@@ -109,7 +110,7 @@ Task: ${aiPrompt.trim()}`;
                 engine: (s.engine || "claude") as EngineId,
                 model: s.model || "claude-sonnet-4-6",
                 agentId: s.agentId,
-                role: s.role === "leader" ? "leader" as const : "member" as const,
+                role: (i === 0 && s.role !== "member") || s.role === "leader" ? "leader" as const : "member" as const,
                 color: SLOT_COLORS[i % SLOT_COLORS.length],
               })),
             );

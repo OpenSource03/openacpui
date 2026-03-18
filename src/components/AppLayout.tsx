@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useRef, useEffect, useLayoutEffect, useState, useMemo } from "react";
 import { PanelLeft, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,8 @@ import {
   TOOL_PICKER_WIDTH_ISLAND,
   getMinChatWidth,
 } from "@/lib/layout-constants";
-import type { GrabbedElement } from "@/types/ui";
+import type { GrabbedElement, InstalledAgent } from "@/types/ui";
+import type { EngineId } from "@/types/engine";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
 import { ChatSearchBar } from "./ChatSearchBar";
@@ -81,7 +82,7 @@ export function AppLayout() {
     spaceTerminals, activeSpaceTerminals,
     handleToggleTool, handleToolReorder, handleNewChat, handleSend,
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
-    handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
+    handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop,
     handleSendQueuedNow, handleUnqueueMessage,
     handleCreateProject, handleImportCCSession, handleNavigateToMessage,
     handleCreateSpace, handleEditSpace,
@@ -130,6 +131,50 @@ export function AppLayout() {
     setOpenclawAgentId(agentId);
     window.claude.settings.set({ openclawDefaultAgent: agentId });
   }, []);
+
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  useEffect(() => {
+    const isGroup = selectedAgent?.engine === "group";
+    if (isGroup && agentGroups.groups.length > 0) {
+      const sessionGroupId = manager.activeSession?.groupId;
+      const target = sessionGroupId ?? agentGroups.groups[0].id;
+      if (!selectedGroupId || (sessionGroupId && selectedGroupId !== sessionGroupId)) {
+        setSelectedGroupId(target);
+      }
+    }
+    if (!isGroup && selectedGroupId) {
+      setSelectedGroupId(null);
+    }
+  }, [selectedAgent?.engine, selectedGroupId, agentGroups.groups, manager.activeSession?.groupId]);
+  useEffect(() => {
+    const selectedGroup = selectedGroupId
+      ? agentGroups.groups.find((g) => g.id === selectedGroupId)
+      : null;
+    manager.setDraftGroupId(selectedGroupId, selectedGroup?.slots);
+  }, [selectedGroupId, manager.setDraftGroupId, agentGroups.groups]);
+  const handleGroupSend = useCallback(async (groupId: string, prompt: string, cwd?: string) => {
+    const result = await window.claude.groups.startSession({
+      groupId,
+      prompt,
+      cwd: cwd ?? activeProjectPath,
+      projectId: activeProjectId ?? undefined,
+    });
+    if (result.ok && result.sessionId) {
+      window.dispatchEvent(new CustomEvent("harnss:session-saved"));
+    }
+  }, [activeProjectPath, activeProjectId]);
+
+  const agentsWithGroups = useMemo(() => {
+    if (agentGroups.groups.length === 0) return agents;
+    const groupsAgent: InstalledAgent = {
+      id: "__groups__",
+      name: "Agent Groups",
+      engine: "group" as EngineId,
+      builtIn: true,
+    };
+    return [...agents, groupsAgent];
+  }, [agents, agentGroups.groups.length]);
+
 
   const [grabbedElements, setGrabbedElements] = useState<GrabbedElement[]>([]);
 
@@ -264,9 +309,9 @@ export function AppLayout() {
       if (project) {
         setJiraBoardProjectForSpace(project.spaceId || "default", null);
       }
-      handleSelectSession(sessionId);
+      o.handleSelectSession(sessionId);
     },
-    [handleSelectSession, manager.sessions, projectManager.projects, setJiraBoardProjectForSpace],
+    [o.handleSelectSession, manager.sessions, projectManager.projects, setJiraBoardProjectForSpace],
   );
 
   const handleToggleProjectJiraBoard = useCallback((projectId: string) => {
@@ -698,26 +743,27 @@ Link: ${issue.url}`;
                 />
               )}
               <ChatView
-                messages={manager.messages}
-                isProcessing={manager.isProcessing}
-                showThinking={showThinking}
-                autoGroupTools={settings.autoGroupTools}
-                avoidGroupingEdits={settings.avoidGroupingEdits}
-                autoExpandTools={settings.autoExpandTools}
-                extraBottomPadding={!!manager.pendingPermission}
-                scrollToMessageId={scrollToMessageId}
-                onScrolledToMessage={handleScrolledToMessage}
-                sessionId={manager.activeSessionId}
-                onRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
-                onFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
-                onTopScrollProgress={handleTopScrollProgress}
-                onSendQueuedNow={handleSendQueuedNow}
-                onUnqueueQueuedMessage={handleUnqueueMessage}
-                sendNextId={manager.sendNextId}
-                agents={agents}
-                selectedAgent={selectedAgent}
-                onAgentChange={handleAgentChange}
-              />
+                  messages={manager.messages}
+                  isProcessing={manager.isProcessing}
+                  showThinking={showThinking}
+                  autoGroupTools={settings.autoGroupTools}
+                  avoidGroupingEdits={settings.avoidGroupingEdits}
+                  autoExpandTools={settings.autoExpandTools}
+                  extraBottomPadding={!!manager.pendingPermission}
+                  scrollToMessageId={scrollToMessageId}
+                  onScrolledToMessage={handleScrolledToMessage}
+                  sessionId={manager.activeSessionId}
+                  onRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
+                  onFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
+                  onTopScrollProgress={handleTopScrollProgress}
+                  onSendQueuedNow={handleSendQueuedNow}
+                  onUnqueueQueuedMessage={handleUnqueueMessage}
+                  sendNextId={manager.sendNextId}
+                  agents={agents}
+                  selectedAgent={selectedAgent}
+                  onAgentChange={handleAgentChange}
+                  activeSlots={manager.activeSlots}
+                />
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
                 style={{
@@ -745,7 +791,7 @@ Link: ${issue.url}`;
                   contextUsage={manager.contextUsage}
                   isCompacting={manager.isCompacting}
                   onCompact={manager.compact}
-                  agents={agents}
+                  agents={agentsWithGroups}
                   selectedAgent={selectedAgent}
                   onAgentChange={handleAgentChange}
                   slashCommands={manager.slashCommands}
@@ -768,6 +814,9 @@ Link: ${issue.url}`;
                   isIslandLayout={isIsland}
                   openclawAgentId={openclawAgentId}
                   onOpenclawAgentChange={handleOpenclawAgentChange}
+                  groups={agentGroups.groups.map((g) => ({ id: g.id, name: g.name, slots: g.slots.map((s) => ({ label: s.label, engine: s.engine, model: s.model, color: s.color, role: s.role })) }))}
+                  selectedGroupId={selectedGroupId}
+                  onGroupChange={setSelectedGroupId}
                 />
               </div>
               </>
@@ -908,7 +957,7 @@ Link: ${issue.url}`;
                     contextUsage={undefined}
                     isCompacting={false}
                     onCompact={undefined}
-                    agents={agents}
+                    agents={agentsWithGroups}
                     selectedAgent={selectedAgent}
                     onAgentChange={handleAgentChange}
                     slashCommands={EMPTY_SLASH}
@@ -931,6 +980,9 @@ Link: ${issue.url}`;
                     isIslandLayout={isIsland}
                     openclawAgentId={openclawAgentId}
                     onOpenclawAgentChange={handleOpenclawAgentChange}
+                    groups={agentGroups.groups.map((g) => ({ id: g.id, name: g.name, slots: g.slots.map((s) => ({ label: s.label, engine: s.engine, model: s.model, color: s.color, role: s.role })) }))}
+                    selectedGroupId={selectedGroupId}
+                    onGroupChange={setSelectedGroupId}
                   />
                 </div>
                 </>
@@ -1130,13 +1182,13 @@ Link: ${issue.url}`;
               groups: (
                 <GroupPanel
                   groups={agentGroups.groups}
-                  messages={agentGroups.messages}
-                  activeSessionStatus={agentGroups.activeSessionStatus}
+                  messages={[]}
+                  activeSessionStatus={manager.isProcessing && manager.activeSession?.engine === "group" ? "running" : "idle"}
                   onCreateGroup={agentGroups.createGroup}
                   onUpdateGroup={agentGroups.updateGroup}
                   onDeleteGroup={agentGroups.deleteGroup}
-                  onStartSession={agentGroups.startSession}
-                  onStopSession={agentGroups.stopSession}
+                  onStartSession={handleGroupSend}
+                  onStopSession={() => { if (manager.activeSession?.engine === "group") manager.stop(); }}
                   projectPath={activeProjectPath}
                 />
               ),

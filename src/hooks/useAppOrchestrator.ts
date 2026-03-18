@@ -300,12 +300,13 @@ export function useAppOrchestrator() {
 
   const handleSend = useCallback(
     async (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => {
+      const agent = selectedAgent;
       const currentEngine = manager.activeSession?.engine ?? "claude";
-      const wantedEngine = selectedAgent?.engine ?? "claude";
+      const wantedEngine = agent?.engine ?? "claude";
       const currentAgentId = manager.activeSession?.agentId;
-      const wantedAgentId = selectedAgent?.id;
+      const wantedAgentId = agent?.id;
       const wantedModel = settings.getModelForEngine(wantedEngine);
-      const needsNewSession = !manager.isDraft && manager.activeSession && (
+      const needsNewSession = !manager.isDraft && manager.activeSession && currentEngine !== "group" && (
         currentEngine !== wantedEngine ||
         (currentEngine === "acp" && wantedEngine === "acp" && currentAgentId !== wantedAgentId)
       );
@@ -317,8 +318,8 @@ export function useAppOrchestrator() {
           thinkingEnabled: settings.thinking,
           effort: wantedEngine === "claude" ? getClaudeEffortForModel(wantedModel || undefined) : undefined,
           engine: wantedEngine,
-          agentId: selectedAgent?.id ?? "claude-code",
-          cachedConfigOptions: selectedAgent?.cachedConfigOptions,
+          agentId: agent?.id ?? "claude-code",
+          cachedConfigOptions: agent?.cachedConfigOptions,
         });
       }
       await manager.send(text, images, displayText, codeSnippets);
@@ -573,6 +574,13 @@ export function useAppOrchestrator() {
       const openclawAgent = agents.find((a) => a.engine === "openclaw");
       if (openclawAgent && selectedAgent?.id !== openclawAgent.id) {
         setSelectedAgent(openclawAgent);
+      }
+      return;
+    }
+
+    if (session.engine === "group") {
+      if (selectedAgent?.id !== "__groups__") {
+        setSelectedAgent({ id: "__groups__", name: "Agent Groups", engine: "group" as EngineId, builtIn: true });
       }
       return;
     }

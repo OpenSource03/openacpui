@@ -14,7 +14,7 @@ export interface AgentGroup {
   id: string;
   name: string;
   slots: AgentSlot[];
-  turnOrder: "round-robin" | "leader-decides" | "parallel";
+  turnOrder: "round-robin" | "leader-decides" | "parallel" | "chat";
   createdAt: string;
   updatedAt: string;
 }
@@ -45,6 +45,7 @@ export interface GroupSession {
   prompt: string;
   cwd?: string;
   startedAt: string;
+  slotSdkSessionIds?: Record<string, string>;
 }
 
 export interface GroupSessionEvent {

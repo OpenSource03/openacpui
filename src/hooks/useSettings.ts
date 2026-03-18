@@ -73,6 +73,7 @@ const DEFAULT_ENGINE_MODELS: Record<EngineId, string> = {
   acp: "",
   codex: "",
   openclaw: "",
+  group: "",
 };
 
 const MIN_BOTTOM_HEIGHT = 120;
@@ -256,6 +257,7 @@ function readEngineModels(pid: string): Record<EngineId, string> {
     acp: readModelForEngine(pid, "acp"),
     codex: readModelForEngine(pid, "codex"),
     openclaw: readModelForEngine(pid, "openclaw"),
+    group: "",
   };
 }
 

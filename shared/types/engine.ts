@@ -30,7 +30,7 @@ export interface SessionMeta {
 }
 
 /** All supported engine identifiers. */
-export type EngineId = "claude" | "acp" | "codex" | "openclaw";
+export type EngineId = "claude" | "acp" | "codex" | "openclaw" | "group";
 
 /**
  * Permission response behaviors.

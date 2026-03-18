@@ -21,6 +21,7 @@ import {
   Pencil,
   Shield,
   Square,
+  Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -412,6 +413,7 @@ function EngineControls({
   isCodexAgent,
   isACPAgent,
   isOpenClawAgent,
+  isGroupAgent,
   isProcessing,
   showACPConfigOptions,
   modelList,
@@ -437,10 +439,14 @@ function EngineControls({
   onACPConfigChange,
   openclawAgentId,
   onOpenclawAgentChange,
+  groups,
+  selectedGroupId,
+  onGroupChange,
 }: {
   isCodexAgent: boolean;
   isACPAgent: boolean;
   isOpenClawAgent: boolean;
+  isGroupAgent: boolean;
   isProcessing: boolean;
   showACPConfigOptions: boolean;
   modelList: Array<{ id: string; label: string; description?: string }>;
@@ -466,7 +472,72 @@ function EngineControls({
   onACPConfigChange?: (configId: string, value: string) => void;
   openclawAgentId?: string;
   onOpenclawAgentChange?: (agentId: string) => void;
+  groups?: Array<{ id: string; name: string; slots: Array<{ label: string; engine: string; model: string; color: string; role: string }> }>;
+  selectedGroupId?: string | null;
+  onGroupChange?: (groupId: string | null) => void;
 }) {
+  if (isGroupAgent && groups && onGroupChange) {
+    const selectedGroup = selectedGroupId ? groups.find((g) => g.id === selectedGroupId) : undefined;
+    return (
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              disabled={isProcessing}
+            >
+              <Users className="h-3 w-3" />
+              {selectedGroup?.name ?? "Select group..."}
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {groups.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                No groups created yet
+              </div>
+            ) : (
+              groups.map((g) => (
+                <DropdownMenuItem
+                  key={g.id}
+                  onClick={() => onGroupChange(g.id)}
+                  className={g.id === selectedGroupId ? "bg-accent" : ""}
+                >
+                  <div>
+                    <div className="font-medium">{g.name}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {g.slots.map((s) => s.label).join(", ")}
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {selectedGroup && (
+          <div className="flex items-center gap-1">
+            {selectedGroup.slots.map((slot) => (
+              <Tooltip key={slot.label}>
+                <TooltipTrigger asChild>
+                  <div
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                    style={{ backgroundColor: slot.color }}
+                  >
+                    {slot.label[0].toUpperCase()}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  <div className="font-medium">{slot.label}</div>
+                  <div className="text-muted-foreground">{slot.engine}/{slot.model}</div>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
   if (isCodexAgent) {
     return (
       <>
@@ -737,6 +808,9 @@ interface InputBarProps {
   isIslandLayout?: boolean;
   openclawAgentId?: string;
   onOpenclawAgentChange?: (agentId: string) => void;
+  groups?: Array<{ id: string; name: string; slots: Array<{ label: string; engine: string; model: string; color: string; role: string }> }>;
+  selectedGroupId?: string | null;
+  onGroupChange?: (groupId: string | null) => void;
 }
 
 function fuzzyMatch(query: string, target: string): { match: boolean; score: number } {
@@ -876,6 +950,9 @@ export const InputBar = memo(function InputBar({
   onRemoveCodeSnippet,
   openclawAgentId,
   onOpenclawAgentChange,
+  groups,
+  selectedGroupId,
+  onGroupChange,
 }: InputBarProps) {
   const [hasContent, setHasContent] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
@@ -913,6 +990,7 @@ export const InputBar = memo(function InputBar({
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
   const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
   const isOpenClawAgent = selectedAgent != null && selectedAgent.engine === "openclaw";
+  const isGroupAgent = selectedAgent != null && selectedAgent.engine === "group";
   const showACPConfigOptions = isACPAgent && (acpConfigOptions?.length ?? 0) > 0;
   const isAwaitingAcpOptions = isACPAgent && !!acpConfigOptionsLoading;
   const modelsLoading = modelList.length === 0;
@@ -1857,6 +1935,7 @@ export const InputBar = memo(function InputBar({
               isCodexAgent={isCodexAgent}
               isACPAgent={isACPAgent}
               isOpenClawAgent={isOpenClawAgent}
+              isGroupAgent={isGroupAgent}
               isProcessing={isProcessing}
               showACPConfigOptions={showACPConfigOptions}
               modelList={modelList}
@@ -1882,6 +1961,9 @@ export const InputBar = memo(function InputBar({
               onACPConfigChange={onACPConfigChange}
               openclawAgentId={openclawAgentId}
               onOpenclawAgentChange={onOpenclawAgentChange}
+              groups={groups}
+              selectedGroupId={selectedGroupId}
+              onGroupChange={onGroupChange}
             />
           </div>
 

@@ -87,7 +87,7 @@ let shared: {
   processedFilePaths: Set<string>;
 } | null = null;
 
-function rpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+export function rpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
   if (!shared?.connected || !shared.ws || shared.ws.readyState !== WebSocket.OPEN) {
     return Promise.reject(new Error("Not connected to Gateway"));
   }
@@ -470,7 +470,7 @@ function handleMessage(raw: string): void {
   }
 }
 
-async function ensureConnection(getMainWindow: () => BrowserWindow | null): Promise<void> {
+export async function ensureConnection(getMainWindow: () => BrowserWindow | null): Promise<void> {
   if (shared?.connected && shared.ws.readyState === WebSocket.OPEN) return;
 
   if (shared?.reconnectTimer) {
@@ -1056,5 +1056,71 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       log("OPENCLAW_PAIR_ERR", msg);
       return { ok: false, error: msg };
     }
+  });
+}
+
+export async function openclawGroupQuery(
+  getMainWindow: () => BrowserWindow | null,
+  agentId: string,
+  text: string,
+  timeoutMs = 120_000,
+): Promise<string> {
+  await ensureConnection(getMainWindow);
+  if (!shared?.ws || shared.ws.readyState !== WebSocket.OPEN) {
+    throw new Error("Not connected to OpenClaw gateway");
+  }
+
+  let buffer = "";
+  let done = false;
+
+  return new Promise<string>((resolve) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(buffer || "(timeout)");
+    }, timeoutMs);
+
+    const handler = (raw: Buffer | string) => {
+      if (done) return;
+      let msg: Record<string, unknown>;
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+      if (msg.type !== "event" || msg.event !== "agent") return;
+      const payload = (msg.payload ?? {}) as Record<string, unknown>;
+      const stream = payload.stream as string;
+      const data = (payload.data ?? {}) as Record<string, unknown>;
+
+      if (stream === "assistant") {
+        const delta = (data.delta ?? "") as string;
+        if (delta) buffer += delta;
+      }
+      if (stream === "lifecycle") {
+        const phase = data.phase as string;
+        if (phase === "end" || phase === "done" || phase === "error") {
+          cleanup();
+          resolve(buffer || (phase === "error" ? `(error: ${data.error ?? "unknown"})` : "(no response)"));
+        }
+      }
+    };
+
+    const cleanup = () => {
+      done = true;
+      clearTimeout(timer);
+      shared?.ws?.removeListener("message", handler);
+    };
+
+    shared!.ws!.on("message", handler);
+
+    const sessionKey = `agent:${agentId}:editor`;
+    const params: Record<string, unknown> = {
+      sessionKey,
+      message: text,
+      deliver: false,
+      idempotencyKey: crypto.randomUUID(),
+    };
+
+    rpc("chat.send", params).catch((err) => {
+      cleanup();
+      resolve(`(error: ${(err as Error).message})`);
+    });
   });
 }

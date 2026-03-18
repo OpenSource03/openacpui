@@ -384,14 +384,33 @@ contextBridge.exposeInMainWorld("claude", {
     create: (group: unknown) => ipcRenderer.invoke("group:create", group),
     update: (group: unknown) => ipcRenderer.invoke("group:update", group),
     delete: (groupId: string) => ipcRenderer.invoke("group:delete", groupId),
-    startSession: (params: { groupId: string; prompt: string; cwd?: string }) =>
+    startSession: (params: { groupId: string; prompt: string; cwd?: string; projectId?: string }) =>
       ipcRenderer.invoke("group:start-session", params),
     stopSession: (sessionId: string) => ipcRenderer.invoke("group:stop-session", sessionId),
+    sendMessage: (sessionId: string, message: unknown, projectId?: string) =>
+      ipcRenderer.invoke("group:send", { sessionId, message, projectId }),
+    interrupt: (sessionId: string) => ipcRenderer.invoke("group:interrupt", sessionId),
+    generateTeam: (params: { prompt: string; cwd?: string }) =>
+      ipcRenderer.invoke("group:generate-team", params) as Promise<{ ok: boolean; result?: string; error?: string }>,
     getSession: (sessionId: string) => ipcRenderer.invoke("group:get-session", sessionId),
+    resumeSession: (sessionId: string, projectId?: string) =>
+      ipcRenderer.invoke("group:resume", { sessionId, projectId }),
     onEvent: (callback: (data: unknown) => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on("group:event", listener);
       return () => ipcRenderer.removeListener("group:event", listener);
+    },
+    onSlotEvent: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("group:slot-event", listener);
+      return () => ipcRenderer.removeListener("group:slot-event", listener);
+    },
+    respondPermission: (sessionId: string, slotId: string, requestId: string, behavior: string) =>
+      ipcRenderer.invoke("group:permission-response", { sessionId, slotId, requestId, behavior }),
+    onPermissionRequest: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("group:permission_request", listener);
+      return () => ipcRenderer.removeListener("group:permission_request", listener);
     },
   },
 });

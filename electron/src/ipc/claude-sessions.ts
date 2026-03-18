@@ -21,7 +21,7 @@ function fileCheckpointOptions(): Record<string, unknown> {
   };
 }
 
-type PermissionResult =
+export type PermissionResult =
   | { behavior: "allow"; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] }
   | { behavior: "deny"; message: string };
 
@@ -29,7 +29,7 @@ interface PendingPermission {
   resolve: (result: PermissionResult) => void;
 }
 
-interface SessionEntry {
+export interface SessionEntry {
   channel: AsyncChannel<unknown>;
   queryHandle: QueryHandle | null;
   eventCounter: number;

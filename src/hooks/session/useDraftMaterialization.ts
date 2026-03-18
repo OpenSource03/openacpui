@@ -69,7 +69,6 @@ export function useDraftMaterialization({
     codexRawModelsRef,
   } = refs;
 
-  // Eagerly start a Claude SDK session for immediate MCP status display
   const eagerStartSession = useCallback(async (projectId: string, options?: StartOptions) => {
     const project = refs.projectsRef.current.find((p) => p.id === projectId);
     if (!project) return;
@@ -87,21 +86,17 @@ export function useDraftMaterialization({
     } catch (err) {
       captureException(err instanceof Error ? err : new Error(String(err)), { label: "EAGER_START_ERR" });
       console.warn("[eagerStartSession] start() failed:", err);
-      return; // Eager start is optional — will fall back to normal start in materializeDraft
+      return;
     }
     if (result.error) {
       console.warn("[eagerStartSession] start() returned error:", result.error);
       return;
     }
-    // Only commit if still in draft for the same project
     if (activeSessionIdRef.current === DRAFT_ID && draftProjectIdRef.current === projectId) {
       liveSessionIdsRef.current.add(result.sessionId);
       preStartedSessionIdRef.current = result.sessionId;
       setPreStartedSessionId(result.sessionId);
 
-      // The system init event fires BEFORE start() returns, so the event router
-      // couldn't match it (preStartedSessionIdRef was still null). Query MCP
-      // status directly now that the session is initialized.
       const statusResult = await window.claude.mcpStatus(result.sessionId);
       if (statusResult.servers?.length && preStartedSessionIdRef.current === result.sessionId) {
         setDraftMcpStatuses(statusResult.servers.map(s => ({
@@ -110,13 +105,11 @@ export function useDraftMaterialization({
         })));
       }
 
-      // Same pattern for models — fetch directly since system/init already fired
       const modelsResult = await window.claude.supportedModels(result.sessionId);
       if (modelsResult.models?.length && preStartedSessionIdRef.current === result.sessionId) {
         setCachedModels(modelsResult.models);
       }
     } else {
-      // Draft was abandoned before eager start completed
       suppressNextSessionCompletion(result.sessionId);
       window.claude.stop(result.sessionId, "draft_abandoned");
     }
@@ -189,7 +182,6 @@ export function useDraftMaterialization({
         resolvedConfigOptions = bufferedConfig.configOptions ?? [];
       }
     } catch {
-      // Best-effort fetch only — use response payload if the buffer isn't ready yet.
     }
     acp.setConfigOptions(resolvedConfigOptions);
     setInitialConfigOptions(resolvedConfigOptions);
@@ -203,7 +195,6 @@ export function useDraftMaterialization({
         source: "acp" as const,
       })));
     } catch {
-      // Best-effort fetch only — command updates will still stream through once mounted.
     }
 
     if (result.mcpStatuses?.length) {
@@ -215,7 +206,6 @@ export function useDraftMaterialization({
     setAcpConfigOptionsLoading(false);
   }, [acp, getProjectCwd, setAcpConfigOptionsLoading, setDraftAcpSessionId, setDraftMcpStatuses, setInitialConfigOptions, setInitialSlashCommands]);
 
-  // Load Codex models ahead of first message so the model picker is usable in draft mode.
   const prefetchCodexModels = useCallback(async (preferredModel?: string) => {
     setCodexModelsLoadingMessage("Checking Codex CLI...");
     try {
@@ -255,28 +245,24 @@ export function useDraftMaterialization({
       });
       setCodexModelsLoadingMessage(null);
     } catch (err) {
-      // Model prefetch is optional — draft session can still start on first send.
       captureException(err instanceof Error ? err : new Error(String(err)), { label: "CODEX_MODELS_PREFETCH_ERR" });
       const message = err instanceof Error ? err.message : String(err);
       setCodexModelsLoadingMessage(`Failed to initialize Codex CLI: ${message}`);
     }
   }, [applyCodexModelDefaultEffort, codex.setCodexModels, setCodexModelsLoadingMessage, setCodexRawModels, setStartOptions]);
 
-  // Probe MCP servers ourselves (for engines that don't report status, e.g. ACP)
   const probeMcpServers = useCallback(async (projectId: string, overrideServers?: McpServerConfig[]) => {
     const servers = overrideServers ?? await window.claude.mcp.list(projectId);
     if (servers.length === 0) {
       setDraftMcpStatuses([]);
       return;
     }
-    // Show pending while probing
     if (activeSessionIdRef.current === DRAFT_ID && draftProjectIdRef.current === projectId) {
       setDraftMcpStatuses(servers.map(s => ({
         name: s.name,
         status: "pending" as const,
       })));
     }
-    // Probe each server for real connectivity
     const results = await window.claude.mcp.probe(servers);
     if (activeSessionIdRef.current === DRAFT_ID && draftProjectIdRef.current === projectId) {
       setDraftMcpStatuses(results.map(r => ({
@@ -287,7 +273,6 @@ export function useDraftMaterialization({
     }
   }, []);
 
-  // Clean up a pre-started eager session
   const abandonEagerSession = useCallback((reason = "cleanup") => {
     const id = preStartedSessionIdRef.current;
     if (!id) return;
@@ -318,7 +303,6 @@ export function useDraftMaterialization({
 
   const materializeDraft = useCallback(
     async (text: string, images?: ImageAttachment[], displayText?: string) => {
-      // Re-entrancy guard — prevent double-materialization from rapid sends
       if (materializingRef.current) return "";
       materializingRef.current = true;
 
@@ -336,12 +320,9 @@ export function useDraftMaterialization({
       let codexThreadId: string | undefined;
       let reusedPreStarted = false;
 
-      // Load per-project MCP servers to pass to the session
       const mcpServers = await window.claude.mcp.list(project.id);
 
       if (draftEngine === "acp" && options.agentId) {
-        // Show a "New Chat" entry in the sidebar immediately — before the blocking acp:start.
-        // Uses DRAFT_ID as a placeholder; replaced with real session ID on success, removed on error.
         setSessions(prev => [{
           id: DRAFT_ID,
           projectId: project.id,
@@ -429,13 +410,11 @@ export function useDraftMaterialization({
             setInitialConfigOptions(result.configOptions);
           }
         }
-        // Transition draftMcpStatuses (from probe) → acpMcpStatuses for the live session
         setAcpMcpStatuses(draftMcpStatusesRef.current.length > 0
           ? draftMcpStatusesRef.current
           : mcpServers.map(s => ({ name: s.name, status: "connected" as const }))
         );
       } else if (draftEngine === "codex") {
-        // Codex app-server path
         setSessions(prev => [{
           id: DRAFT_ID,
           projectId: project.id,
@@ -487,7 +466,6 @@ export function useDraftMaterialization({
         codexThreadId = result.threadId;
         let resolvedCodexModel = result.selectedModel;
 
-        // Store Codex models for the model picker (map from Codex Model → our ModelInfo)
         if (result.models && Array.isArray(result.models)) {
           const models = normalizeCodexModels(result.models);
           if (models.length > 0) {
@@ -510,9 +488,7 @@ export function useDraftMaterialization({
         }
         sessionModel = resolvedCodexModel ?? sessionModel;
 
-        // If auth is required, show auth dialog (handled by UI layer via codex:auth_required event)
         if (result.needsAuth) {
-          // Session is alive but waiting for auth — UI will render CodexAuthDialog
         }
       } else if (draftEngine === "openclaw") {
         setSessions(prev => [{
@@ -550,8 +526,49 @@ export function useDraftMaterialization({
           return "";
         }
         sessionId = result.sessionId;
+      } else if (draftEngine === "group") {
+        const groupId = options.groupId;
+        if (!groupId) {
+          materializingRef.current = false;
+          return "";
+        }
+        setSessions(prev => [{
+          id: DRAFT_ID,
+          projectId: project.id,
+          title: "New Chat",
+          createdAt: Date.now(),
+          lastMessageAt: Date.now(),
+          totalCost: 0,
+          planMode: false,
+          isActive: true,
+          engine: "group" as const,
+          groupId,
+        }, ...prev.map(s => ({ ...s, isActive: false }))]);
+        const result = await window.claude.groups.startSession({
+          groupId,
+          prompt: text,
+          cwd: getProjectCwd(project),
+          projectId: project.id,
+        });
+        if (result.error || !result.ok || !result.sessionId) {
+          const errorMsg = result.error || "Failed to start group session";
+          const failedId = `failed-group-${Date.now()}`;
+          const now = Date.now();
+          const errorMessages: UIMessage[] = [
+            { id: `user-${now}`, role: "user" as const, content: text, timestamp: now, ...(images?.length ? { images } : {}), ...(displayText ? { displayContent: displayText } : {}) },
+            { id: `system-error-${now}`, role: "system" as const, content: errorMsg, isError: true, timestamp: now },
+          ];
+          setSessions(prev => prev.map(s => s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s));
+          setInitialMessages(errorMessages);
+          setInitialMeta({ isProcessing: false, isConnected: false, sessionInfo: null, totalCost: 0, contextUsage: null });
+          setActiveSessionId(failedId);
+          setDraftProjectId(null);
+          window.claude.sessions.save({ id: failedId, projectId: project.id, title: "New Chat", createdAt: Date.now(), messages: errorMessages, planMode: false, totalCost: 0, engine: "group", groupId });
+          materializingRef.current = false;
+          return "";
+        }
+        sessionId = result.sessionId;
       } else {
-        // Claude SDK path — reuse pre-started session if available
         const preStarted = preStartedSessionIdRef.current;
         if (preStarted && liveSessionIdsRef.current.has(preStarted)) {
           sessionId = preStarted;
@@ -559,7 +576,6 @@ export function useDraftMaterialization({
           setPreStartedSessionId(null);
           reusedPreStarted = true;
 
-          // Consume background store state accumulated during draft
           const bgState = backgroundStoreRef.current.consume(sessionId);
           if (bgState) {
             setInitialMessages(bgState.messages);
@@ -573,7 +589,6 @@ export function useDraftMaterialization({
             });
           }
         } else {
-          // Fallback: start normally (eager start failed or was cleaned up)
           let result;
           try {
             result = await window.claude.start({
@@ -591,7 +606,6 @@ export function useDraftMaterialization({
             return "";
           }
           if (result.error) {
-            // The exit event handler in useClaude will show the error message
             console.error("[materializeDraft] start() returned error:", result.error);
             materializingRef.current = false;
             return "";
@@ -622,17 +636,14 @@ export function useDraftMaterialization({
           agentId: options.agentId ?? "codex",
           codexThreadId,
         } : {}),
+        ...(draftEngine === "group" && options.groupId ? { groupId: options.groupId } : {}),
       };
 
-      // Replace the DRAFT_ID placeholder (if any) with the real session entry
       setSessions((prev) =>
         [newSession, ...prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false }))],
       );
       if (!reusedPreStarted) {
-        if (draftEngine === "acp") {
-          // Preserve the user message + processing state through useACP's reset effect
-          // (which fires when sessionId changes from null → new ID).
-          // React 19 batches these setState calls with setActiveSessionId below.
+        if (draftEngine === "acp" || draftEngine === "group") {
           const userMsg: UIMessage = {
             id: `user-${Date.now()}`,
             role: "user" as const,
@@ -662,10 +673,8 @@ export function useDraftMaterialization({
       }
       setDraftProjectId(null);
 
-      // Refresh MCP status since useClaude may have missed the system init event
       setTimeout(() => { claude.refreshMcpStatus(); }, 500);
 
-      // Fire-and-forget AI title generation — routes through ACP if that's the active engine
       generateSessionTitle(sessionId, text, getProjectCwd(project), draftEngine);
 
       materializingRef.current = false;

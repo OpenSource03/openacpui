@@ -14,8 +14,9 @@ interface SessionMeta {
   model?: string;
   planMode?: boolean;
   totalCost?: number;
-  engine?: "claude" | "acp" | "codex";
+  engine?: "claude" | "acp" | "codex" | "group";
   codexThreadId?: string;
+  groupId?: string;
 }
 
 interface SearchResult {
@@ -60,6 +61,7 @@ function extractSessionMeta(data: Record<string, unknown>, lastMessageAt: number
     totalCost: (data.totalCost as number) || 0,
     engine: data.engine as SessionMeta["engine"],
     codexThreadId: data.codexThreadId as string | undefined,
+    groupId: data.groupId as string | undefined,
   };
 }
 

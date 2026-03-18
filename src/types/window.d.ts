@@ -36,7 +36,6 @@ interface SessionListItem {
   projectId: string;
   title: string;
   createdAt: number;
-  /** Timestamp of the most recent message — used for sidebar sort order */
   lastMessageAt: number;
   model?: string;
   planMode?: boolean;
@@ -59,9 +58,7 @@ declare global {
         thinkingEnabled?: boolean;
         effort?: ClaudeEffort;
         resume?: string;
-        /** Fork to a new session ID when resuming (model forgets messages after resumeSessionAt) */
         forkSession?: boolean;
-        /** Resume at a specific message UUID — used with forkSession to truncate history */
         resumeSessionAt?: string;
         mcpServers?: McpServerConfig[];
       }) => Promise<{ sessionId: string; pid: number; error?: string }>;
@@ -348,7 +345,6 @@ declare global {
         save: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
         delete: (id: string) => Promise<{ ok?: boolean; error?: string }>;
         updateCachedConfig: (agentId: string, configOptions: ACPConfigOption[]) => Promise<{ ok?: boolean }>;
-        /** Batch-check if binary-only agents are installed on the system PATH. */
         checkBinaries: (
           agents: Array<{ id: string; binary: Record<string, { cmd: string; args?: string[] }> }>,
         ) => Promise<Record<string, { path: string; args?: string[] } | null>>;
@@ -379,15 +375,11 @@ declare global {
         transitionIssue: (params: JiraTransitionIssueParams) => Promise<{ ok: true }>;
       };
       analytics: {
-        /** Fire-and-forget analytics event via the main process PostHog client. */
         capture: (event: string, properties?: Record<string, unknown>) => void;
       };
       speech: {
-        /** Triggers macOS native dictation (Cocoa startDictation: selector). Returns { ok: false } on non-macOS. */
         startNativeDictation: () => Promise<{ ok: boolean; reason?: string }>;
-        /** Returns the OS platform string (darwin, win32, linux) */
         getPlatform: () => Promise<string>;
-        /** Requests microphone permission (macOS system dialog). Returns { granted } on all platforms. */
         requestMicPermission: () => Promise<{ granted: boolean }>;
       };
       updater: {
@@ -405,9 +397,16 @@ declare global {
         create: (group: AgentGroup) => Promise<{ ok: boolean; group?: AgentGroup; error?: string }>;
         update: (group: AgentGroup) => Promise<{ ok: boolean; group?: AgentGroup; error?: string }>;
         delete: (groupId: string) => Promise<{ ok: boolean; error?: string }>;
-        startSession: (params: { groupId: string; prompt: string; cwd?: string }) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+        startSession: (params: { groupId: string; prompt: string; cwd?: string; projectId?: string }) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
         stopSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+        generateTeam: (params: { prompt: string; cwd?: string }) => Promise<{ ok: boolean; result?: string; error?: string }>;
         getSession: (sessionId: string) => Promise<{ ok: boolean; session?: unknown; error?: string }>;
+        resumeSession: (sessionId: string, projectId?: string) => Promise<{ ok: boolean; error?: string }>;
+        sendMessage: (sessionId: string, message: unknown, projectId?: string) => Promise<{ ok?: boolean; error?: string }>;
+        interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        onSlotEvent: (callback: (data: unknown) => void) => () => void;
+        respondPermission: (sessionId: string, slotId: string, requestId: string, behavior: string) => Promise<{ ok?: boolean; error?: string }>;
+        onPermissionRequest: (callback: (data: unknown) => void) => () => void;
         onEvent: (callback: (data: GroupSessionEvent) => void) => () => void;
       };
     };

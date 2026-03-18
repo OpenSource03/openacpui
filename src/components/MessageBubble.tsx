@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef, useMemo, createContext, useContext, type ReactNode } from "react";
-import { AlertCircle, Clock, Crosshair, File, Folder, Info, RotateCcw, Send, Undo2, X } from "lucide-react";
+import { AlertCircle, Clock, Crosshair, Crown, File, Folder, Info, RotateCcw, Send, Undo2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -164,7 +164,13 @@ export const MessageBubble = memo(function MessageBubble({
   const isUser = message.role === "user";
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
   const time = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
-  const displayContent = useMemo(() => isUser ? (message.displayContent ?? stripFileContext(message.content)) : message.content, [isUser, message.content, message.displayContent]);
+  const displayContent = useMemo(() => {
+    if (isUser) return message.displayContent ?? stripFileContext(message.content);
+    if (message.groupSlot && message.content) {
+      return message.content.replace(/\[(?:PASS|PARALLEL|SEQUENTIAL)\]\s*/g, "").trim();
+    }
+    return message.content;
+  }, [isUser, message.content, message.displayContent, message.groupSlot]);
 
   const isOpenClawStream = message.id.startsWith("openclaw-stream");
   const proseRef = useStreamingTextReveal(
@@ -343,38 +349,63 @@ export const MessageBubble = memo(function MessageBubble({
   }, [message.isStreaming]);
 
   return (
-    <div ref={sentinelRef} className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : "py-1.5"}`}>
+    <div ref={sentinelRef} className={`flex justify-start px-4 ${isContinuation ? "py-0.5" : message.groupSlot ? "pt-5 pb-1" : "py-1.5"}`}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="min-w-0 max-w-[85%] wrap-break-word">
-            {showThinking && message.thinking && (
-              <div className={message.content ? "mb-2" : undefined}>
-                <ThinkingBlock
-                  thinking={message.thinking}
-                  isStreaming={message.isStreaming}
-                  thinkingComplete={message.thinkingComplete}
-                />
+          <div className={`min-w-0 max-w-[85%] wrap-break-word ${message.groupSlot ? "flex items-start gap-2" : ""}`}>
+            {message.groupSlot && (
+              <div
+                className="mt-5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                style={{ backgroundColor: message.groupSlot.color }}
+              >
+                {message.groupSlot.label[0].toUpperCase()}
               </div>
             )}
-            {message.content ? (
-              isVisible ? (
-                <div
-                  ref={proseRef}
-                  className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
-                >
-                  <ReactMarkdown
-                    remarkPlugins={REMARK_PLUGINS}
-                    components={MD_COMPONENTS}
+            <div className={message.groupSlot ? "min-w-0 flex-1" : undefined}>
+            {message.groupSlot && (
+              <div className="mb-1.5 flex items-center gap-1 ps-1">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {message.groupSlot.label}
+                </span>
+                {message.groupSlot.role === "leader" && (
+                  <Crown className="h-2.5 w-2.5 text-amber-400" />
+                )}
+              </div>
+            )}
+            <div
+              className={message.groupSlot ? "rounded-2xl rounded-tl-sm px-3.5 py-2" : undefined}
+              style={message.groupSlot ? { backgroundColor: `${message.groupSlot.color}30` } : undefined}
+            >
+              {showThinking && message.thinking && (
+                <div className={message.content ? "mb-2" : undefined}>
+                  <ThinkingBlock
+                    thinking={message.thinking}
+                    isStreaming={message.isStreaming}
+                    thinkingComplete={message.thinkingComplete}
+                  />
+                </div>
+              )}
+              {displayContent ? (
+                isVisible ? (
+                  <div
+                    ref={proseRef}
+                    className="prose dark:prose-invert prose-sm max-w-none text-foreground [&_li::marker]:text-foreground dark:[&_li::marker]:text-foreground/70"
                   >
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
-              ) : (
-                <div className="prose dark:prose-invert prose-sm max-w-none text-foreground whitespace-pre-wrap">
-                  {message.content}
-                </div>
-              )
-            ) : null}
+                    <ReactMarkdown
+                      remarkPlugins={REMARK_PLUGINS}
+                      components={MD_COMPONENTS}
+                    >
+                      {displayContent}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="prose dark:prose-invert prose-sm max-w-none text-foreground whitespace-pre-wrap">
+                    {displayContent}
+                  </div>
+                )
+              ) : null}
+            </div>
+            </div>
           </div>
         </TooltipTrigger>
         <TooltipContent side="right">
@@ -395,6 +426,7 @@ export const MessageBubble = memo(function MessageBubble({
   prev.isSendNextQueued === next.isSendNextQueued &&
   prev.showThinking === next.showThinking &&
   prev.isContinuation === next.isContinuation &&
+  prev.message.groupSlot === next.message.groupSlot &&
   prev.onRevert === next.onRevert &&
   prev.onFullRevert === next.onFullRevert &&
   prev.onSendQueuedNow === next.onSendQueuedNow &&

@@ -30,7 +30,6 @@ export function useOpenClaw({ sessionId, initialMessages, initialMeta, initialPe
     pendingPermission, setPendingPermission,
     contextUsage, setContextUsage,
     sessionIdRef,
-    scheduleFlush: scheduleRaf,
     cancelPendingFlush,
   } = base;
 
@@ -50,10 +49,6 @@ export function useOpenClaw({ sessionId, initialMessages, initialMeta, initialPe
       return { ...m, content: text };
     }));
   }, [setMessages]);
-
-  const scheduleFlush = useCallback(() => {
-    scheduleRaf(flushStreamingToState);
-  }, [scheduleRaf, flushStreamingToState]);
 
   const ensureStreamingMessage = useCallback(() => {
     if (buffer.current.messageId) return;

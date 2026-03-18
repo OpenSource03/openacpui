@@ -6,6 +6,7 @@ export const ENGINE_ICONS: Record<string, string> = {
   claude: "https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg",
   codex: "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
   openclaw: "Lobster",
+  group: "Users",
 };
 
 /** Resolve the icon source for an agent — engine CDN icons override agent-level icons */

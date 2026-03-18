@@ -149,6 +149,7 @@ export interface UIMessage {
     checkpointId?: string;
     isQueued?: boolean;
     codeSnippets?: CodeSnippet[];
+  groupSlot?: { label: string; color: string; engine: string; model: string; role?: string };
 }
 
 export interface SessionInfo {
@@ -183,6 +184,7 @@ export interface SessionBase {
   agentSessionId?: string;
   agentId?: string;
   codexThreadId?: string;
+  groupId?: string;
 }
 
 export interface ChatSession extends SessionBase {
@@ -219,6 +221,7 @@ export interface PermissionRequest {
   toolUseId: string;
   suggestions?: PermissionUpdate[];
   decisionReason?: string;
+  slotSessionId?: string;
 }
 
 export type AcpPermissionBehavior = "ask" | "auto_accept" | "allow_all";

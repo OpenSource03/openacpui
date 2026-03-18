@@ -15,7 +15,7 @@ export interface StartOptions {
   effort?: ClaudeEffort;
   engine?: EngineId;
   agentId?: string;
-  /** Cached config options from previous sessions */
+  groupId?: string;
   cachedConfigOptions?: ACPConfigOption[];
 }
 
@@ -108,15 +108,15 @@ import type { useClaude } from "../useClaude";
 import type { useACP } from "../useACP";
 import type { useCodex } from "../useCodex";
 import type { useOpenClaw } from "../useOpenClaw";
+import type { useGroupEngine } from "../useGroupEngine";
 
-/** The engine hook return types that sub-hooks need to call */
 export interface EngineHooks {
   claude: ReturnType<typeof useClaude>;
   acp: ReturnType<typeof useACP>;
   codex: ReturnType<typeof useCodex>;
   openclaw: ReturnType<typeof useOpenClaw>;
-  /** The currently-active engine — one of claude/acp/codex/openclaw */
-  engine: ReturnType<typeof useClaude> | ReturnType<typeof useACP> | ReturnType<typeof useCodex> | ReturnType<typeof useOpenClaw>;
+  group: ReturnType<typeof useGroupEngine>;
+  engine: ReturnType<typeof useClaude> | ReturnType<typeof useACP> | ReturnType<typeof useCodex> | ReturnType<typeof useOpenClaw> | ReturnType<typeof useGroupEngine>;
 }
 
 // ── Utility functions shared across sub-hooks ──

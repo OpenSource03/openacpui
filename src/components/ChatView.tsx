@@ -43,31 +43,21 @@ interface ChatViewProps {
   extraBottomPadding?: boolean;
   scrollToMessageId?: string;
   onScrolledToMessage?: () => void;
-  /** Session ID — used to force-scroll to bottom on session switch */
   sessionId?: string;
-  /** Called when user clicks "Revert files only" on a user message */
   onRevert?: (checkpointId: string) => void;
-  /** Called when user clicks "Revert files + chat" on a user message */
   onFullRevert?: (checkpointId: string) => void;
-  /** Reports whether the chat is scrolled away from the top (scrollTop > 4px) */
   onScrolledFromTop?: (scrolled: boolean) => void;
-  /** Reports smooth top-scroll transition progress [0..1] for header/fade blending */
   onTopScrollProgress?: (progress: number) => void;
-  /** Send this queued user message next (interrupting current turn at safe boundary) */
   onSendQueuedNow?: (messageId: string) => void;
-  /** Remove this queued user message without sending it */
   onUnqueueQueuedMessage?: (messageId: string) => void;
-  /** Message ID explicitly marked as "send next" by the user */
   sendNextId?: string | null;
-  /** Available agents for the engine picker in the empty state */
   agents?: InstalledAgent[];
-  /** Currently selected agent */
   selectedAgent?: InstalledAgent | null;
-  /** Switch to a different agent/engine */
   onAgentChange?: (agent: InstalledAgent | null) => void;
+  activeSlots?: Map<string, { label: string; color: string; activity: "typing" | "thinking" | "tool" }>;
 }
 
-export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits, autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, onUnqueueQueuedMessage, sendNextId, agents, selectedAgent, onAgentChange }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits, autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage, sessionId, onRevert, onFullRevert, onScrolledFromTop, onTopScrollProgress, onSendQueuedNow, onUnqueueQueuedMessage, sendNextId, agents, selectedAgent, onAgentChange, activeSlots }: ChatViewProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -78,7 +68,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   const observedViewportHeightRef = useRef(0);
   const settleRafRef = useRef<number | null>(null);
   const scrollRafPending = useRef(false);
-  // Ref avoids stale closure in the scroll handler
   const onScrolledFromTopRef = useRef(onScrolledFromTop);
   onScrolledFromTopRef.current = onScrolledFromTop;
   const onTopScrollProgressRef = useRef(onTopScrollProgress);
@@ -238,8 +227,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     const shouldForce = opts?.force === true;
     if (!shouldForce && !bottomLockedRef.current) return;
     clearSettleTimers();
-    // Single rAF is sufficient — the ResizeObserver handles ongoing content growth
-    settleRafRef.current = window.requestAnimationFrame(() => {
+      settleRafRef.current = window.requestAnimationFrame(() => {
       settleRafRef.current = null;
       jumpToBottom({ force: shouldForce });
     });
@@ -257,15 +245,12 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     jumpToBottom({ force: true });
   }, [jumpToBottom, sessionId]);
 
-  // Track whether user is near the bottom; this drives sticky auto-follow behavior.
   useEffect(() => {
     const viewport = getViewport();
     if (!viewport) return;
 
     const updateAutoFollow = () => {
       const { scrollTop, scrollHeight, clientHeight } = syncViewportState(viewport);
-      // Auto-follow tracking is suppressed during programmatic scrolls to
-      // prevent them from unlocking sticky follow mode
       if (suppressScrollTrackingRef.current > 0) {
         if (isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
           bottomLockedRef.current = true;
@@ -309,7 +294,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       }
     };
 
-    // Throttle scroll handler behind a rAF gate to avoid layout thrashing
     const throttledUpdateAutoFollow = () => {
       if (scrollRafPending.current) return;
       scrollRafPending.current = true;
@@ -334,8 +318,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     };
   }, [messages.length, clearSettleTimers, expandRenderedHistory, getViewport, syncViewportState, visibleStartIndex]);
 
-  // Force-scroll to bottom again after session changes so late layout shifts
-  // still settle at the bottom even after the immediate layout pass above.
   useEffect(() => {
     if (!sessionId) return;
     bottomLockedRef.current = true;
@@ -343,8 +325,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     scheduleSettleToBottom({ force: true });
   }, [sessionId, scheduleSettleToBottom]);
 
-  // ResizeObserver on the scroll viewport + content: catches both content growth
-  // and late layout changes that alter the visible viewport height on open.
   useEffect(() => {
     const viewport = getViewport();
     const content = contentRef.current;
@@ -376,7 +356,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
 
   useEffect(() => clearSettleTimers, [clearSettleTimers]);
 
-  // Scroll to specific message (from search navigation)
   useEffect(() => {
     if (!scrollToMessageId) return;
     const targetIndex = messages.findIndex((msg) => msg.id === scrollToMessageId);
@@ -389,7 +368,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     const el = scrollAreaRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Flash highlight
       el.classList.add("search-highlight");
       const timer = setTimeout(() => {
         el.classList.remove("search-highlight");
@@ -397,7 +375,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
       }, 1500);
       return () => clearTimeout(timer);
     }
-    // If element not found yet (messages still loading), try again
     const retry = setTimeout(() => {
       const retryEl = scrollAreaRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
       if (retryEl) {
@@ -414,9 +391,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return () => clearTimeout(retry);
   }, [clearSettleTimers, expandRenderedHistory, messages, onScrolledToMessage, scrollToMessageId, visibleStartIndex]);
 
-  // Single-pass partition: split visible messages into non-queued and queued.
-  // Short-circuits when no queued messages exist (the common case) to preserve
-  // referential equality and avoid downstream useMemo recomputations.
   const { nonQueuedMessages, queuedMessages } = useMemo(() => {
     const hasQueued = visibleMessages.some((m) => m.isQueued);
     if (!hasQueued) {
@@ -430,24 +404,26 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return { nonQueuedMessages: nonQueued, queuedMessages: queued };
   }, [visibleMessages]);
 
-  // Pre-compute continuation IDs in O(n) forward pass
   const continuationIds = useMemo(() => {
     const ids = new Set<string>();
     let lastRole: string | null = null;
-    // Use nonQueuedMessages + queuedMessages directly instead of a separate concat
+    let lastGroupSlotLabel: string | undefined = undefined;
     const allMessages = queuedMessages.length > 0
       ? [...nonQueuedMessages, ...queuedMessages]
       : nonQueuedMessages;
     for (const msg of allMessages) {
       if (msg.role === "assistant") {
-        if (lastRole === "assistant" || lastRole === "tool_call" || lastRole === "tool_result" || lastRole === "system" || lastRole === "summary") {
+        const slotLabel = msg.groupSlot?.label;
+        const sameSlot = slotLabel ? slotLabel === lastGroupSlotLabel : true;
+        if (sameSlot && (lastRole === "assistant" || lastRole === "tool_call" || lastRole === "tool_result" || lastRole === "system" || lastRole === "summary")) {
           ids.add(msg.id);
         }
         lastRole = "assistant";
+        lastGroupSlotLabel = slotLabel;
       } else if (msg.role === "user") {
         lastRole = "user";
+        lastGroupSlotLabel = undefined;
       } else {
-        // tool_call, tool_result, system, summary: don't reset assistant chain
         if (lastRole !== null) {
           lastRole = lastRole === "user" ? "user" : lastRole;
         }
@@ -456,11 +432,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return ids;
   }, [nonQueuedMessages, queuedMessages]);
 
-  // Stable-identity cache for expensive derived computations.
-  // During streaming, only the last message's content changes — the message list
-  // structure (length + IDs) stays the same. We skip recomputation when the
-  // structure hasn't changed since these functions only care about message roles
-  // and tool results, not streaming text content.
   const prevMsgStructureRef = useRef<{ length: number; lastId: string | undefined; lastToolResultCount: number }>({ length: 0, lastId: undefined, lastToolResultCount: 0 });
   const cachedTurnSummaryRef = useRef<Map<number, TurnSummary>>(new Map());
   const cachedToolGroupsRef = useRef<ToolGroupInfo>(EMPTY_TOOL_GROUP_INFO);
@@ -468,9 +439,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
   const prevAutoGroupRef = useRef(autoGroupTools);
   const prevAvoidEditRef = useRef(avoidGroupingEdits);
 
-  // Check if the message structure actually changed (new messages added, tool results arrived, etc.)
   const msgStructure = useMemo(() => {
-    // Count tool results to detect when a tool_call gets its result
     let toolResultCount = 0;
     for (let i = nonQueuedMessages.length - 1; i >= Math.max(0, nonQueuedMessages.length - 10); i--) {
       if (nonQueuedMessages[i].role === "tool_call" && nonQueuedMessages[i].toolResult) toolResultCount++;
@@ -488,11 +457,8 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     msgStructure.lastToolResultCount !== prevMsgStructureRef.current.lastToolResultCount ||
     isProcessing !== prevIsProcessingRef.current;
 
-  // Pre-compute per-turn change summaries, keyed by the last message index of each turn.
-  // Only completed turns with file changes get a summary block rendered after them.
   const turnSummaryByEndIndex = useMemo(() => {
     if (!structureChanged && cachedTurnSummaryRef.current.size >= 0) {
-      // Structure unchanged (streaming content update only) — reuse cache
       if (prevMsgStructureRef.current.length > 0) return cachedTurnSummaryRef.current;
     }
     prevMsgStructureRef.current = msgStructure;
@@ -506,8 +472,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return map;
   }, [nonQueuedMessages, isProcessing, structureChanged, msgStructure]);
 
-  // Pre-compute tool groups when enabled: contiguous tool_call sequences between
-  // assistant text messages, also absorbing any in-between thinking-only rows.
   const { groups: toolGroups, groupedIndices } = useMemo(() => {
     if (!autoGroupTools) return EMPTY_TOOL_GROUP_INFO;
     const settingsChanged = autoGroupTools !== prevAutoGroupRef.current || avoidGroupingEdits !== prevAvoidEditRef.current;
@@ -521,7 +485,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return result;
   }, [autoGroupTools, avoidGroupingEdits, nonQueuedMessages, isProcessing, structureChanged]);
 
-  // Finalized group keys (first tool message ID), used to detect newly formed groups.
   const finalizedGroupKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const group of toolGroups.values()) {
@@ -532,9 +495,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return keys;
   }, [toolGroups]);
 
-  // Track group animation per viewed session.
-  // A group only morphs if this view previously rendered its first tool_call
-  // as a standalone message before the assistant finalized the group.
   const knownGroupKeysRef = useRef<Set<string>>(new Set());
   const seenUngroupedToolKeysRef = useRef<Set<string>>(new Set());
   const trackedSessionIdRef = useRef<string | undefined | null>(null);
@@ -556,8 +516,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return keys;
   }, [groupedIndices, nonQueuedMessages, toolGroups]);
 
-  // Groups finalized in this render animate only if this view previously showed
-  // their first tool as an individual tool_call before grouping.
   const animatingGroupKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const key of finalizedGroupKeys) {
@@ -571,7 +529,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     return keys;
   }, [finalizedGroupKeys]);
 
-  // Record standalone tool_calls after commit so a later finalization can morph once.
   useEffect(() => {
     if (visibleUngroupedToolKeys.size === 0) return;
     const seen = seenUngroupedToolKeysRef.current;
@@ -580,7 +537,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     }
   }, [visibleUngroupedToolKeys]);
 
-  // Mark finalized groups as known after commit so they never re-animate.
   useEffect(() => {
     const known = knownGroupKeysRef.current;
     for (const key of finalizedGroupKeys) {
@@ -588,7 +544,6 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
     }
   }, [finalizedGroupKeys]);
 
-  // Memoized processing indicator check — avoids O(n) .some() scan inside JSX on every render
   const showProcessingIndicator = useMemo(() => {
     if (!isProcessing) return false;
     return !nonQueuedMessages.some((m) =>
@@ -675,18 +630,14 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
           </div>
         )}
         {nonQueuedMessages.map((msg, index) => {
-          // Determine the turn summary to render after this message (if any)
           const turnSummary = turnSummaryByEndIndex.get(index);
 
           if (msg.role === "tool_call") {
-            // Check if this tool_call is part of a finalized group
             const group = toolGroups.get(index);
             if (group && group.isFinalized) {
-              // This is the start of a finalized group — render ToolGroupBlock
               const groupKey = group.tools[0].id;
               const isNewGroup = animatingGroupKeys.has(groupKey);
 
-              // Collect any turn summaries that fall within this group's range
               let groupTurnSummary: TurnSummary | undefined;
               for (let gi = group.startIndex; gi <= group.endIndex; gi++) {
                 const ts = turnSummaryByEndIndex.get(gi);
@@ -709,10 +660,8 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
               );
             }
             if (groupedIndices.has(index)) {
-              // This tool_call is inside a finalized group but not the start — skip
               return null;
             }
-            // Not in a finalized group — render individually (Feature 1 auto-collapse applies)
             return (
               <Fragment key={msg.id}>
                 <div data-message-id={msg.id} className="message-item"><ToolCall message={msg} autoExpandTools={autoExpandTools} /></div>
@@ -754,8 +703,23 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
             </Fragment>
           );
         })}
-        {/* Session-level processing indicator: shows while model is working but not outputting text or running tools */}
-        {showProcessingIndicator && (
+        {showProcessingIndicator && activeSlots && activeSlots.size > 0 ? (
+          <div className="flex flex-col gap-1 px-4 py-1.5">
+            {[...activeSlots.entries()].map(([slotId, slot]) => (
+              <div key={slotId} className="flex items-center gap-1.5">
+                <div
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                  style={{ backgroundColor: slot.color }}
+                >
+                  {slot.label[0].toUpperCase()}
+                </div>
+                <TextShimmer as="span" className="text-xs italic opacity-60" duration={1.8} spread={1.5}>
+                  {slot.activity === "thinking" ? `${slot.label} is thinking...` : `${slot.label} is typing...`}
+                </TextShimmer>
+              </div>
+            ))}
+          </div>
+        ) : showProcessingIndicator ? (
           <div className="flex justify-start px-4 py-1.5">
             <div className="flex items-center gap-1.5 text-xs">
               <Minus className="h-3 w-3 text-foreground/40" />
@@ -764,7 +728,7 @@ export const ChatView = memo(function ChatView({ messages, isProcessing, showThi
               </TextShimmer>
             </div>
           </div>
-        )}
+        ) : null}
         {queuedMessages.map((msg) => (
           <div key={msg.id} data-message-id={msg.id} className="message-item">
             <MessageBubble
