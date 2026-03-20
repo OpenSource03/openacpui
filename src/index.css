@@ -1,11 +1,11 @@
+/* Welcome wizard fonts — Instrument Serif for display titles, Sora for body */
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@400;500;600;700&display=swap");
+
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@xterm/xterm/css/xterm.css";
 @plugin "@tailwindcss/typography";
-
-/* Welcome wizard fonts — Instrument Serif for display titles, Sora for body */
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@400;500;600;700&display=swap");
 
 @custom-variant dark (&:is(.dark *));
 

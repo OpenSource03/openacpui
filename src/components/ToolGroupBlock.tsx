@@ -10,12 +10,14 @@ import { ToolCall } from "./ToolCall";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { getToolLabel, getToolIcon } from "@/components/lib/tool-metadata";
 import { formatCompactSummary } from "@/components/lib/tool-formatting";
+import { useChatPersistedState } from "@/components/chat-ui-state";
 
 interface ToolGroupBlockProps {
   tools: UIMessage[];
   messages: UIMessage[];
   showThinking?: boolean;
   autoExpandTools?: boolean;
+  disableCollapseAnimation?: boolean;
   /** When true (live streaming), runs a one-time tools -> group morph animation.
    *  When false (restored session), renders collapsed immediately. */
   animate: boolean;
@@ -59,14 +61,16 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
   messages,
   showThinking = true,
   autoExpandTools = false,
+  disableCollapseAnimation = false,
   animate,
 }: ToolGroupBlockProps) {
   // Lock animation decision at mount. Parent re-renders may flip `animate` to false
   // after first paint; we still want one morph animation for newly formed groups.
   const animateOnMount = useRef(animate).current;
+  const groupKey = tools[0]?.id ?? "group";
 
   // Final grouped state is always collapsed by default.
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useChatPersistedState(`tool-group:${groupKey}`, false);
   const [isMorphing, setIsMorphing] = useState(animateOnMount);
   const [morphStarted, setMorphStarted] = useState(false);
   const [morphHeight, setMorphHeight] = useState<number | null>(null);
@@ -216,35 +220,61 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
     );
   }
 
+  const groupContent = isOpen ? (
+    <div className="mt-0.5">
+      {groupedRows.map((message) => (
+        message.role === "tool_call" ? (
+          <ToolCall
+            key={message.id}
+            message={message}
+            compact
+            autoExpandTools={autoExpandTools}
+            disableCollapseAnimation={disableCollapseAnimation}
+          />
+        ) : (
+          <div key={message.id}>
+            <ThinkingBlock
+              thinking={message.thinking ?? ""}
+              isStreaming={message.isStreaming}
+              thinkingComplete={message.thinkingComplete}
+              storageKey={`thinking:${message.id}`}
+            />
+          </div>
+        )
+      ))}
+    </div>
+  ) : null;
+
+  // Fast path: conditional rendering — collapsed groups render ZERO children.
+  if (disableCollapseAnimation) {
+    return (
+      <div className="px-4 py-0.5">
+        <div className="min-w-0 max-w-[85%]">
+          <button
+            type="button"
+            onClick={() => setIsOpen((prev) => !prev)}
+            className={`group ${GROUP_HEADER_BASE_CLASS} cursor-pointer transition-colors hover:bg-muted/50`}
+            aria-expanded={isOpen}
+          >
+            <ToolGroupHeaderContent count={count} toolSummary={toolSummary} isOpen={isOpen} />
+          </button>
+          {groupContent}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 py-0.5">
       <div className="min-w-0 max-w-[85%]">
         <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-          {/* Group header — collapsed by default; user controls open/close. */}
           <CollapsibleTrigger
             className={`group ${GROUP_HEADER_BASE_CLASS} cursor-pointer transition-colors hover:bg-muted/50`}
           >
             <ToolGroupHeaderContent count={count} toolSummary={toolSummary} isOpen={isOpen} />
           </CollapsibleTrigger>
-
-          {/* Tool content — collapses via Radix animate-collapsible-up.
-              Uses tool-group-collapse for a slower, smoother animation than default. */}
           <CollapsibleContent className="tool-group-collapse">
-            <div className="mt-0.5">
-              {groupedRows.map((message) => (
-                message.role === "tool_call" ? (
-                  <ToolCall key={message.id} message={message} compact autoExpandTools={autoExpandTools} />
-                ) : (
-                  <div key={message.id}>
-                    <ThinkingBlock
-                      thinking={message.thinking ?? ""}
-                      isStreaming={message.isStreaming}
-                      thinkingComplete={message.thinkingComplete}
-                    />
-                  </div>
-                )
-              ))}
-            </div>
+            {groupContent}
           </CollapsibleContent>
         </Collapsible>
       </div>
@@ -255,5 +285,6 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({
   prev.messages === next.messages &&
   prev.showThinking === next.showThinking &&
   prev.autoExpandTools === next.autoExpandTools &&
+  prev.disableCollapseAnimation === next.disableCollapseAnimation &&
   prev.animate === next.animate,
 );

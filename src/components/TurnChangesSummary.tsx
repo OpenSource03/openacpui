@@ -1,8 +1,9 @@
-import { memo, useState, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback } from "react";
 import { FileDiff, Pencil, Plus, ChevronRight, ChevronDown } from "lucide-react";
 import { DiffViewer } from "./DiffViewer";
 import { OpenInEditorButton } from "./OpenInEditorButton";
 import type { TurnSummary, FileChange } from "@/lib/turn-changes";
+import { useChatPersistedState } from "@/components/chat-ui-state";
 
 // ── Color/icon mapping (matches FilesPanel conventions) ──
 
@@ -64,7 +65,6 @@ const InlineFileChange = memo(function InlineFileChange({
               oldString={change.oldString ?? ""}
               newString={change.newString ?? ""}
               filePath={change.filePath}
-              unifiedDiff={change.unifiedDiff}
             />
           ) : (
             /* Write / NotebookEdit — show content as added text */
@@ -95,8 +95,14 @@ interface TurnChangesSummaryProps {
 export const TurnChangesSummary = memo(function TurnChangesSummary({
   summary,
 }: TurnChangesSummaryProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => new Set());
+  const [isOpen, setIsOpen] = useChatPersistedState(
+    `turn-summary:${summary.userMessageId}`,
+    false,
+  );
+  const [expandedFiles, setExpandedFiles] = useChatPersistedState<Set<string>>(
+    `turn-summary-files:${summary.userMessageId}`,
+    () => new Set(),
+  );
 
   // Deduplicate files: keep highest-priority change type per path (created > modified),
   // but preserve the full FileChange data for rendering diffs

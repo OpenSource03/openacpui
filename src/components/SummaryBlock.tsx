@@ -1,8 +1,9 @@
-import { useState, useMemo, memo } from "react";
+import { useMemo, memo } from "react";
 import { BookOpen, ChevronRight, Minimize2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { UIMessage } from "@/types";
+import { useChatPersistedState } from "@/components/chat-ui-state";
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -25,7 +26,7 @@ interface SummaryBlockProps {
 }
 
 export const SummaryBlock = memo(function SummaryBlock({ message }: SummaryBlockProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useChatPersistedState(`summary:${message.id}`, false);
 
   const isCompact = message.compactTrigger === "manual" || message.compactTrigger === "auto";
   const hasContent = !!message.content.trim();

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -7,6 +7,7 @@ import type { UIMessage } from "@/types";
 import { INLINE_HIGHLIGHT_STYLE, INLINE_CODE_TAG_STYLE } from "@/lib/languages";
 import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
 import { formatBashResult } from "@/components/lib/tool-formatting";
+import { useChatPersistedState } from "@/components/chat-ui-state";
 
 const MAX_OUTPUT_LINES = 200;
 
@@ -15,7 +16,7 @@ export function BashContent({ message }: { message: UIMessage }) {
   const result = message.toolResult;
   const resolvedTheme = useResolvedThemeClass();
   const syntaxStyle = resolvedTheme === "dark" ? oneDark : oneLight;
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useChatPersistedState(`bash:${message.id}`, false);
 
   const formattedResult = useMemo(() => (result ? formatBashResult(result) : ""), [result]);
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import {
   Bot,
   ChevronRight,
@@ -25,6 +25,7 @@ import {
 } from "@/components/lib/tool-formatting";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import { ExpandedToolContent } from "./ExpandedToolContent";
+import { useChatPersistedState } from "@/components/chat-ui-state";
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -43,7 +44,7 @@ function stepToUIMessage(step: SubagentToolStep): UIMessage {
 }
 
 export function TaskTool({ message }: { message: UIMessage }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useChatPersistedState(`task:${message.id}`, false);
   const isRunning = message.subagentStatus === "running";
   const isCompleted = message.subagentStatus === "completed";
   const hasSteps = message.subagentSteps && message.subagentSteps.length > 0;
@@ -164,7 +165,10 @@ function TaskExpandedContent({ message }: { message: UIMessage }) {
 
       {/* Result */}
       {message.subagentStatus === "completed" && message.toolResult?.content && (
-        <TaskResultBlock content={message.toolResult.content} />
+        <TaskResultBlock
+          content={message.toolResult.content}
+          storageKey={`task-result:${message.id}`}
+        />
       )}
     </>
   );
@@ -174,8 +178,14 @@ function TaskExpandedContent({ message }: { message: UIMessage }) {
 
 const TASK_RESULT_COLLAPSED_HEIGHT = 320;
 
-function TaskResultBlock({ content }: { content: string | Array<{ type: string; text: string }> }) {
-  const [expanded, setExpanded] = useState(false);
+function TaskResultBlock({
+  content,
+  storageKey,
+}: {
+  content: string | Array<{ type: string; text: string }>;
+  storageKey: string;
+}) {
+  const [expanded, setExpanded] = useChatPersistedState(storageKey, false);
   const formatted = formatTaskResult(content);
   const isLong = formatted.length > 2000;
 
@@ -217,7 +227,7 @@ function TaskResultBlock({ content }: { content: string | Array<{ type: string; 
 // ── Step row — uses standard tool renderers when expanded ──
 
 function SubagentStepRow({ step }: { step: SubagentToolStep }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useChatPersistedState(`task-step:${step.toolUseId}`, false);
   const hasResult = !!step.toolResult;
   const isError = !!step.toolError;
   const Icon = getToolIcon(step.toolName);

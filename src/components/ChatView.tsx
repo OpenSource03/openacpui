@@ -1,7 +1,6 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useMemo, useCallback, memo } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useState, startTransition, memo } from "react";
 import { motion } from "motion/react";
-import { Minus } from "lucide-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { Loader2, Minus } from "lucide-react";
 import type { InstalledAgent, UIMessage } from "@/types";
 import { AgentIcon } from "./AgentIcon";
 import { getAgentIcon } from "@/lib/engine-icons";
@@ -14,6 +13,7 @@ import { extractTurnSummaries } from "@/lib/turn-changes";
 import type { TurnSummary } from "@/lib/turn-changes";
 import { computeToolGroups, type ToolGroup, type ToolGroupInfo } from "@/lib/tool-groups";
 import { TextShimmer } from "@/components/ui/text-shimmer";
+import { ChatUiStateProvider } from "@/components/chat-ui-state";
 import {
   BOTTOM_LOCK_THRESHOLD_PX,
   USER_SCROLL_INTENT_WINDOW_MS,
@@ -22,10 +22,11 @@ import {
   shouldUnlockBottomLock,
 } from "@/lib/chat-scroll";
 import { CHAT_CONTENT_RESIZED_EVENT } from "@/lib/events";
+import { estimateRowHeight } from "@/lib/chat-virtualization";
 
 // ── Row model ──
 
-type RowDescriptor =
+export type RowDescriptor =
   | { kind: "message"; msg: UIMessage; originalIndex: number }
   | { kind: "tool_group"; group: ToolGroup; originalIndex: number; groupTurnSummary?: TurnSummary }
   | { kind: "turn_summary"; summary: TurnSummary }
@@ -35,6 +36,14 @@ const EMPTY_TOOL_GROUP_INFO: ToolGroupInfo = {
   groups: new Map(),
   groupedIndices: new Set(),
 };
+const EMPTY_STRING_SET: Set<string> = new Set();
+const PROCESSING_ROW: RowDescriptor = { kind: "processing" };
+const CHAT_TOP_PADDING_PX = 56;
+const CHAT_BOTTOM_PADDING_PX = 144;
+const CHAT_EXTRA_BOTTOM_PADDING_PX = 280;
+// Progressive rendering: render bottom rows immediately, hydrate older rows in background
+const INITIAL_RENDER_ROWS = 20;
+const HYDRATION_BATCH_SIZE = 40;
 
 // ── Module-level pure functions (rerender-no-inline-components, rendering-hoist-jsx) ──
 
@@ -80,24 +89,10 @@ function buildRows(
   }
 
   if (showProcessingIndicator) {
-    rows.push({ kind: "processing" });
+    rows.push(PROCESSING_ROW);
   }
 
   return rows;
-}
-
-function estimateRowHeight(row: RowDescriptor): number {
-  if (row.kind === "processing") return 40;
-  if (row.kind === "turn_summary") return 52;
-  if (row.kind === "tool_group") return 44;
-  const msg = row.msg;
-  if (msg.role === "system") return 32;
-  if (msg.role === "summary") return 52;
-  if (msg.role === "tool_call") return 44;
-  if (msg.role === "user") return Math.max(48, Math.min(200, Math.ceil((msg.content?.length ?? 0) / 60) * 24));
-  // assistant: estimate based on content length
-  const lines = Math.ceil((msg.content?.length ?? 0) / 80);
-  return Math.max(40, Math.min(600, lines * 22));
 }
 
 function getRowKey(row: RowDescriptor): string {
@@ -105,6 +100,29 @@ function getRowKey(row: RowDescriptor): string {
   if (row.kind === "turn_summary") return `ts-${row.summary.userMessageId}`;
   if (row.kind === "tool_group") return `group-${row.group.tools[0].id}`;
   return row.msg.id;
+}
+
+function canReuseRowDescriptor(previous: RowDescriptor | undefined, next: RowDescriptor): boolean {
+  if (!previous) return false;
+
+  if (next.kind === "processing") {
+    return previous.kind === "processing";
+  }
+
+  if (next.kind === "turn_summary") {
+    return previous.kind === "turn_summary" && previous.summary === next.summary;
+  }
+
+  if (next.kind === "tool_group") {
+    return previous.kind === "tool_group" &&
+      previous.group === next.group &&
+      previous.originalIndex === next.originalIndex &&
+      previous.groupTurnSummary === next.groupTurnSummary;
+  }
+
+  return previous.kind === "message" &&
+    previous.msg === next.msg &&
+    previous.originalIndex === next.originalIndex;
 }
 
 // ── ChatMessageRow (module-level, memo with custom comparator) ──
@@ -161,6 +179,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
           messages={row.group.messages}
           showThinking={showThinking}
           autoExpandTools={autoExpandTools}
+          disableCollapseAnimation
           animate={isNewGroup}
         />
         {row.groupTurnSummary ? <TurnChangesSummary summary={row.groupTurnSummary} /> : null}
@@ -182,7 +201,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
   if (msg.role === "tool_call") {
     return (
       <div data-message-id={msg.id}>
-        <ToolCall message={msg} autoExpandTools={autoExpandTools} />
+        <ToolCall
+          message={msg}
+          autoExpandTools={autoExpandTools}
+          disableCollapseAnimation
+        />
       </div>
     );
   }
@@ -236,6 +259,8 @@ interface ChatViewProps {
   agents?: InstalledAgent[];
   selectedAgent?: InstalledAgent | null;
   onAgentChange?: (agent: InstalledAgent | null) => void;
+  /** Current space ID — included in remount key so space switches show spinner immediately */
+  spaceId?: string;
 }
 
 // ── ChatView (outer, handles empty state) ──
@@ -306,13 +331,14 @@ export const ChatView = memo(function ChatView(props: ChatViewProps) {
     );
   }
 
-  // Key by sessionId to force a clean remount on session/space switch.
-  // This guarantees a fresh Virtualizer instance with no stale itemSizeCache,
-  // measurementsCache, or ResizeObserver subscriptions from the previous session.
-  return <ChatViewContent key={props.sessionId ?? "__empty__"} {...props} />;
+  // Key by spaceId + sessionId + first message ID to force a clean remount on space or session switch.
+  // spaceId ensures the spinner shows immediately when switching spaces (before the 60ms debounced
+  // session switch fires). sessionId + messages[0]?.id handle same-space session switches.
+  const contentKey = `${props.spaceId ?? "s"}-${props.sessionId ?? "__empty__"}-${messages[0]?.id ?? ""}`;
+  return <ChatViewContent key={contentKey} {...props} />;
 });
 
-// ── ChatViewContent (inner, module-level, virtualized rendering) ──
+// ── ChatViewContent (inner, module-level) ──
 
 function ChatViewContent({
   messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits,
@@ -324,13 +350,37 @@ function ChatViewContent({
 
   // ── Scroll state (refs, not state — rerender-use-ref-transient-values) ──
   const bottomLockedRef = useRef(true);
+
+  // ── Deferred mount: show spinner for one frame, then render content ──
+  // Prevents UI freeze on session/space switch by deferring heavy work.
+  const [contentReady, setContentReady] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      startTransition(() => setContentReady(true));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  // Scroll to bottom once content mounts (session-switch layoutEffect fires before
+  // the scroll container exists, so this catches the first real mount).
+  useLayoutEffect(() => {
+    if (!contentReady) return;
+    const el = scrollContainerRef.current;
+    if (el && bottomLockedRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [contentReady]);
+
   const userScrollIntentRef = useRef(0);
   const lastRowCountRef = useRef(0);
   const scrollRafPending = useRef(false);
+  const followBottomRafRef = useRef<number | null>(null);
+  const cachedRowsByKeyRef = useRef<Map<string, RowDescriptor>>(new Map());
   // Store callback in ref to avoid effect re-subscriptions (advanced-event-handler-refs)
   const onTopScrollProgressRef = useRef(onTopScrollProgress);
   onTopScrollProgressRef.current = onTopScrollProgress;
   const lastTopProgressRef = useRef(-1);
+  const bottomPadding = extraBottomPadding ? CHAT_EXTRA_BOTTOM_PADDING_PX : CHAT_BOTTOM_PADDING_PX;
 
   // ── Single-pass partition: queued vs non-queued (js-combine-iterations) ──
   const { nonQueuedMessages, queuedMessages } = useMemo(() => {
@@ -467,13 +517,13 @@ function ChatViewContent({
   }, [groupedIndices, nonQueuedMessages, toolGroups]);
 
   const animatingGroupKeys = useMemo(() => {
-    const keys = new Set<string>();
+    const found: string[] = [];
     for (const key of finalizedGroupKeys) {
       if (!knownGroupKeysRef.current.has(key) && seenUngroupedToolKeysRef.current.has(key)) {
-        keys.add(key);
+        found.push(key);
       }
     }
-    return keys;
+    return found.length === 0 ? EMPTY_STRING_SET : new Set(found);
   }, [finalizedGroupKeys]);
 
   useEffect(() => {
@@ -488,9 +538,6 @@ function ChatViewContent({
   }, [finalizedGroupKeys]);
 
   // ── Processing indicator (O(n) scan, cached when streaming) ──
-  // Once the indicator becomes false (assistant has content/thinking or a tool is running),
-  // it stays false for the rest of the turn — streaming content only grows, never shrinks.
-  // This avoids redundant O(n) scans on every content flush during streaming.
   const cachedProcessingRef = useRef<{ processing: boolean; value: boolean }>({ processing: false, value: false });
   const showProcessingIndicator = useMemo(() => {
     if (!isProcessing) {
@@ -509,34 +556,77 @@ function ChatViewContent({
     return result;
   }, [isProcessing, nonQueuedMessages]);
 
-  // ── Build rows (single O(n) pass — js-combine-iterations) ──
-  const baseRows = useMemo(
-    () => buildRows(nonQueuedMessages, toolGroups, groupedIndices, turnSummaryByEndIndex, showProcessingIndicator),
-    [nonQueuedMessages, toolGroups, groupedIndices, turnSummaryByEndIndex, showProcessingIndicator],
+  const rows = useMemo(() => {
+    const builtRows = buildRows(
+      nonQueuedMessages,
+      toolGroups,
+      groupedIndices,
+      turnSummaryByEndIndex,
+      showProcessingIndicator,
+    );
+    if (queuedMessages.length > 0) {
+      builtRows.push(...queuedMessages.map((msg, index) => ({
+        kind: "message" as const,
+        msg,
+        originalIndex: nonQueuedMessages.length + index,
+      })));
+    }
+
+    const previousRowsByKey = cachedRowsByKeyRef.current;
+    const nextRowsByKey = new Map<string, RowDescriptor>();
+    const stableRows = builtRows.map((row) => {
+      const key = getRowKey(row);
+      const previousRow = previousRowsByKey.get(key);
+      const stableRow = previousRow && canReuseRowDescriptor(previousRow, row)
+        ? previousRow
+        : row;
+      nextRowsByKey.set(key, stableRow);
+      return stableRow;
+    });
+
+    cachedRowsByKeyRef.current = nextRowsByKey;
+    return stableRows;
+  }, [
+    groupedIndices,
+    nonQueuedMessages,
+    queuedMessages,
+    showProcessingIndicator,
+    toolGroups,
+    turnSummaryByEndIndex,
+  ]);
+
+  // ── Progressive rendering: render bottom rows immediately, hydrate upward in background ──
+  // `hydratedFrom` is the index from which rows are fully rendered.
+  // Rows above hydratedFrom are represented by a single spacer div (not individual placeholders).
+  const [hydratedFrom, setHydratedFrom] = useState(() =>
+    Math.max(0, rows.length - INITIAL_RENDER_ROWS),
   );
 
-  const rows = useMemo(() => {
-    if (queuedMessages.length === 0) return baseRows;
-    const queuedRows = queuedMessages.map((msg, index) => ({
-      kind: "message" as const,
-      msg,
-      originalIndex: nonQueuedMessages.length + index,
-    }));
-    return [...baseRows, ...queuedRows];
-  }, [baseRows, nonQueuedMessages.length, queuedMessages]);
+  // Clamp so at least INITIAL_RENDER_ROWS are always visible from the bottom.
+  // Prevents deadlock when hydratedFrom is stale from a previous larger session
+  // (e.g. switching from 500-msg session to 30-msg session — stale hydratedFrom=480
+  //  would make rows.slice(480) empty on a 30-row array).
+  const effectiveHydratedFrom = Math.min(hydratedFrom, Math.max(0, rows.length - INITIAL_RENDER_ROWS));
 
-  // ── Virtualizer ──
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: (index) => estimateRowHeight(rows[index]),
-    getItemKey: (index) => getRowKey(rows[index]),
-    overscan: 5,
-    // Row heights change via markdown margins, collapsibles, and tool-group
-    // morph animations. Measure inside rAF so ResizeObserver updates align
-    // with paint and don't race mid-transition.
-    useAnimationFrameWithResizeObserver: true,
-  });
+  // Single spacer height for all unhydrated rows — replaces 500 placeholder divs with 1
+  const unhydratedHeight = useMemo(() => {
+    let h = 0;
+    for (let i = 0; i < effectiveHydratedFrom; i++) {
+      h += estimateRowHeight(rows[i]);
+    }
+    return h;
+  }, [rows, effectiveHydratedFrom]);
+
+  // Progressively hydrate older rows in background batches
+  useEffect(() => {
+    if (effectiveHydratedFrom <= 0) return;
+    const frame = requestAnimationFrame(() => {
+      startTransition(() => {
+        setHydratedFrom((prev) => Math.max(0, prev - HYDRATION_BATCH_SIZE));
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [effectiveHydratedFrom]);
 
   // ── Scroll handling (rerender-defer-reads, rerender-use-ref-transient-values) ──
 
@@ -548,6 +638,46 @@ function ChatViewContent({
       onTopScrollProgressRef.current?.(clamped);
     }
   }, []);
+
+  const scheduleFollowBottom = useCallback(() => {
+    if (!bottomLockedRef.current) return;
+    if (followBottomRafRef.current !== null) return;
+    followBottomRafRef.current = requestAnimationFrame(() => {
+      followBottomRafRef.current = null;
+      const el = scrollContainerRef.current;
+      if (!el || !bottomLockedRef.current) return;
+      el.scrollTop = el.scrollHeight;
+      publishTopProgress(getTopScrollProgress(el.scrollTop));
+    });
+  }, [publishTopProgress]);
+
+  useEffect(() => {
+    return () => {
+      if (followBottomRafRef.current !== null) {
+        cancelAnimationFrame(followBottomRafRef.current);
+      }
+    };
+  }, []);
+
+  // Keep user at bottom as hydration replaces spacer with real rows.
+  // Only pin to bottom if the user has NEVER scrolled during this session.
+  // userScrollIntentRef starts at 0 (reset on session switch) and is set to a
+  // positive timestamp on any wheel/touch/pointerDown. Checking > 0 means
+  // "has ever scrolled" — unlike Date.now() <= ref which only covers 250ms.
+  //
+  // Once the user scrolls, content is added ABOVE their viewport. The browser
+  // preserves scrollTop, keeping the viewport stable without any correction.
+  useLayoutEffect(() => {
+    if (!bottomLockedRef.current) return;
+    if (userScrollIntentRef.current > 0) {
+      bottomLockedRef.current = false;
+      return;
+    }
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [effectiveHydratedFrom]);
 
   const handleScroll = useCallback(() => {
     if (scrollRafPending.current) return;
@@ -568,7 +698,11 @@ function ChatViewContent({
         bottomLockedRef.current = false;
         return;
       }
-      if (isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
+      // Only re-lock when the USER actively scrolls to the bottom (has recent intent).
+      // Without the intent check, programmatic scrollHeight changes during hydration
+      // can place the user within the threshold and re-lock, causing forced scroll-to-bottom
+      // that fights with the user trying to scroll up.
+      if (hasRecentUserIntent && isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
         bottomLockedRef.current = true;
       }
     });
@@ -578,35 +712,47 @@ function ChatViewContent({
     userScrollIntentRef.current = Date.now() + USER_SCROLL_INTENT_WINDOW_MS;
   }, []);
 
+  // ── Passive wheel/touch listeners (compositor-unblocking) ──
+  // Must re-run when contentReady changes — on initial mount the scroll container
+  // doesn't exist (spinner showing), so listeners aren't attached. When contentReady
+  // becomes true the container appears and we need to attach.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", markUserIntent, { passive: true });
+    el.addEventListener("touchmove", markUserIntent, { passive: true });
+    return () => {
+      el.removeEventListener("wheel", markUserIntent);
+      el.removeEventListener("touchmove", markUserIntent);
+    };
+  }, [markUserIntent, contentReady]);
+
   // ── Auto-follow on new messages ──
   useEffect(() => {
     if (rows.length === lastRowCountRef.current) return;
     lastRowCountRef.current = rows.length;
-    if (bottomLockedRef.current && rows.length > 0) {
-      // Defer to next frame so virtualizer has measured
-      requestAnimationFrame(() => {
-        virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-      });
-    }
-  }, [rows.length, virtualizer]);
+    if (rows.length > 0) scheduleFollowBottom();
+  }, [rows.length, scheduleFollowBottom]);
+
+  useEffect(() => {
+    if (rows.length > 0) scheduleFollowBottom();
+  }, [bottomPadding, rows.length, scheduleFollowBottom]);
 
   // ── Auto-follow during streaming (content height grows without row count change) ──
   useEffect(() => {
-    if (!isProcessing || !bottomLockedRef.current) return;
+    if (!isProcessing) return;
     const el = scrollContainerRef.current;
     if (!el) return;
 
     const observer = new ResizeObserver(() => {
-      if (bottomLockedRef.current) {
-        virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-      }
+      scheduleFollowBottom();
     });
 
     // Observe the inner content container for height changes
     const inner = el.firstElementChild;
     if (inner) observer.observe(inner);
     return () => observer.disconnect();
-  }, [isProcessing, virtualizer, rows.length]);
+  }, [isProcessing, scheduleFollowBottom]);
 
   // ── Session switch — force scroll to bottom (rerender-dependencies — primitive dep) ──
   useLayoutEffect(() => {
@@ -615,116 +761,108 @@ function ChatViewContent({
     userScrollIntentRef.current = 0;
     lastTopProgressRef.current = -1;
     lastRowCountRef.current = 0;
-    requestAnimationFrame(() => {
-      if (rows.length > 0) {
-        virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-      }
-      publishTopProgress(0);
-    });
+    // Scroll immediately — useLayoutEffect fires before browser paints,
+    // so setting scrollTop here prevents any visible flicker at scrollTop=0.
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+      publishTopProgress(getTopScrollProgress(el.scrollTop));
+      // Post-paint correction: child effects may change DOM heights after mount
+      requestAnimationFrame(() => {
+        if (bottomLockedRef.current && el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   // ── Content resize (mermaid diagrams etc.) ──
-  // Don't call virtualizer.measure() here — it nukes the entire itemSizeCache,
-  // forcing all items back to estimates and causing layout jumps/overlaps.
-  // The ResizeObserver on each item's measureElement ref already tracks individual
-  // size changes (e.g. mermaid SVG rendering). We only need to maintain scroll lock.
   useEffect(() => {
     const handleContentResize = () => {
-      if (bottomLockedRef.current && rows.length > 0) {
-        requestAnimationFrame(() => {
-          virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-        });
-      }
+      if (rows.length > 0) scheduleFollowBottom();
     };
     window.addEventListener(CHAT_CONTENT_RESIZED_EVENT, handleContentResize);
     return () => window.removeEventListener(CHAT_CONTENT_RESIZED_EVENT, handleContentResize);
-  }, [virtualizer, rows.length]);
+  }, [rows.length, scheduleFollowBottom]);
 
   // ── Scroll-to-message (search navigation) ──
   useEffect(() => {
     if (!scrollToMessageId) return;
 
-    const rowIndex = rows.findIndex((row) => {
-      if (row.kind === "message") return row.msg.id === scrollToMessageId;
-      if (row.kind === "tool_group") return row.group.tools.some((t) => t.id === scrollToMessageId);
-      return false;
-    });
-
-    if (rowIndex >= 0) {
-      bottomLockedRef.current = false;
-      virtualizer.scrollToIndex(rowIndex, { align: "center" });
-
-      // Flash highlight after scroll settles
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          const el = scrollContainerRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
-          if (el) {
-            el.classList.add("search-highlight");
-            setTimeout(() => {
-              el.classList.remove("search-highlight");
-              onScrolledToMessage?.();
-            }, 1500);
-          } else {
-            onScrolledToMessage?.();
-          }
-        }, 100);
-      });
-    } else {
-      onScrolledToMessage?.();
+    // If target is in the unhydrated portion (no DOM element exists), force-hydrate first
+    const targetIndex = rows.findIndex(
+      (row) => row.kind === "message" && row.msg.id === scrollToMessageId,
+    );
+    if (targetIndex >= 0 && targetIndex < effectiveHydratedFrom) {
+      setHydratedFrom(Math.max(0, targetIndex - 2));
+      return; // Effect re-fires after hydration with new effectiveHydratedFrom
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollToMessageId]);
+
+    // Find the DOM element by data-message-id and scroll into view
+    requestAnimationFrame(() => {
+      const el = scrollContainerRef.current?.querySelector(`[data-message-id="${scrollToMessageId}"]`);
+      if (el) {
+        bottomLockedRef.current = false;
+        el.scrollIntoView({ block: "center" });
+
+        // Flash highlight after scroll settles
+        setTimeout(() => {
+          el.classList.add("search-highlight");
+          setTimeout(() => {
+            el.classList.remove("search-highlight");
+            onScrolledToMessage?.();
+          }, 1500);
+        }, 100);
+      } else {
+        onScrolledToMessage?.();
+      }
+    });
+  }, [scrollToMessageId, effectiveHydratedFrom, rows]);
 
   // ── Render ──
 
-  const virtualItems = virtualizer.getVirtualItems();
+  if (!contentReady) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-foreground/20" />
+      </div>
+    );
+  }
 
   return (
-    <div
-      ref={scrollContainerRef}
-      className="min-h-0 flex-1 overflow-y-auto"
-      onScroll={handleScroll}
-      onWheel={markUserIntent}
-      onTouchMove={markUserIntent}
-      onPointerDown={markUserIntent}
-    >
+    <ChatUiStateProvider>
       <div
-        style={{
-          height: `${virtualizer.getTotalSize() + 56 + (extraBottomPadding ? 280 : 144)}px`,
-          position: "relative",
-        }}
+        ref={scrollContainerRef}
+        className="min-h-0 flex-1 overflow-y-auto"
+        style={{ overscrollBehaviorY: "contain" }}
+        onScroll={handleScroll}
+        onPointerDown={markUserIntent}
       >
-        {virtualItems.map((virtualRow) => (
-          <div
-            key={getRowKey(rows[virtualRow.index])}
-            ref={virtualizer.measureElement}
-            data-index={virtualRow.index}
-            className="flow-root"
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              transform: `translateY(${virtualRow.start + 56}px)`, // +56px for header space
-            }}
-          >
-            <ChatMessageRow
-              row={rows[virtualRow.index]}
-              showThinking={showThinking}
-              autoExpandTools={autoExpandTools}
-              animatingGroupKeys={animatingGroupKeys}
-              continuationIds={continuationIds}
-              sendNextId={sendNextId}
-              onRevert={onRevert}
-              onFullRevert={onFullRevert}
-              onSendQueuedNow={onSendQueuedNow}
-              onUnqueueQueuedMessage={onUnqueueQueuedMessage}
-            />
-          </div>
-        ))}
+        <div style={{ paddingTop: `${CHAT_TOP_PADDING_PX}px`, paddingBottom: `${bottomPadding}px` }}>
+          {/* Single spacer for all unhydrated rows — 1 div instead of hundreds */}
+          {unhydratedHeight > 0 && (
+            <div style={{ height: `${unhydratedHeight}px` }} aria-hidden />
+          )}
+          {/* Only render hydrated rows — initial mount: ~20 divs instead of 500 */}
+          {rows.slice(effectiveHydratedFrom).map((row) => (
+            <div key={getRowKey(row)} className="flow-root">
+              <ChatMessageRow
+                row={row}
+                showThinking={showThinking}
+                autoExpandTools={autoExpandTools}
+                animatingGroupKeys={animatingGroupKeys}
+                continuationIds={continuationIds}
+                sendNextId={sendNextId}
+                onRevert={onRevert}
+                onFullRevert={onFullRevert}
+                onSendQueuedNow={onSendQueuedNow}
+                onUnqueueQueuedMessage={onUnqueueQueuedMessage}
+              />
+            </div>
+          ))}
+        </div>
       </div>
-
-    </div>
+    </ChatUiStateProvider>
   );
 }

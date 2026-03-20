@@ -4,25 +4,35 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import {
   advanceThinkingAnimationState,
   createThinkingAnimationState,
 } from "@/lib/thinking-animation";
+import { useChatPersistedState } from "@/components/chat-ui-state";
 
 interface ThinkingBlockProps {
   thinking: string;
   isStreaming?: boolean;
   thinkingComplete?: boolean;
+  storageKey?: string;
 }
 
-export function ThinkingBlock({ thinking, isStreaming, thinkingComplete }: ThinkingBlockProps) {
-  const [open, setOpen] = useState(false);
+export function ThinkingBlock({
+  thinking,
+  isStreaming,
+  thinkingComplete,
+  storageKey,
+}: ThinkingBlockProps) {
+  const [open, setOpen] = useChatPersistedState(
+    storageKey ?? "thinking",
+    false,
+  );
   const contentRef = useRef<HTMLDivElement>(null);
   // Tracks whether user manually scrolled up in the inner thinking div
   const userScrolledRef = useRef(false);
-  const isThinking = isStreaming && !thinkingComplete && thinking.length > 0;
+  const isThinking = Boolean(isStreaming && !thinkingComplete && thinking.length > 0);
 
   // Keep the animation state simple and append-only. The v0.19.0 coalescing
   // timer introduced replay/duplication under rapid thinking updates.

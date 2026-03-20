@@ -32,10 +32,6 @@ import type { Components } from "react-markdown";
 const IsBlockCodeContext = createContext(false);
 const IsStreamingMarkdownContext = createContext(false);
 
-function containsMermaidFence(text: string): boolean {
-  return /(^|\n)```mermaid(?:\s|$)/i.test(text);
-}
-
 function parseFileHref(href: string): { filePath: string; line?: number } | null {
   if (!href) return null;
 
@@ -341,6 +337,7 @@ export const MessageBubble = memo(function MessageBubble({
                   thinking={message.thinking}
                   isStreaming={message.isStreaming}
                   thinkingComplete={message.thinkingComplete}
+                  storageKey={`thinking:${message.id}`}
                 />
               </div>
             )}
@@ -407,29 +404,35 @@ function CodeBlock(props: React.HTMLAttributes<HTMLElement> & { node?: unknown }
     }
 
     return (
-      <div className="not-prose group/code relative my-2 rounded-lg bg-foreground/[0.03] overflow-hidden">
+      <div className="not-prose group/code relative my-2 rounded-lg bg-foreground/[0.03] overflow-hidden" style={{ contain: "content" }}>
         <div className="flex items-center justify-between bg-foreground/[0.04] px-3 py-1">
           <span className="text-[11px] text-muted-foreground">{language}</span>
           <CopyButton text={code} className="opacity-0 transition-opacity group-hover/code:opacity-100" />
         </div>
-        <SyntaxHighlighter
-          style={oneDark}
-          language={language}
-          PreTag="div"
-          customStyle={SYNTAX_STYLE}
-          codeTagProps={CODE_TAG_PROPS}
-        >
-          {code}
-        </SyntaxHighlighter>
+        {isStreaming ? (
+          <pre className="overflow-x-auto p-3 text-xs font-mono" style={SYNTAX_STYLE}>
+            <code>{code}</code>
+          </pre>
+        ) : (
+          <SyntaxHighlighter
+            style={oneDark}
+            language={language}
+            PreTag="div"
+            customStyle={SYNTAX_STYLE}
+            codeTagProps={CODE_TAG_PROPS}
+          >
+            {code}
+          </SyntaxHighlighter>
+        )}
       </div>
     );
   }
 
   // Fenced code block without language tag → try auto-detect
   if (isBlock) {
-    const guessedLang = guessLanguage(code);
+    const guessedLang = !isStreaming ? guessLanguage(code) : null;
     return (
-      <div className="not-prose group/code relative my-2 rounded-lg bg-foreground/[0.03] overflow-hidden">
+      <div className="not-prose group/code relative my-2 rounded-lg bg-foreground/[0.03] overflow-hidden" style={{ contain: "content" }}>
         <div className="flex items-center justify-between bg-foreground/[0.04] px-3 py-1">
           {guessedLang ? (
             <span className="text-[11px] text-muted-foreground">{guessedLang}</span>

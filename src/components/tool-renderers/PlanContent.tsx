@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { Map, ChevronsUpDown } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { UIMessage } from "@/types";
 import { extractResultText } from "@/components/lib/tool-formatting";
 import { GenericContent } from "./GenericContent";
+import { useChatPersistedState } from "@/components/chat-ui-state";
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -25,7 +25,7 @@ export function EnterPlanModeContent({ message }: { message: UIMessage }) {
 const PLAN_COLLAPSED_HEIGHT = 400; // px — enough for a good preview before requiring expand
 
 export function ExitPlanModeContent({ message }: { message: UIMessage }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useChatPersistedState(`plan:${message.id}`, false);
   const plan = String(message.toolInput?.plan ?? "");
   const filePath = String(message.toolInput?.filePath ?? "");
   const fileName = filePath ? filePath.split("/").pop() : null;

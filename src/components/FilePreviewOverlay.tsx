@@ -1,76 +1,16 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, File, Loader2 } from "lucide-react";
-import Editor from "@monaco-editor/react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OpenInEditorButton } from "./OpenInEditorButton";
 import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
 import { getLanguageFromPath } from "@/lib/languages";
+import { getMonacoLanguageFromPath } from "@/lib/monaco";
 import { captureException } from "@/lib/analytics";
 
-// ── Monaco language mapping ──
-
-const EXTENSION_TO_MONACO: Record<string, string> = {
-  ts: "typescript",
-  tsx: "typescript",
-  js: "javascript",
-  jsx: "javascript",
-  mts: "typescript",
-  mjs: "javascript",
-  cts: "typescript",
-  cjs: "javascript",
-  json: "json",
-  jsonc: "json",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  html: "html",
-  md: "markdown",
-  mdx: "markdown",
-  yaml: "yaml",
-  yml: "yaml",
-  xml: "xml",
-  svg: "xml",
-  py: "python",
-  rs: "rust",
-  go: "go",
-  java: "java",
-  kt: "kotlin",
-  cs: "csharp",
-  rb: "ruby",
-  php: "php",
-  swift: "swift",
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  sql: "sql",
-  graphql: "graphql",
-  gql: "graphql",
-  c: "c",
-  cpp: "cpp",
-  h: "c",
-  hpp: "cpp",
-  toml: "toml",
-  ini: "ini",
-  r: "r",
-  lua: "lua",
-  dart: "dart",
-  scala: "scala",
-  dockerfile: "dockerfile",
-};
-
-function getMonacoLanguage(filePath: string): string {
-  const fileName = filePath.split("/").pop() ?? "";
-  const lower = fileName.toLowerCase();
-
-  // Check full filename first
-  if (lower === "dockerfile") return "dockerfile";
-  if (lower === "makefile" || lower === "gnumakefile") return "plaintext";
-
-  const ext = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : undefined;
-  if (ext && ext in EXTENSION_TO_MONACO) return EXTENSION_TO_MONACO[ext];
-  return "plaintext";
-}
+const MonacoEditor = lazy(() =>
+  import("@monaco-editor/react").then((mod) => ({ default: mod.default })),
+);
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -203,7 +143,7 @@ const OverlayContent = memo(function OverlayContent({
   const fileName = filePath.split("/").pop() ?? filePath;
   const dirPath = filePath.split("/").slice(0, -1).join("/");
   const language = getLanguageFromPath(filePath);
-  const monacoLang = getMonacoLanguage(filePath);
+  const monacoLang = getMonacoLanguageFromPath(filePath);
   const lineCount = content ? content.split("\n").length : 0;
   const fileSize = content ? formatFileSize(new Blob([content]).size) : "";
 
@@ -297,35 +237,43 @@ const OverlayContent = memo(function OverlayContent({
             )}
 
             {content !== null && !loading && (
-              <Editor
-                height="100%"
-                language={monacoLang}
-                value={content}
-                theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
-                options={{
-                  readOnly: true,
-                  minimap: { enabled: true },
-                  scrollBeyondLastLine: false,
-                  fontSize: 13,
-                  lineNumbers: "on",
-                  wordWrap: "on",
-                  automaticLayout: true,
-                  domReadOnly: true,
-                  renderLineHighlight: "none",
-                  overviewRulerLanes: 0,
-                  hideCursorInOverviewRuler: true,
-                  scrollbar: {
-                    verticalScrollbarSize: 8,
-                    horizontalScrollbarSize: 8,
-                  },
-                  padding: { top: 8, bottom: 8 },
-                }}
-                loading={
+              <Suspense
+                fallback={
                   <div className="flex h-full items-center justify-center">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
                   </div>
                 }
-              />
+              >
+                <MonacoEditor
+                  height="100%"
+                  language={monacoLang}
+                  value={content}
+                  theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: true },
+                    scrollBeyondLastLine: false,
+                    fontSize: 13,
+                    lineNumbers: "on",
+                    wordWrap: "on",
+                    automaticLayout: true,
+                    domReadOnly: true,
+                    renderLineHighlight: "none",
+                    overviewRulerLanes: 0,
+                    hideCursorInOverviewRuler: true,
+                    scrollbar: {
+                      verticalScrollbarSize: 8,
+                      horizontalScrollbarSize: 8,
+                    },
+                    padding: { top: 8, bottom: 8 },
+                  }}
+                  loading={
+                    <div className="flex h-full items-center justify-center">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
+                    </div>
+                  }
+                />
+              </Suspense>
             )}
           </div>
 

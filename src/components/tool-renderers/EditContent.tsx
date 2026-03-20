@@ -29,7 +29,6 @@ const PatchEntryDiff = memo(function PatchEntryDiff({ patch }: { patch: Structur
         oldString={oldStr}
         newString={newStr}
         filePath={filePath}
-        unifiedDiff={hasUnifiedDiffMarkers(diffText) ? diffText : undefined}
       />
     );
   }
@@ -89,7 +88,6 @@ export function EditContent({ message }: { message: UIMessage }) {
   const parsedDiff = parseUnifiedDiffFromUnknown(message.toolResult?.content);
   // ACP agents put the unified diff in detailedContent — parse it for oldString/newString
   const parsedDetailedDiff = parseUnifiedDiffFromUnknown(message.toolResult?.detailedContent);
-  const unifiedDiffText = candidateDiffText;
   // Prefer parsed/structured patch text first; toolInput can be a lossy representation.
   const oldStr = firstDefinedString(
     matchingPatch?.oldString,
@@ -127,7 +125,6 @@ export function EditContent({ message }: { message: UIMessage }) {
       oldString={oldStr}
       newString={newStr}
       filePath={filePath}
-      unifiedDiff={unifiedDiffText || undefined}
     />
   );
 }

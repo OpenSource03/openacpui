@@ -394,6 +394,8 @@ Link: ${issue.url}`;
         activeSessionId={manager.activeSessionId}
         jiraBoardProjectId={jiraBoardProjectId}
         jiraBoardEnabled={jiraBoardEnabled}
+        foldersByProject={o.foldersByProject}
+        organizeByChatBranch={settings.organizeByChatBranch}
         onNewChat={handleOpenNewChat}
         onToggleProjectJiraBoard={handleToggleProjectJiraBoard}
         onSelectSession={handleSidebarSelectSession}
@@ -408,6 +410,12 @@ Link: ${issue.url}`;
         onNavigateToMessage={handleNavigateToMessage}
         onMoveProjectToSpace={handleMoveProjectToSpace}
         onReorderProject={projectManager.reorderProject}
+        onPinSession={o.handlePinSession}
+        onMoveSessionToFolder={o.handleMoveSessionToFolder}
+        onCreateFolder={o.handleCreateFolder}
+        onRenameFolder={o.handleRenameFolder}
+        onDeleteFolder={o.handleDeleteFolder}
+        onSetOrganizeByChatBranch={settings.setOrganizeByChatBranch}
         spaces={spaceManager.spaces}
         activeSpaceId={spaceManager.activeSpaceId}
         onSelectSpace={spaceManager.setActiveSpaceId}
@@ -510,6 +518,7 @@ Link: ${issue.url}`;
                 />
               )}
               <ChatView
+                spaceId={spaceManager.activeSpaceId}
                 messages={manager.messages}
                 isProcessing={manager.isProcessing}
                 showThinking={showThinking}
