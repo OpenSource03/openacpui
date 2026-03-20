@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, Menu, session, shell, systemPreferences } from "electron";
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
@@ -25,6 +25,7 @@ import { migrateFromOpenAcpUi } from "./lib/migration";
 import { glassEnabled, liquidGlass } from "./lib/glass";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
 import { initPostHog, shutdownPostHog, reinitPostHog, captureEvent } from "./lib/posthog";
+import { isDevToolsShortcut } from "./lib/devtools-shortcuts";
 import { sessions } from "./ipc/claude-sessions";
 import { acpSessions, getAcpAnalyticsPropertiesForSession } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
@@ -149,6 +150,13 @@ function createWindow(): void {
       }
     });
   }
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (!isDevToolsShortcut(input, process.platform)) return;
+    event.preventDefault();
+    log("DEVTOOLS", `Shortcut ${input.key} triggered`);
+    openDevToolsWindow();
+  });
 }
 
 // Renderer uses this to decide whether the transparency toggle is available.
@@ -345,19 +353,9 @@ app.whenReady().then(() => {
     app.dock.setIcon(path.join(__dirname, "../../build/icon.png"));
   }
 
-  const shortcuts = ["CommandOrControl+Alt+I", "F12", "CommandOrControl+Shift+J"];
-  for (const shortcut of shortcuts) {
-    const ok = globalShortcut.register(shortcut, () => {
-      log("DEVTOOLS", `Shortcut ${shortcut} triggered`);
-      openDevToolsWindow();
-    });
-    log("DEVTOOLS", `Register ${shortcut}: ${ok ? "OK" : "FAILED"}`);
-  }
 });
 
 app.on("will-quit", (event) => {
-  globalShortcut.unregisterAll();
-
   // When an update is being installed, let the updater control the quit lifecycle.
   // In that case, fire-and-forget PostHog shutdown and do not delay quit.
   if (getIsInstallingUpdate()) {
