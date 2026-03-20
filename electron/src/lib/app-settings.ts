@@ -33,7 +33,7 @@ export interface NotificationSettings {
 }
 
 export interface AppSettings {
-  /** Include pre-release versions when checking for updates (default: true) */
+  /** Include pre-release versions when checking for updates (default: false) */
   allowPrereleaseUpdates: boolean;
   /** Number of recent chats to show per project in the sidebar (default: 10) */
   defaultChatLimit: number;
@@ -73,7 +73,7 @@ const NOTIFICATION_DEFAULTS: NotificationSettings = {
 };
 
 const DEFAULTS: AppSettings = {
-  allowPrereleaseUpdates: true,
+  allowPrereleaseUpdates: false,
   defaultChatLimit: 10,
   preferredEditor: "auto",
   voiceDictation: "native",

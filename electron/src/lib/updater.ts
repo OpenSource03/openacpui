@@ -79,7 +79,7 @@ export function initAutoUpdater(
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  // Read persisted preference (defaults to true — all GitHub releases are pre-release/beta)
+  // Read persisted preference (defaults to false)
   autoUpdater.allowPrerelease = getAppSetting("allowPrereleaseUpdates");
 
   // React to setting changes at runtime (e.g. user toggles in Settings UI)

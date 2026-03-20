@@ -17,7 +17,7 @@ export const GeneralSettings = memo(function GeneralSettings({
   onUpdateAppSettings,
 }: GeneralSettingsProps) {
   // Local optimistic state — synced from props once loaded
-  const [allowPrerelease, setAllowPrerelease] = useState(true);
+  const [allowPrerelease, setAllowPrerelease] = useState(false);
   const [chatLimit, setChatLimit] = useState(10);
   const [preferredEditor, setPreferredEditor] = useState<PreferredEditor>("auto");
   const [voiceDictation, setVoiceDictation] = useState<VoiceDictationMode>("native");
