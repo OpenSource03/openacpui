@@ -184,10 +184,17 @@ ipcMain.on("app:set-min-width", (_event, minWidth: number) => {
 
 // Native glass tint — re-creates glass view with updated tintColor.
 // The C++ addon auto-cleans previous views in a single dispatch_sync block.
+const GLASS_TINT_RE = /^#[0-9a-fA-F]{8}$/;
 ipcMain.on("glass:set-tint-color", (_event, tintColor: string | null) => {
   if (!glassEnabled) return;
+  if (tintColor !== null && (typeof tintColor !== "string" || !GLASS_TINT_RE.test(tintColor))) {
+    log("GLASS", `Ignoring invalid tintColor: ${String(tintColor)}`);
+    return;
+  }
   const viewId = setGlassTint(tintColor);
-  log("GLASS", `setTintColor=${tintColor}, viewId=${viewId}`);
+  if (viewId >= 0) {
+    log("GLASS", `setTintColor=${tintColor}, viewId=${viewId}`);
+  }
 });
 
 // Glass appearance — force light/dark/system on the native layer so the

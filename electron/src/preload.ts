@@ -38,10 +38,13 @@ try {
   });
 
   // Push stored theme to main process early so glass appearance is correct
-  // before React mounts. "system" is the default — only override if explicit.
+  // before React mounts. Default to "dark" to match useSettings, which falls
+  // back to "dark" when harnss-theme is unset — avoids a system→dark flash.
   const storedTheme = globals.localStorage?.getItem("harnss-theme");
-  if (storedTheme === "light" || storedTheme === "dark") {
+  if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") {
     ipcRenderer.send("glass:set-theme", storedTheme);
+  } else {
+    ipcRenderer.send("glass:set-theme", "dark");
   }
 } catch (e) {
   console.error("[preload] early setup failed:", e);

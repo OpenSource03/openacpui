@@ -396,9 +396,9 @@ Link: ${issue.url}`;
         />
       )}
       {/* Unfocused veil — subtle dim/brighten on macOS liquid glass when window loses focus */}
-      {isNativeGlass && !windowFocused && (
+      {isNativeGlass && (
         <div
-          className="pointer-events-none fixed inset-0 z-0 transition-opacity duration-300"
+          className={`pointer-events-none fixed inset-0 z-0 transition-opacity duration-300 ${windowFocused ? "opacity-0" : "opacity-100"}`}
           style={{ background: isLightGlass ? "rgba(255,255,255,0.38)" : "rgba(0,0,0,0.34)" }}
         />
       )}

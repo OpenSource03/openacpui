@@ -29,7 +29,9 @@ function linearToSRGB(x: number): number {
 }
 
 function clampByte(v: number): number {
-  return Math.max(0, Math.min(255, Math.round(v * 255)));
+  const n = v * 255;
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(255, Math.round(n)));
 }
 
 /**
