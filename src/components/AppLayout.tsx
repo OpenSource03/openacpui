@@ -85,6 +85,21 @@ export function AppLayout() {
   );
   const isGlassActive = glassSupported && settings.transparency;
   const isLightGlass = isGlassActive && resolvedTheme !== "dark";
+  const isNativeGlass = isGlassActive && isMac;
+
+  // ── Window focus tracking (subtle veil on macOS liquid glass when unfocused) ──
+  const [windowFocused, setWindowFocused] = useState(true);
+  useEffect(() => {
+    if (!isNativeGlass) return;
+    const onFocus = () => setWindowFocused(true);
+    const onBlur = () => setWindowFocused(false);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [isNativeGlass]);
 
   // ── Welcome wizard (first-run onboarding) ──
 
@@ -378,6 +393,13 @@ Link: ${issue.url}`;
         <div
           className="pointer-events-none fixed inset-0 z-0 transition-[background] duration-300"
           style={glassOverlayStyle}
+        />
+      )}
+      {/* Unfocused veil — subtle dim/brighten on macOS liquid glass when window loses focus */}
+      {isNativeGlass && (
+        <div
+          className={`pointer-events-none fixed inset-0 z-0 transition-opacity duration-300 ${windowFocused ? "opacity-0" : "opacity-100"}`}
+          style={{ background: isLightGlass ? "rgba(255,255,255,0.38)" : "rgba(0,0,0,0.34)" }}
         />
       )}
       <SpaceCreator

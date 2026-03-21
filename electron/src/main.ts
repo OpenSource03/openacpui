@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeTheme, session, shell, systemPreferences } from "electron";
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
@@ -22,7 +22,7 @@ if (process.platform !== "win32") {
 import { log } from "./lib/logger";
 import { reportError } from "./lib/error-utils";
 import { migrateFromOpenAcpUi } from "./lib/migration";
-import { glassEnabled, liquidGlass } from "./lib/glass";
+import { glassEnabled, applyGlass, setGlassTint } from "./lib/glass";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
 import { initPostHog, shutdownPostHog, reinitPostHog, captureEvent } from "./lib/posthog";
 import { sessions } from "./ipc/claude-sessions";
@@ -141,13 +141,14 @@ function createWindow(): void {
   if (glassEnabled) {
     // macOS: apply liquid glass after content loads
     mainWindow.webContents.once("did-finish-load", () => {
-      const glassId = liquidGlass!.addView(mainWindow!.getNativeWindowHandle(), {});
+      const glassId = applyGlass(mainWindow!.getNativeWindowHandle());
       if (glassId === -1) {
         log("GLASS", "addView returned -1 — native addon failed, glass will not be visible");
       } else {
         log("GLASS", `Liquid glass applied, viewId=${glassId}`);
       }
     });
+
   }
 }
 
@@ -178,6 +179,29 @@ ipcMain.on("app:set-min-width", (_event, minWidth: number) => {
     if (currentW < clamped) {
       mainWindow.setSize(clamped, currentH);
     }
+  }
+});
+
+// Native glass tint — re-creates glass view with updated tintColor.
+// The C++ addon auto-cleans previous views in a single dispatch_sync block.
+const GLASS_TINT_RE = /^#[0-9a-fA-F]{8}$/;
+ipcMain.on("glass:set-tint-color", (_event, tintColor: string | null) => {
+  if (!glassEnabled) return;
+  if (tintColor !== null && (typeof tintColor !== "string" || !GLASS_TINT_RE.test(tintColor))) {
+    log("GLASS", `Ignoring invalid tintColor: ${String(tintColor)}`);
+    return;
+  }
+  const viewId = setGlassTint(tintColor);
+  if (viewId >= 0) {
+    log("GLASS", `setTintColor=${tintColor}, viewId=${viewId}`);
+  }
+});
+
+// Glass appearance — force light/dark/system on the native layer so the
+// glass effect follows the app's theme setting, not just the OS preference.
+ipcMain.on("glass:set-theme", (_event, theme: string) => {
+  if (theme === "light" || theme === "dark" || theme === "system") {
+    nativeTheme.themeSource = theme;
   }
 });
 
