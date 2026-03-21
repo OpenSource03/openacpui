@@ -44,5 +44,12 @@ export function useTheme(theme: ThemeOption): ResolvedTheme {
     }
   }, [resolved]);
 
+  // Sync theme to main process so native glass appearance matches the app theme.
+  // Send the raw option ("light"/"dark"/"system"), not the resolved value,
+  // so nativeTheme.themeSource = "system" lets macOS drive glass appearance natively.
+  useEffect(() => {
+    window.claude.glass?.setTheme(theme);
+  }, [theme]);
+
   return resolved;
 }
