@@ -33,8 +33,8 @@ importers:
         specifier: ^4.1.1
         version: 4.1.1
       electron-liquid-glass:
-        specifier: ^1.1.1
-        version: 1.1.1
+        specifier: github:darkkatarsis/electron-liquid-glass
+        version: https://codeload.github.com/darkkatarsis/electron-liquid-glass/tar.gz/3e542a5c50db0b2d6c59734766eaf5805ec57efc
       electron-updater:
         specifier: ^6.8.3
         version: 6.8.3
@@ -3079,8 +3079,9 @@ packages:
     resolution: {integrity: sha512-8TjjAh8Ec51hUi3o4TaU0mD3GMTOESi866oRNavj9A3IQJ7pmv+MJVmdZBFGw4GFT36X7bkqnuDNYvkQgvyI8Q==}
     engines: {node: '>=18'}
 
-  electron-liquid-glass@1.1.1:
-    resolution: {integrity: sha512-AfPxcu6RJYxlsW2sjgjDEON0rVOjhh5QYM6ur5hsfILQmfY5ewHCWJZJZoDsQxhjeW1DAhbRbvB79IvgW4ansA==}
+  electron-liquid-glass@https://codeload.github.com/darkkatarsis/electron-liquid-glass/tar.gz/3e542a5c50db0b2d6c59734766eaf5805ec57efc:
+    resolution: {tarball: https://codeload.github.com/darkkatarsis/electron-liquid-glass/tar.gz/3e542a5c50db0b2d6c59734766eaf5805ec57efc}
+    version: 1.1.1
     engines: {node: '>=18'}
     os: [darwin]
 
@@ -8703,7 +8704,7 @@ snapshots:
 
   electron-is-dev@3.0.1: {}
 
-  electron-liquid-glass@1.1.1:
+  electron-liquid-glass@https://codeload.github.com/darkkatarsis/electron-liquid-glass/tar.gz/3e542a5c50db0b2d6c59734766eaf5805ec57efc:
     dependencies:
       bindings: 1.5.0
       node-addon-api: 8.5.0

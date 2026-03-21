@@ -50,6 +50,10 @@ declare global {
     claude: {
       getGlassSupported: () => Promise<boolean>;
       setMinWidth: (width: number) => void;
+      glass: {
+        setTintColor: (tintColor: string | null) => void;
+        setTheme: (theme: "light" | "dark" | "system") => void;
+      };
       start: (options?: {
         cwd?: string;
         model?: string;

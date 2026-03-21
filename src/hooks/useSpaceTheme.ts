@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Space } from "@/types";
+import { computeGlassTintColor } from "@/lib/color-utils";
+import { isMac } from "@/lib/utils";
 
 const TINT_VARS = [
   "--space-hue", "--space-chroma",
@@ -22,6 +24,10 @@ function getTintStrength(chroma: number): number {
  * Applies the active space's color tint to CSS custom properties on the document root.
  * Handles dark/light mode branching and glass/non-glass transparency.
  *
+ * On macOS with native glass, sends tintColor to the main process via IPC so
+ * the glass material is tinted natively (higher quality than CSS overlay).
+ * Falls back to CSS overlay on non-macOS platforms (Windows Mica, etc.).
+ *
  * Returns the glass overlay style object (or null) for the tint overlay div.
  */
 export function useSpaceTheme(
@@ -36,11 +42,15 @@ export function useSpaceTheme(
     const root = document.documentElement;
     const isGlass = isGlassActive;
     const isDark = resolvedTheme === "dark";
+    // Native macOS glass supports tintColor via addView()
+    const isNativeGlass = isGlass && isMac;
 
     if (!space || space.color.chroma === 0) {
       // Clear all tinted vars so the CSS base values take over
       for (const v of TINT_VARS) root.style.removeProperty(v);
       setGlassOverlayStyle(null);
+      // Clear native glass tint when space has no color
+      if (isNativeGlass) window.claude.glass?.setTintColor(null);
 
       // Still apply opacity even for colorless (default) space
       const opacity = space?.color.opacity;
@@ -116,7 +126,16 @@ export function useSpaceTheme(
     const gradientHue = space.color.gradientHue;
     const overlayChroma = Math.min(0.18, 0.04 + 0.12 * tintStrength);
 
-    if (isGlass) {
+    // ── Glass tinting ──
+    if (isNativeGlass) {
+      // Native macOS glass tinting via addView({ tintColor }).
+      // The main process also re-applies tint on window focus (macOS drops it when inactive).
+      const hexTint = computeGlassTintColor(space.color);
+      window.claude.glass?.setTintColor(hexTint);
+      // Native tint handles the glass material — no CSS overlay needed
+      setGlassOverlayStyle(null);
+    } else if (isGlass) {
+      // Non-macOS glass (Windows Mica, etc.) — CSS overlay for tinting
       const a = 0.04 + 0.12 * tintStrength;
       const bg = gradientHue !== undefined
         ? `linear-gradient(135deg, oklch(0.5 ${overlayChroma} ${hue} / ${a}), oklch(0.5 ${overlayChroma} ${gradientHue} / ${a}))`
@@ -140,6 +159,7 @@ export function useSpaceTheme(
     return () => {
       for (const v of TINT_VARS) root.style.removeProperty(v);
       setGlassOverlayStyle(null);
+      if (isNativeGlass) window.claude.glass?.setTintColor(null);
     };
   }, [activeSpace, resolvedTheme, isGlassActive]);
 
