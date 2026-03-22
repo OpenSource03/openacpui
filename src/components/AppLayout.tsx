@@ -38,7 +38,7 @@ import { SettingsView } from "./SettingsView";
 import { CodexAuthDialog } from "./CodexAuthDialog";
 import { JiraBoardPanel } from "./JiraBoardPanel";
 import type { JiraIssue } from "@shared/types/jira";
-import { isMac } from "@/lib/utils";
+import { isMac, isWindows } from "@/lib/utils";
 
 const JIRA_BOARD_BY_SPACE_KEY = "harnss-jira-board-by-space";
 
@@ -293,12 +293,14 @@ Link: ${issue.url}`;
   const isIsland = settings.islandLayout;
   const minChatWidth = getMinChatWidth(isIsland);
   const splitGap = isIsland ? RESIZE_HANDLE_WIDTH_ISLAND / 2 : 0.5;
+  const islandRadius = isWindows ? 8 : ISLAND_RADIUS;
+  const islandControlRadius = isWindows ? 7 : ISLAND_CONTROL_RADIUS;
   const islandLayoutVars = isIsland
     ? {
         "--island-gap": `${ISLAND_GAP}px`,
         "--island-panel-gap": `${ISLAND_PANEL_GAP}px`,
-        "--island-radius": `${ISLAND_RADIUS}px`,
-        "--island-control-radius": `${ISLAND_CONTROL_RADIUS}px`,
+        "--island-radius": `${islandRadius}px`,
+        "--island-control-radius": `${islandControlRadius}px`,
         "--tool-picker-strip-width": `${TOOL_PICKER_WIDTH_ISLAND - ISLAND_PANEL_GAP}px`,
       } as React.CSSProperties
     : undefined;

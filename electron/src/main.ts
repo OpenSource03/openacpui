@@ -62,6 +62,14 @@ if (glassEnabled) {
 
 let mainWindow: BrowserWindow | null = null;
 
+type NativeThemeSource = "system" | "light" | "dark";
+
+function normalizeThemeSource(value: unknown): NativeThemeSource {
+  return value === "light" || value === "dark" || value === "system"
+    ? value
+    : "system";
+}
+
 function getMainWindow(): BrowserWindow | null {
   return mainWindow;
 }
@@ -156,6 +164,10 @@ function createWindow(): void {
 // Renderer uses this to decide whether the transparency toggle is available.
 ipcMain.handle("app:getGlassSupported", () => {
   return !!(glassEnabled || process.platform === "win32");
+});
+
+ipcMain.on("app:set-theme-source", (_event, themeSource: unknown) => {
+  nativeTheme.themeSource = normalizeThemeSource(themeSource);
 });
 
 ipcMain.handle("clipboard:write-text", (_event, text: string) => {

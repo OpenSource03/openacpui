@@ -169,6 +169,11 @@ export function useAppOrchestrator() {
     window.claude.getGlassSupported().then((supported) => setGlassSupported(supported));
   }, []);
 
+  // Keep Electron's native theme in sync so Windows Mica follows the app theme.
+  useEffect(() => {
+    window.claude.setThemeSource(settings.theme);
+  }, [settings.theme]);
+
   // Toggle the glass-enabled CSS class when the transparency setting changes.
   // Preload applies the initial class from localStorage so first paint stays in sync.
   useEffect(() => {

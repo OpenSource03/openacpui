@@ -7,6 +7,7 @@ import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import { buildSdkContent } from "../../lib/protocol";
 import { toMcpStatusState } from "../../lib/mcp-utils";
+import { toChatSession } from "../../lib/session-records";
 import { bgAgentStore } from "../../lib/background-agent-store";
 import { capture, captureException } from "../../lib/analytics";
 import {
@@ -192,19 +193,7 @@ export function useSessionLifecycle({
     Promise.all(
       projects.map((p) => window.claude.sessions.list(p.id)),
     ).then((results) => {
-      const all = results.flat().map((s) => ({
-        id: s.id,
-        projectId: s.projectId,
-        title: s.title,
-        createdAt: s.createdAt,
-        lastMessageAt: s.lastMessageAt || s.createdAt,
-        model: s.model,
-        planMode: s.planMode,
-        totalCost: s.totalCost,
-        isActive: false,
-        engine: s.engine,
-        codexThreadId: s.codexThreadId,
-      }));
+      const all = results.flat().map((session) => toChatSession(session, false));
       setSessions(all);
     }).catch(() => { /* IPC failure — leave sessions empty */ });
   }, [projects]);

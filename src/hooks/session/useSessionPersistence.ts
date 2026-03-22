@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import type { PersistedSession, ClaudeEvent, SystemInitEvent, EngineId } from "../../types";
 import { toMcpStatusState } from "../../lib/mcp-utils";
+import { buildPersistedSession } from "../../lib/session-records";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent } from "../../types/acp";
 import { normalizeToolInput as acpNormalizeToolInput, pickAutoResponseOption } from "../../lib/acp-adapter";
 import { DRAFT_ID } from "./types";
@@ -147,18 +148,16 @@ export function useSessionPersistence({
         const bgState = backgroundStoreRef.current.get(sid);
         const session = sessionsRef.current.find((s) => s.id === sid);
         if (bgState && session) {
-          window.claude.sessions.save({
-            id: sid,
-            projectId: session.projectId,
-            title: session.title,
-            createdAt: session.createdAt,
-            messages: bgState.messages,
-            model: session.model || bgState.sessionInfo?.model,
-            planMode: session.planMode,
-            totalCost: bgState.totalCost,
-            engine: session.engine,
-            ...(session.engine === "codex" && session.codexThreadId ? { codexThreadId: session.codexThreadId } : {}),
-          });
+          const persisted = buildPersistedSession(
+            {
+              ...session,
+              model: session.model || bgState.sessionInfo?.model,
+            },
+            bgState.messages,
+            bgState.totalCost,
+            bgState.contextUsage,
+          );
+          window.claude.sessions.save(persisted);
         }
       }
     };
@@ -401,21 +400,12 @@ export function useSessionPersistence({
     if (!session) return;
     // Never persist queued messages — unsent queue state is runtime-only.
     const msgs = messagesRef.current.filter((m) => !m.isQueued);
-    const data: PersistedSession = {
-      id,
-      projectId: session.projectId,
-      title: session.title,
-      createdAt: session.createdAt,
-      messages: msgs,
-      model: session.model,
-      planMode: session.planMode,
-      totalCost: totalCostRef.current,
-      contextUsage: contextUsageRef.current,
-      engine: session.engine,
-      ...(session.agentId ? { agentId: session.agentId } : {}),
-      ...(session.agentSessionId ? { agentSessionId: session.agentSessionId } : {}),
-      ...(session.engine === "codex" && session.codexThreadId ? { codexThreadId: session.codexThreadId } : {}),
-    };
+    const data: PersistedSession = buildPersistedSession(
+      session,
+      msgs,
+      totalCostRef.current,
+      contextUsageRef.current,
+    );
     await persistSessionWithCodexFallback(data);
   }, [persistSessionWithCodexFallback]);
 

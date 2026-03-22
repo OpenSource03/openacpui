@@ -178,6 +178,9 @@ function buildWithBranches(
 ): void {
   const items: SidebarItem[] = [];
   const folderMap = new Map<string, ChatFolder>(folders.map((f) => [f.id, f]));
+  const folderIdsWithAnySessions = new Set(
+    sessions.flatMap((session) => (session.folderId ? [session.folderId] : [])),
+  );
 
   // Partition sessions by branch
   const branchBuckets = new Map<string, ChatSession[]>();
@@ -214,6 +217,18 @@ function buildWithBranches(
   // Main-branch sessions: build flat items (folders + ungrouped)
   const mainFolderItems = buildFlatItems(mainSessions, folderMap);
   items.push(...mainFolderItems);
+
+  // Empty folders are not branch-specific, so keep them at the top level.
+  for (const folder of folders) {
+    if (folderIdsWithAnySessions.has(folder.id)) continue;
+    items.push({
+      type: "folder",
+      label: folder.name,
+      folder,
+      sortTimestamp: folder.createdAt,
+      sessions: [],
+    });
+  }
 
   // Sort all items by recency (folders use createdAt when empty)
   items.sort((a, b) => {

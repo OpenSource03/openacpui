@@ -1,5 +1,5 @@
-export const MIN_CHAT_WIDTH_ISLAND = 828;
-export const MIN_CHAT_WIDTH_FLAT = 828;
+export const MIN_CHAT_WIDTH_ISLAND = 704;
+export const MIN_CHAT_WIDTH_FLAT = 704;
 export const BOTTOM_CHAT_MAX_WIDTH_CLASS = "max-w-[61.5rem]";
 export const CHAT_INPUT_MAX_WIDTH_CLASS = BOTTOM_CHAT_MAX_WIDTH_CLASS;
 export const APP_SIDEBAR_WIDTH = 280;

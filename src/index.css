@@ -166,6 +166,39 @@ html.glass-enabled #root {
   --sidebar-accent: oklch(0.965 0.001 286.029 / 0.3);
   /* Light mode glass: keep dark text (same as Windows) — the always-key-appearance
      fix keeps the glass bright enough for standard dark-on-light text. */
+  --sidebar-ring: oklch(0.64 0 0);
+}
+
+/* macOS light glass needs light sidebar text because the native material reads
+   visually darker. Windows Mica stays light enough that default dark text is
+   more legible, so leave the base light tokens alone there. */
+html.platform-darwin.glass-enabled:not(.dark) {
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  /* Keep --sidebar-accent-foreground at light-mode default for other accent
+     surfaces; selected chats are overridden below. */
+}
+
+/* Elements on light backgrounds (search box) — reset to dark text/icons */
+html.platform-darwin.glass-enabled:not(.dark) .glass-outline,
+html.platform-darwin.glass-enabled:not(.dark) .bg-sidebar-accent {
+  --sidebar-foreground: oklch(0.145 0 0);
+}
+
+/* Sidebar search stays on the white-text treatment in light glass mode. */
+html.platform-darwin.glass-enabled:not(.dark) .sidebar-search-glass {
+  --sidebar-foreground: oklch(0.985 0 0);
+}
+
+/* In light mode with glass enabled, selected chats should stay white. */
+html.platform-darwin.glass-enabled:not(.dark) .session-item-active {
+  color: oklch(0.985 0 0);
+}
+
+/* In light glass mode, sidebar engine icons match white text via inversion */
+html.platform-darwin.glass-enabled:not(.dark) .session-item-button img {
+  filter: invert(1) brightness(2);
 }
 
 /* In glass mode, only the outermost bg-sidebar (AppLayout root) provides
@@ -401,8 +434,8 @@ html:not(.dark) .no-island-shine .island {
 /* Windows: smaller corner radius to match native chrome, no traffic-light padding */
 html.platform-win32 {
   --radius: 0.375rem;
-  --island-radius: 0.625rem;
-  --island-control-radius: 0.5625rem;
+  --island-radius: 0.5rem;
+  --island-control-radius: 0.4375rem;
 }
 html.platform-win32 .drag-region {
   -webkit-app-region: none;

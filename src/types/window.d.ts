@@ -6,6 +6,7 @@ import type {
   InstalledAgent, ModelInfo, McpServerConfig, McpServerStatus,
   AppSettings,
   ClaudeEffort,
+  ThemeOption,
 } from "./ui";
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
 import type { EngineId, AppPermissionBehavior } from "./engine";
@@ -55,6 +56,7 @@ declare global {
   interface Window {
     claude: {
       getGlassSupported: () => Promise<boolean>;
+      setThemeSource: (themeSource: ThemeOption) => void;
       setMinWidth: (width: number) => void;
       glass: {
         setTintColor: (tintColor: string | null) => void;

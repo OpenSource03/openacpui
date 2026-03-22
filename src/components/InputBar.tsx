@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   ArrowUp,
-  Brain,
   ChevronDown,
   Crosshair,
   File,
@@ -101,118 +100,6 @@ function getContextStrokeColor(percent: number): string {
 
 // ── Reusable engine control sub-components ──
 
-/** Model selector dropdown — used by Claude and Codex engines */
-function ModelDropdown({
-  modelList,
-  selectedModel,
-  selectedModelId,
-  isProcessing,
-  onModelChange,
-  onModelEffortChange,
-  effortOptionsByModel,
-  activeEffort,
-  modelsLoading,
-  modelsLoadingText,
-}: {
-  modelList: Array<{ id: string; label: string; description?: string }>;
-  selectedModel: { id: string; label: string; description?: string } | undefined;
-  selectedModelId: string;
-  isProcessing: boolean;
-  onModelChange: (id: string) => void;
-  onModelEffortChange?: (id: string, effort: ClaudeEffort) => void;
-  effortOptionsByModel?: Partial<Record<string, ClaudeEffort[]>>;
-  activeEffort?: ClaudeEffort;
-  modelsLoading: boolean;
-  modelsLoadingText: string;
-}) {
-  if (modelsLoading) {
-    return (
-      <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        {modelsLoadingText}
-      </div>
-    );
-  }
-  const selectedEffort = activeEffort && (effortOptionsByModel?.[selectedModelId]?.includes(activeEffort) ?? false)
-    ? activeEffort
-    : undefined;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          className={TOOLBAR_BTN}
-          disabled={isProcessing}
-        >
-          {selectedModel?.label}
-          {selectedEffort && (
-            <span className="text-muted-foreground/70">
-              · {selectedEffort}
-            </span>
-          )}
-          <ChevronDown className="size-3" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {modelList.map((m) => {
-          const effortOptions = effortOptionsByModel?.[m.id] ?? [];
-          if (effortOptions.length > 0 && onModelEffortChange) {
-            const isSelected = m.id === selectedModelId;
-            return (
-              <DropdownMenuSub key={m.id}>
-                <DropdownMenuSubTrigger className={isSelected ? "bg-accent" : ""}>
-                  <div>
-                    <div>{m.label}</div>
-                    {m.description && (
-                      <div className="text-[10px] text-muted-foreground">{m.description}</div>
-                    )}
-                  </div>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-56">
-                  {effortOptions.map((effort) => {
-                    const isActive = isSelected && effort === activeEffort;
-                    return (
-                      <DropdownMenuItem
-                        key={`${m.id}-${effort}`}
-                        onClick={() => onModelEffortChange(m.id, effort)}
-                        className={isActive ? "bg-accent" : ""}
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="capitalize">{effort}</span>
-                            {isActive && <span className="text-[10px] text-muted-foreground">Current</span>}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">{CLAUDE_EFFORT_DESCRIPTIONS[effort]}</div>
-                        </div>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            );
-          }
-
-          return (
-            <DropdownMenuItem
-              key={m.id}
-              onClick={() => onModelChange(m.id)}
-              className={m.id === selectedModelId ? "bg-accent" : ""}
-            >
-              <div>
-                <div>{m.label}</div>
-                {m.description && (
-                  <div className="text-[10px] text-muted-foreground">{m.description}</div>
-                )}
-              </div>
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /** Permission mode dropdown — used by Claude and Codex engines */
 function PermissionDropdown({
   permissionMode,
@@ -298,200 +185,65 @@ function PlanModeToggle({
   );
 }
 
-/** Renders the correct combination of controls per engine */
+/** Renders plan/permission controls per engine (model/config moved to engine picker) */
 function EngineControls({
   isCodexAgent,
   isACPAgent,
   isProcessing,
-  showACPConfigOptions,
-  // Model
-  modelList,
-  selectedModel,
-  selectedModelId,
-  onModelChange,
-  onClaudeModelEffortChange,
-  claudeEffortOptionsByModel,
-  claudeActiveEffort,
-  modelsLoading,
-  modelsLoadingText,
-  // Permission
   permissionMode,
   onPermissionModeChange,
-  // Plan
   planMode,
   onPlanModeChange,
-  // Codex effort
-  codexEffortOptions,
-  codexActiveEffort,
-  onCodexEffortChange,
-  // ACP
   acpPermissionBehavior,
   onAcpPermissionBehaviorChange,
-  acpConfigOptions,
-  acpConfigOptionsLoading,
-  onACPConfigChange,
 }: {
   isCodexAgent: boolean;
   isACPAgent: boolean;
   isProcessing: boolean;
-  showACPConfigOptions: boolean;
-  modelList: Array<{ id: string; label: string; description?: string }>;
-  selectedModel: { id: string; label: string; description?: string } | undefined;
-  selectedModelId: string;
-  onModelChange: (id: string) => void;
-  onClaudeModelEffortChange?: (model: string, effort: ClaudeEffort) => void;
-  claudeEffortOptionsByModel: Partial<Record<string, ClaudeEffort[]>>;
-  claudeActiveEffort: ClaudeEffort;
-  modelsLoading: boolean;
-  modelsLoadingText: string;
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
   planMode: boolean;
   onPlanModeChange: (enabled: boolean) => void;
-  codexEffortOptions: Array<{ reasoningEffort: string; description: string }>;
-  codexActiveEffort?: string;
-  onCodexEffortChange?: (effort: string) => void;
   acpPermissionBehavior?: AcpPermissionBehavior;
   onAcpPermissionBehaviorChange?: (behavior: AcpPermissionBehavior) => void;
-  acpConfigOptions?: ACPConfigOption[];
-  acpConfigOptionsLoading?: boolean;
-  onACPConfigChange?: (configId: string, value: string) => void;
 }) {
-  if (isCodexAgent) {
-    return (
-      <>
-        <ModelDropdown
-          modelList={modelList}
-          selectedModel={selectedModel}
-          selectedModelId={selectedModelId}
-          isProcessing={isProcessing}
-          onModelChange={onModelChange}
-          modelsLoading={modelsLoading}
-          modelsLoadingText={modelsLoadingText}
-        />
-        {/* Codex reasoning effort dropdown */}
-        {codexEffortOptions.length > 0 && onCodexEffortChange && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="xs" className={TOOLBAR_BTN} disabled={isProcessing}>
-                <Brain className="size-3" />
-                {codexActiveEffort}
-                <ChevronDown className="size-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {codexEffortOptions.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.reasoningEffort}
-                  onClick={() => onCodexEffortChange(opt.reasoningEffort)}
-                  className={opt.reasoningEffort === codexActiveEffort ? "bg-accent" : ""}
-                >
-                  <div>
-                    <div className="capitalize">{opt.reasoningEffort}</div>
-                    {opt.description && (
-                      <div className="text-[10px] text-muted-foreground">{opt.description}</div>
-                    )}
-                  </div>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
-        <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} showDetails />
-      </>
-    );
-  }
-
   if (isACPAgent) {
+    if (!onAcpPermissionBehaviorChange) return null;
     return (
-      <>
-        {/* ACP permission behavior dropdown */}
-        {onAcpPermissionBehaviorChange && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="xs" className={TOOLBAR_BTN} disabled={isProcessing}>
-                <Shield className="size-3" />
-                {ACP_PERMISSION_BEHAVIORS.find(b => b.id === acpPermissionBehavior)?.label ?? "Ask"}
-                <ChevronDown className="size-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {ACP_PERMISSION_BEHAVIORS.map((b) => (
-                <DropdownMenuItem
-                  key={b.id}
-                  onClick={() => onAcpPermissionBehaviorChange(b.id)}
-                  className={b.id === acpPermissionBehavior ? "bg-accent" : ""}
-                >
-                  <div>
-                    <div>{b.label}</div>
-                    <div className="text-[10px] text-muted-foreground">{b.description}</div>
-                  </div>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        {/* Agent-provided config dropdowns */}
-        {showACPConfigOptions && acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
-          acpConfigOptions.map((opt) => {
-            const flat = flattenConfigOptions(opt.options);
-            const current = flat.find((o) => o.value === opt.currentValue);
-            return (
-              <DropdownMenu key={opt.id}>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="xs" className={TOOLBAR_BTN} disabled={isProcessing}>
-                    {current?.name ?? opt.currentValue}
-                    <ChevronDown className="size-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {flat.map((o) => (
-                    <DropdownMenuItem
-                      key={o.value}
-                      onClick={() => onACPConfigChange(opt.id, o.value)}
-                      className={o.value === opt.currentValue ? "bg-accent" : ""}
-                    >
-                      <div>
-                        <div>{o.name}</div>
-                        {o.description && (
-                          <div className="text-[10px] text-muted-foreground">{o.description}</div>
-                        )}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            );
-          })
-        }
-        {acpConfigOptionsLoading && !showACPConfigOptions && (
-          <div className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Loading options...
-          </div>
-        )}
-      </>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="xs" className={TOOLBAR_BTN} disabled={isProcessing}>
+            <Shield className="size-3" />
+            {ACP_PERMISSION_BEHAVIORS.find(b => b.id === acpPermissionBehavior)?.label ?? "Ask"}
+            <ChevronDown className="size-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {ACP_PERMISSION_BEHAVIORS.map((b) => (
+            <DropdownMenuItem
+              key={b.id}
+              onClick={() => onAcpPermissionBehaviorChange(b.id)}
+              className={b.id === acpPermissionBehavior ? "bg-accent" : ""}
+            >
+              <div>
+                <div>{b.label}</div>
+                <div className="text-[10px] text-muted-foreground">{b.description}</div>
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
 
-  // Claude SDK controls
   return (
     <>
-      <ModelDropdown
-        modelList={modelList}
-        selectedModel={selectedModel}
-        selectedModelId={selectedModelId}
-        isProcessing={isProcessing}
-        onModelChange={onModelChange}
-        onModelEffortChange={onClaudeModelEffortChange}
-        effortOptionsByModel={claudeEffortOptionsByModel}
-        activeEffort={claudeActiveEffort}
-        modelsLoading={modelsLoading}
-        modelsLoadingText={modelsLoadingText}
-      />
       <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
-      <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
+      <PermissionDropdown
+        permissionMode={permissionMode}
+        onPermissionModeChange={onPermissionModeChange}
+        showDetails={isCodexAgent}
+      />
     </>
   );
 }
@@ -866,11 +618,6 @@ export const InputBar = memo(function InputBar({
   const selectedModel = modelList.find((m) => m.id === preferredModelId) ?? modelList[0];
   const selectedModelId = selectedModel?.id ?? preferredModelId;
   const claudeCurrentModel = supportedModels?.find((m) => m.value === selectedModelId);
-  const claudeEffortOptionsByModel = Object.fromEntries(
-    (supportedModels ?? [])
-      .filter((m) => m.supportsEffort && (m.supportedEffortLevels?.length ?? 0) > 0)
-      .map((m) => [m.value, m.supportedEffortLevels ?? []]),
-  ) as Partial<Record<string, ClaudeEffort[]>>;
   const claudeEffortOptions = claudeCurrentModel?.supportsEffort
     ? (claudeCurrentModel.supportedEffortLevels ?? [])
     : [];
@@ -1757,44 +1504,171 @@ export const InputBar = memo(function InputBar({
               </Tooltip>
             ) : null}
 
-            {agents && agents.length > 1 && onAgentChange && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="xs" className={TOOLBAR_BTN} disabled={isProcessing}>
-                    <AgentIcon
-                      icon={selectedAgent ? getAgentIcon(selectedAgent) : ENGINE_ICONS.claude}
-                      size={14}
-                      className="shrink-0"
-                    />
-                    {selectedAgent?.name ?? "Claude Code"}
-                    <ChevronDown className="size-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {(() => {
-                    // An agent "will open new chat" if engine differs OR same ACP engine but different agent
-                    const willOpenNewChat = (agent: InstalledAgent) => {
-                      if (lockedEngine == null) return false;
-                      if (agent.engine !== lockedEngine) return true;
-                      if (lockedEngine === "acp" && lockedAgentId && agent.id !== lockedAgentId) return true;
-                      return false;
-                    };
-                    const sameEngine = agents.filter((a) => !willOpenNewChat(a));
-                    const crossEngine = agents.filter((a) => willOpenNewChat(a));
+            {/* Engine picker — always visible, includes agent switching + model/config submenus */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="xs" className={TOOLBAR_BTN} disabled={isProcessing}>
+                  <AgentIcon
+                    icon={selectedAgent ? getAgentIcon(selectedAgent) : ENGINE_ICONS.claude}
+                    size={14}
+                    className="shrink-0"
+                  />
+                  {selectedAgent?.name ?? "Claude Code"}
+                  {!isACPAgent && !modelsLoading && selectedModel && (
+                    <span className="text-muted-foreground/70">· {selectedModel.label}</span>
+                  )}
+                  {!isACPAgent && modelsLoading && (
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />
+                  )}
+                  {isACPAgent && showACPConfigOptions && acpConfigOptions && acpConfigOptions.length > 0 && (() => {
+                    const first = acpConfigOptions[0];
+                    const flat = flattenConfigOptions(first.options);
+                    const current = flat.find((o) => o.value === first.currentValue);
+                    return (
+                      <span className="text-muted-foreground/70">· {current?.name ?? first.currentValue}</span>
+                    );
+                  })()}
+                  {isACPAgent && acpConfigOptionsLoading && !showACPConfigOptions && (
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />
+                  )}
+                  <ChevronDown className="size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                {(() => {
+                  // Engine-specific config items (model/effort/ACP config) — shared between
+                  // multi-agent submenu and single-agent direct rendering
+                  const configItems = (
+                    <>
+                      {/* Model list (Claude + Codex) */}
+                      {!isACPAgent && !modelsLoading && modelList.length > 0 && modelList.map((m) => (
+                        <DropdownMenuItem
+                          key={m.id}
+                          onClick={() => onModelChange(m.id)}
+                          className={m.id === selectedModelId ? "bg-accent" : ""}
+                        >
+                          <div>
+                            <div>{m.label}</div>
+                            {m.description && (
+                              <div className="text-[10px] text-muted-foreground">{m.description}</div>
+                            )}
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                      {/* Claude effort for current model */}
+                      {!isCodexAgent && !isACPAgent && claudeEffortOptions.length > 0 && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">Effort</div>
+                          {claudeEffortOptions.map((effort) => (
+                            <DropdownMenuItem
+                              key={effort}
+                              onClick={() => onClaudeModelEffortChange(selectedModelId, effort)}
+                              className={effort === claudeActiveEffort ? "bg-accent" : ""}
+                            >
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="capitalize">{effort}</span>
+                                  {effort === claudeActiveEffort && <span className="text-[10px] text-muted-foreground">Current</span>}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">{CLAUDE_EFFORT_DESCRIPTIONS[effort]}</div>
+                              </div>
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      )}
+                      {/* Models loading */}
+                      {!isACPAgent && modelsLoading && (
+                        <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          {modelsLoadingText}
+                        </DropdownMenuItem>
+                      )}
+                      {/* Codex effort */}
+                      {isCodexAgent && codexEffortOptions.length > 0 && onCodexEffortChange && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">Effort</div>
+                          {codexEffortOptions.map((opt) => (
+                            <DropdownMenuItem
+                              key={opt.reasoningEffort}
+                              onClick={() => onCodexEffortChange(opt.reasoningEffort)}
+                              className={opt.reasoningEffort === codexActiveEffort ? "bg-accent" : ""}
+                            >
+                              <div>
+                                <div className="capitalize">{opt.reasoningEffort}</div>
+                                {opt.description && (
+                                  <div className="text-[10px] text-muted-foreground">{opt.description}</div>
+                                )}
+                              </div>
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      )}
+                      {/* ACP config options */}
+                      {isACPAgent && showACPConfigOptions && acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
+                        acpConfigOptions.map((opt) => {
+                          const flat = flattenConfigOptions(opt.options);
+                          const current = flat.find((o) => o.value === opt.currentValue);
+                          return (
+                            <DropdownMenuSub key={opt.id}>
+                              <DropdownMenuSubTrigger>
+                                <div>
+                                  <div>{opt.name}</div>
+                                  <div className="text-[10px] text-muted-foreground">{current?.name ?? opt.currentValue}</div>
+                                </div>
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="w-56">
+                                {flat.map((o) => (
+                                  <DropdownMenuItem
+                                    key={o.value}
+                                    onClick={() => onACPConfigChange(opt.id, o.value)}
+                                    className={o.value === opt.currentValue ? "bg-accent" : ""}
+                                  >
+                                    <div>
+                                      <div>{o.name}</div>
+                                      {o.description && (
+                                        <div className="text-[10px] text-muted-foreground">{o.description}</div>
+                                      )}
+                                    </div>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                          );
+                        })
+                      }
+                      {/* ACP config loading */}
+                      {isACPAgent && acpConfigOptionsLoading && !showACPConfigOptions && (
+                        <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Loading options...
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  );
 
-                    const renderItem = (agent: InstalledAgent, crossEngine: boolean) => (
-                      <DropdownMenuItem
-                        key={agent.id}
-                        onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
-                        className={
-                          (selectedAgent?.id ?? "claude-code") === agent.id ? "bg-accent" : ""
-                        }
-                      >
-                        <AgentIcon
-                          icon={getAgentIcon(agent)}
-                          size={16}
-                          className="shrink-0"
-                        />
+                  // Single agent or no agent list — show config directly
+                  if (!agents || agents.length <= 1 || !onAgentChange) {
+                    return configItems;
+                  }
+
+                  // Multi-agent — current agent is a submenu with config, others are clickable items
+                  const willOpenNewChat = (agent: InstalledAgent) => {
+                    if (lockedEngine == null) return false;
+                    if (agent.engine !== lockedEngine) return true;
+                    if (lockedEngine === "acp" && lockedAgentId && agent.id !== lockedAgentId) return true;
+                    return false;
+                  };
+                  const sameEngine = agents.filter((a) => !willOpenNewChat(a));
+                  const crossEngine = agents.filter((a) => willOpenNewChat(a));
+
+                  const renderAgent = (agent: InstalledAgent, isCrossEngine: boolean) => {
+                    const isCurrent = (selectedAgent?.id ?? "claude-code") === agent.id;
+
+                    const agentLabel = (
+                      <>
+                        <AgentIcon icon={getAgentIcon(agent)} size={16} className="shrink-0" />
                         <div>
                           <div className="flex items-center gap-1.5">
                             {agent.name}
@@ -1802,55 +1676,59 @@ export const InputBar = memo(function InputBar({
                               <span className="rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium text-amber-400">Beta</span>
                             )}
                           </div>
-                          {crossEngine && (
-                            <div className="text-[10px] text-muted-foreground/70">
-                              Opens new chat
-                            </div>
+                          {isCrossEngine && (
+                            <div className="text-[10px] text-muted-foreground/70">Opens new chat</div>
                           )}
                         </div>
-                      </DropdownMenuItem>
-                    );
-
-                    return (
-                      <>
-                        {sameEngine.map((a) => renderItem(a, false))}
-                        {crossEngine.length > 0 && sameEngine.length > 0 && (
-                          <DropdownMenuSeparator />
-                        )}
-                        {crossEngine.map((a) => renderItem(a, true))}
                       </>
                     );
-                  })()}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+
+                    if (isCurrent) {
+                      return (
+                        <DropdownMenuSub key={agent.id}>
+                          <DropdownMenuSubTrigger className="bg-accent">
+                            {agentLabel}
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="w-56">
+                            {configItems}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      );
+                    }
+
+                    return (
+                      <DropdownMenuItem
+                        key={agent.id}
+                        onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
+                      >
+                        {agentLabel}
+                      </DropdownMenuItem>
+                    );
+                  };
+
+                  return (
+                    <>
+                      {sameEngine.map((a) => renderAgent(a, false))}
+                      {crossEngine.length > 0 && sameEngine.length > 0 && (
+                        <DropdownMenuSeparator />
+                      )}
+                      {crossEngine.map((a) => renderAgent(a, true))}
+                    </>
+                  );
+                })()}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <EngineControls
               isCodexAgent={isCodexAgent}
               isACPAgent={isACPAgent}
               isProcessing={isProcessing}
-              showACPConfigOptions={showACPConfigOptions}
-              modelList={modelList}
-              selectedModel={selectedModel}
-              selectedModelId={selectedModelId}
-              onModelChange={onModelChange}
-              onClaudeModelEffortChange={onClaudeModelEffortChange}
-              claudeEffortOptionsByModel={claudeEffortOptionsByModel}
-              claudeActiveEffort={claudeActiveEffort}
-              modelsLoading={modelsLoading}
-              modelsLoadingText={modelsLoadingText}
               permissionMode={permissionMode}
               onPermissionModeChange={onPermissionModeChange}
               planMode={planMode}
               onPlanModeChange={onPlanModeChange}
-              codexEffortOptions={codexEffortOptions}
-              codexActiveEffort={codexActiveEffort}
-              onCodexEffortChange={onCodexEffortChange}
               acpPermissionBehavior={acpPermissionBehavior}
               onAcpPermissionBehaviorChange={onAcpPermissionBehaviorChange}
-              acpConfigOptions={acpConfigOptions}
-              acpConfigOptionsLoading={acpConfigOptionsLoading}
-              onACPConfigChange={onACPConfigChange}
             />
           </div>
 

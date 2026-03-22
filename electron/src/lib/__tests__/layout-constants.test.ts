@@ -39,7 +39,7 @@ describe("layout constants", () => {
     expect(TOOL_PICKER_WIDTH_ISLAND).toBe(58);
     expect(RESIZE_HANDLE_WIDTH_ISLAND).toBe(4);
     expect(WINDOWS_FRAME_BUFFER_WIDTH).toBe(16);
-    expect(getBootstrapMinWindowWidth("darwin")).toBe(1666);
-    expect(getBootstrapMinWindowWidth("win32")).toBe(1682);
+    expect(getBootstrapMinWindowWidth("darwin")).toBe(1542);
+    expect(getBootstrapMinWindowWidth("win32")).toBe(1558);
   });
 });

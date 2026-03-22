@@ -1,4 +1,3 @@
-import { Pin } from "lucide-react";
 import type { ChatFolder, ChatSession, InstalledAgent } from "@/types";
 import type { SidebarItem } from "@/lib/sidebar-grouping";
 import { SessionItem } from "./SessionItem";
@@ -38,13 +37,7 @@ export function PinnedSection({
   if (sessions.length === 0 && (!pinnedFolders || pinnedFolders.length === 0)) return null;
 
   return (
-    <div className="mb-3">
-      <div className="mb-1.5 flex items-center gap-1.5 px-3">
-        <Pin className="h-3 w-3 shrink-0 text-sidebar-foreground/40" />
-        <p className="text-[10px] font-bold uppercase tracking-wider text-sidebar-foreground/40">
-          Pinned
-        </p>
-      </div>
+    <div className="mb-2">
       {pinnedFolders?.map((item) => item.folder && (
         <FolderSection
           key={`folder-${item.folder.id}`}

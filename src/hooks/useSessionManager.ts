@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import type { ChatSession, UIMessage, PermissionRequest, McpServerStatus, McpServerConfig, ModelInfo, AcpPermissionBehavior, EngineId, Project } from "../types";
 import type { ACPConfigOption, ACPPermissionEvent } from "../types/acp";
 import { toMcpStatusState } from "../lib/mcp-utils";
+import { toChatSession } from "../lib/session-records";
 import { useClaude } from "./useClaude";
 import { useACP } from "./useACP";
 import { useCodex } from "./useCodex";
@@ -342,10 +343,9 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     if (ids.length === 0) return;
     const uniqueIds = [...new Set(ids)];
     const lists = await Promise.all(uniqueIds.map((projectId) => window.claude.sessions.list(projectId)));
-    const refreshed = lists.flat().map((s) => ({
-      ...s,
-      isActive: s.id === activeSessionIdRef.current,
-    }));
+    const refreshed = lists.flat().map((session) =>
+      toChatSession(session, session.id === activeSessionIdRef.current),
+    );
     setSessions((prev) => {
       const keep = prev.filter((s) => !uniqueIds.includes(s.projectId));
       const map = new Map<string, ChatSession>();

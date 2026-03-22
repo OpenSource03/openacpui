@@ -17,15 +17,26 @@ interface PreloadGlobals {
   localStorage?: PreloadStorage;
 }
 
+type ThemeSource = "system" | "light" | "dark";
+
+function readStoredThemeSource(storage: PreloadStorage | undefined): ThemeSource {
+  const stored = storage?.getItem("harnss-theme");
+  return stored === "light" || stored === "dark" || stored === "system"
+    ? stored
+    : "dark";
+}
+
 // Early setup wrapped in try/catch so contextBridge.exposeInMainWorld always runs
 // even if DOM isn't ready or something else fails above it.
 try {
   const globals = globalThis as typeof globalThis & PreloadGlobals;
   const root = globals.document?.documentElement;
+  const themeSource = readStoredThemeSource(globals.localStorage);
 
   // Apply platform + glass classes as early as possible (before React mounts).
   // On Windows, glass support does not mean the user has transparency enabled.
   root?.classList.add(`platform-${process.platform}`);
+  ipcRenderer.send("app:set-theme-source", themeSource);
   ipcRenderer.invoke("app:getGlassSupported").then((supported: boolean) => {
     if (!supported || !root) return;
 
@@ -52,6 +63,7 @@ try {
 
 contextBridge.exposeInMainWorld("claude", {
   getGlassSupported: () => ipcRenderer.invoke("app:getGlassSupported"),
+  setThemeSource: (themeSource: ThemeSource) => ipcRenderer.send("app:set-theme-source", themeSource),
   setMinWidth: (width: number) => ipcRenderer.send("app:set-min-width", width),
   glass: {
     setTintColor: (tintColor: string | null) =>
