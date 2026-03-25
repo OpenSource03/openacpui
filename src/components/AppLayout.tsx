@@ -195,6 +195,7 @@ export function AppLayout() {
   const [forceOpenFloatingToken, setForceOpenFloatingToken] = useState(0);
   const [workspaceActiveFilePath, setWorkspaceActiveFilePath] = useState<string | null>(null);
   const [maximizedToolId, setMaximizedToolId] = useState<string | null>(null);
+  const [pinnedToolId, setPinnedToolId] = useState<string | null>(null);
   const [codeSnippets0, setCodeSnippets0] = useState<CodeSnippet[]>([]);
   const [codeSnippets1, setCodeSnippets1] = useState<CodeSnippet[]>([]);
   const handleAddToChat = useCallback((code: string, filePath: string, lineStart: number, lineEnd: number, targetPane?: number) => {
@@ -1249,37 +1250,37 @@ Link: ${issue.url}`;
               <div
                 ref={hasToolsColumn ? toolsColumnRef : null}
                 className={`flex shrink-0 flex-col gap-0 overflow-hidden ${!hasToolsColumn ? "hidden" : ""}`}
-                style={{ width: maximizedToolId ? "60vw" : settings.toolsPanelWidth }}
+                style={{ width: settings.toolsPanelWidth }}
               >
                 {sideToolIds.map((id) => {
                   const isActive = activeTools.has(id);
                   const activeIdx = isActive ? activeSideIds.indexOf(id) : -1;
-                  const isPinned = settings.suppressedPanels.has(id);
+                  const isPinned = pinnedToolId === id;
                   const isMaximized = maximizedToolId === id;
-                  const isHiddenByMaximize = maximizedToolId && maximizedToolId !== id;
+                  if (isPinned || isMaximized) return <div key={id} className="hidden" />;
 
                   return (
-                    <div key={id} className={isActive && !isHiddenByMaximize ? "contents" : "hidden"}>
+                    <div key={id} className={isActive ? "contents" : "hidden"}>
                       <div
                         className="island group/panel relative flex flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
-                        style={isActive ? { flex: isMaximized ? "1 1 100%" : `${sideRatios[activeIdx]} 1 0%`, minHeight: 0 } : undefined}
+                        style={isActive ? { flex: `${sideRatios[activeIdx]} 1 0%`, minHeight: 0 } : undefined}
                       >
                         <div className="absolute end-2 top-2.5 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/panel:opacity-100">
                           <button
                             type="button"
-                            className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors cursor-pointer ${isPinned ? "bg-foreground/[0.08] text-foreground/70" : "text-foreground/30 hover:bg-foreground/[0.06] hover:text-foreground/60"}`}
-                            onClick={() => isPinned ? settings.unsuppressPanel(id) : settings.suppressPanel(id)}
-                            title={isPinned ? "Unpin" : "Pin"}
+                            className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/30 hover:bg-foreground/[0.06] hover:text-foreground/60 transition-colors cursor-pointer"
+                            onClick={() => setPinnedToolId(isPinned ? null : id)}
+                            title="Pin to side"
                           >
-                            {isPinned ? <PinOff className="h-2.5 w-2.5" /> : <Pin className="h-2.5 w-2.5" />}
+                            <Pin className="h-2.5 w-2.5" />
                           </button>
                           <button
                             type="button"
                             className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/30 hover:bg-foreground/[0.06] hover:text-foreground/60 transition-colors cursor-pointer"
-                            onClick={() => setMaximizedToolId(isMaximized ? null : id)}
-                            title={isMaximized ? "Restore" : "Maximize"}
+                            onClick={() => setMaximizedToolId(id)}
+                            title="Maximize"
                           >
-                            {isMaximized ? <Minimize2 className="h-2.5 w-2.5" /> : <Maximize2 className="h-2.5 w-2.5" />}
+                            <Maximize2 className="h-2.5 w-2.5" />
                           </button>
                         </div>
                         {toolComponents[id]}
@@ -1303,6 +1304,69 @@ Link: ${issue.url}`;
                   );
                 })}
               </div>
+
+              {pinnedToolId && pinnedToolId in toolComponents && (
+                <>
+                  <div
+                    className="resize-col group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+                    style={isIsland ? { width: "var(--island-panel-gap)" } : undefined}
+                  >
+                    <div className="h-10 w-0.5 rounded-full transition-colors duration-150 bg-transparent group-hover:bg-foreground/25" />
+                  </div>
+                  <div className="flex w-[320px] shrink-0 flex-col overflow-hidden">
+                    <div className="island group/panel relative flex flex-1 flex-col overflow-hidden rounded-[var(--island-radius)] bg-background" style={{ minHeight: 0 }}>
+                      <div className="absolute end-2 top-2.5 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/panel:opacity-100">
+                        <button
+                          type="button"
+                          className="flex h-5 w-5 items-center justify-center rounded-md bg-foreground/[0.08] text-foreground/70 transition-colors cursor-pointer"
+                          onClick={() => setPinnedToolId(null)}
+                          title="Unpin"
+                        >
+                          <PinOff className="h-2.5 w-2.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/30 hover:bg-foreground/[0.06] hover:text-foreground/60 transition-colors cursor-pointer"
+                          onClick={() => { setMaximizedToolId(pinnedToolId); setPinnedToolId(null); }}
+                          title="Maximize"
+                        >
+                          <Maximize2 className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                      {toolComponents[pinnedToolId]}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {maximizedToolId && maximizedToolId in toolComponents && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setMaximizedToolId(null)}>
+                  <div
+                    className="island relative flex h-[85vh] w-[80vw] flex-col overflow-hidden rounded-2xl bg-background shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="absolute end-3 top-3 z-10 flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-foreground/40 hover:bg-foreground/[0.08] hover:text-foreground/70 transition-colors cursor-pointer"
+                        onClick={() => { setPinnedToolId(maximizedToolId); setMaximizedToolId(null); }}
+                        title="Pin to side"
+                      >
+                        <Pin className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-foreground/40 hover:bg-foreground/[0.08] hover:text-foreground/70 transition-colors cursor-pointer"
+                        onClick={() => setMaximizedToolId(null)}
+                        title="Close"
+                      >
+                        <Minimize2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {toolComponents[maximizedToolId]}
+                  </div>
+                </div>
+              )}
               </>
             );
           })()}
