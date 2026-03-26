@@ -1350,9 +1350,9 @@ Link: ${issue.url}`;
               )}
 
               {maximizedToolId && maximizedToolId in toolComponents && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm animate-in fade-in duration-200" onClick={handleBackdropClick}>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setMaximizedToolId(null)}>
                   <div
-                    className="island relative flex h-[85vh] w-[80vw] flex-col overflow-hidden rounded-2xl bg-background shadow-2xl animate-in zoom-in-95 fade-in duration-200"
+                    className="island relative flex h-[85vh] w-[80vw] flex-col overflow-hidden rounded-2xl bg-background shadow-2xl"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="absolute start-3 top-3 z-10">
