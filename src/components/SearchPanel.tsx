@@ -10,6 +10,8 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  List,
+  GitBranch as TreeIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -68,7 +70,9 @@ export const SearchPanel = memo(function SearchPanel({
 }: SearchPanelProps) {
   const search = useSearch(enabled ? cwd : undefined);
   const [showFilters, setShowFilters] = useState(false);
+  const [treeView, setTreeView] = useState(false);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
   const toggleFileCollapse = useCallback((file: string) => {
     setCollapsedFiles((prev) => {
@@ -174,6 +178,19 @@ export const SearchPanel = memo(function SearchPanel({
           )}
 
           <div className="flex-1" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-6 w-6 ${treeView ? "bg-foreground/[0.08] text-foreground/70" : "text-foreground/40"}`}
+                onClick={() => setTreeView((p) => !p)}
+              >
+                {treeView ? <List className="h-3 w-3" /> : <TreeIcon className="h-3 w-3" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom"><p className="text-xs">{treeView ? "Flat view" : "Tree view"}</p></TooltipContent>
+          </Tooltip>
           <Button
             variant="ghost"
             className={`h-6 gap-1 px-1.5 text-[10px] ${showFilters ? "bg-foreground/[0.08] text-foreground/70" : "text-foreground/40"}`}
@@ -211,24 +228,72 @@ export const SearchPanel = memo(function SearchPanel({
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        {search.mode === "files" && search.fileResults.length > 0 && (
+        {search.mode === "files" && search.fileResults.length > 0 && !treeView && (
           <div className="py-1">
             {search.fileResults.map((r, i) => (
-              <button
-                key={r.path}
-                type="button"
-                className={`flex w-full items-center gap-1.5 px-3 py-[3px] text-[10px] transition-colors hover:bg-foreground/[0.05] cursor-pointer ${i % 2 === 1 ? "bg-foreground/[0.015]" : ""}`}
-                onClick={() => onOpenFile?.(r.path)}
-              >
-                <FileText className={`h-3 w-3 shrink-0 ${extColor(r.name)}`} />
-                <span className="shrink-0 font-medium text-foreground/80">{r.name}</span>
-                {r.dir && (
-                  <span className="min-w-0 truncate text-foreground/40">{r.dir}</span>
-                )}
-              </button>
+              <Tooltip key={r.path}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-1.5 px-3 py-[3px] text-[10px] transition-colors hover:bg-foreground/[0.05] cursor-pointer ${i % 2 === 1 ? "bg-foreground/[0.015]" : ""}`}
+                    onClick={() => onOpenFile?.(r.path)}
+                  >
+                    <FileText className={`h-3 w-3 shrink-0 ${extColor(r.name)}`} />
+                    <span className="shrink-0 font-medium text-foreground/80">{r.name}</span>
+                    {r.dir && <span className="min-w-0 truncate text-foreground/40">{r.dir}</span>}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left" sideOffset={4}>
+                  <p className="font-mono text-[10px]">{r.path}</p>
+                </TooltipContent>
+              </Tooltip>
             ))}
           </div>
         )}
+
+        {search.mode === "files" && search.fileResults.length > 0 && treeView && (() => {
+          const grouped = new Map<string, typeof search.fileResults>();
+          for (const r of search.fileResults) {
+            const dir = r.dir || ".";
+            const list = grouped.get(dir) || [];
+            list.push(r);
+            grouped.set(dir, list);
+          }
+          return (
+            <div className="py-1">
+              {Array.from(grouped.entries()).map(([dir, items]) => (
+                <div key={dir}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-1 px-3 py-[3px] text-[10px] transition-colors hover:bg-foreground/[0.03] cursor-pointer"
+                    onClick={() => setExpandedDirs((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(dir)) next.delete(dir);
+                      else next.add(dir);
+                      return next;
+                    })}
+                  >
+                    {expandedDirs.has(dir) ? <ChevronDown className="h-2.5 w-2.5 text-foreground/40" /> : <ChevronRight className="h-2.5 w-2.5 text-foreground/40" />}
+                    <Folder className="h-2.5 w-2.5 text-amber-400/60" />
+                    <span className="font-medium text-foreground/55">{dir}</span>
+                    <span className="text-foreground/30">{items.length}</span>
+                  </button>
+                  {expandedDirs.has(dir) && items.map((r) => (
+                    <button
+                      key={r.path}
+                      type="button"
+                      className="flex w-full items-center gap-1.5 ps-7 pe-3 py-[2px] text-[10px] transition-colors hover:bg-foreground/[0.05] cursor-pointer"
+                      onClick={() => onOpenFile?.(r.path)}
+                    >
+                      <FileText className={`h-2.5 w-2.5 shrink-0 ${extColor(r.name)}`} />
+                      <span className="text-foreground/80">{r.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {search.mode === "folders" && search.fileResults.length > 0 && (
           <div className="py-1">

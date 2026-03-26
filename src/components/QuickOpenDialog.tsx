@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Search, File, AlignLeft, Folder, Regex } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Search, File, AlignLeft, Folder, Regex, List, GitBranch as TreeIcon, ChevronRight, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { parseQuickOpenQuery } from "@/lib/quick-open";
 import { reportError } from "@/lib/analytics";
 
@@ -40,6 +41,8 @@ export const QuickOpenDialog = memo(function QuickOpenDialog({
   const [fileMatches, setFileMatches] = useState<Array<{ path: string; name: string; dir: string; score: number }>>([]);
   const [folderMatches, setFolderMatches] = useState<Array<{ path: string }>>([]);
   const [textResults, setTextResults] = useState<Array<{ file: string; line: number; preview: string }>>([]);
+  const [treeView, setTreeView] = useState(false);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryRef = useRef(query);
@@ -189,6 +192,14 @@ export const QuickOpenDialog = memo(function QuickOpenDialog({
                 {mode}
               </span>
             )}
+            <button
+              type="button"
+              className={`shrink-0 flex h-6 w-6 items-center justify-center rounded-md transition-colors cursor-pointer ${treeView ? "bg-foreground/[0.08] text-foreground/70" : "text-foreground/30 hover:text-foreground/50"}`}
+              onClick={() => setTreeView((p) => !p)}
+              title={treeView ? "Flat view" : "Tree view"}
+            >
+              {treeView ? <List className="h-3.5 w-3.5" /> : <TreeIcon className="h-3.5 w-3.5" />}
+            </button>
           </div>
         </div>
 
@@ -230,49 +241,96 @@ export const QuickOpenDialog = memo(function QuickOpenDialog({
             </div>
           )}
 
-          {!isSearching && !error && mode === "file" && cleanQuery && fileMatches.length === 0 && (
-            <p className="px-4 py-6 text-xs text-muted-foreground/70">No matching files</p>
+          {!isSearching && !error && (mode === "file" || mode === "folder") && cleanQuery && (mode === "file" ? fileMatches.length : folderMatches.length) === 0 && (
+            <p className="px-4 py-6 text-xs text-muted-foreground/70">No matching {mode === "file" ? "files" : "folders"}</p>
           )}
 
-          {!isSearching && !error && mode === "file" && fileMatches.map((item, index) => {
+          {!isSearching && !error && mode === "file" && !treeView && fileMatches.map((item, index) => {
             const fileName = item.path.split("/").pop() ?? item.path;
             const dir = item.path.slice(0, Math.max(0, item.path.length - fileName.length)).replace(/\/$/, "");
             const isSelected = index === selectedIndex;
-
             return (
-              <button
-                key={item.path}
-                type="button"
-                onClick={() => handlePickFile(item.path)}
-                className={`flex w-full items-center gap-2 px-4 py-2 text-left transition-colors ${
-                  isSelected ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.04]"
-                }`}
-              >
-                <File className="h-3.5 w-3.5 shrink-0 text-foreground/30" />
-                <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">{fileName}</span>
-                <span className="truncate text-xs text-muted-foreground/60">{dir}</span>
-              </button>
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handlePickFile(item.path)}
+                    className={`flex w-full items-center gap-2 px-4 py-2 text-left transition-colors ${
+                      isSelected ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.04]"
+                    }`}
+                  >
+                    <File className="h-3.5 w-3.5 shrink-0 text-foreground/30" />
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">{fileName}</span>
+                    <span className="truncate text-xs text-muted-foreground/60">{dir}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={8}>
+                  <p className="font-mono text-xs">{item.path}</p>
+                </TooltipContent>
+              </Tooltip>
             );
           })}
 
-          {!isSearching && !error && mode === "folder" && cleanQuery && folderMatches.length === 0 && (
-            <p className="px-4 py-6 text-xs text-muted-foreground/70">No matching folders</p>
-          )}
+          {!isSearching && !error && mode === "file" && treeView && (() => {
+            const grouped = new Map<string, Array<{ path: string; name: string }>>();
+            for (const item of fileMatches) {
+              const dir = item.dir || ".";
+              const list = grouped.get(dir) || [];
+              list.push({ path: item.path, name: item.name });
+              grouped.set(dir, list);
+            }
+            return Array.from(grouped.entries()).map(([dir, items]) => (
+              <div key={dir}>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1.5 px-4 py-1 text-left transition-colors hover:bg-foreground/[0.04]"
+                  onClick={() => setExpandedDirs((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(dir)) next.delete(dir);
+                    else next.add(dir);
+                    return next;
+                  })}
+                >
+                  {expandedDirs.has(dir) ? <ChevronDown className="h-3 w-3 text-foreground/40" /> : <ChevronRight className="h-3 w-3 text-foreground/40" />}
+                  <Folder className="h-3 w-3 text-amber-400/60" />
+                  <span className="text-xs font-medium text-foreground/60">{dir}</span>
+                  <span className="text-[10px] text-foreground/30">{items.length}</span>
+                </button>
+                {expandedDirs.has(dir) && items.map((f) => (
+                  <button
+                    key={f.path}
+                    type="button"
+                    onClick={() => handlePickFile(f.path)}
+                    className="flex w-full items-center gap-2 ps-10 pe-4 py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
+                  >
+                    <File className="h-3 w-3 shrink-0 text-foreground/30" />
+                    <span className="text-sm text-foreground/90">{f.name}</span>
+                  </button>
+                ))}
+              </div>
+            ));
+          })()}
 
           {!isSearching && !error && mode === "folder" && folderMatches.map((item, index) => {
             const isSelected = index === selectedIndex;
             return (
-              <button
-                key={item.path}
-                type="button"
-                onClick={() => handlePick(item.path)}
-                className={`flex w-full items-center gap-2 px-4 py-2 text-left transition-colors ${
-                  isSelected ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.04]"
-                }`}
-              >
-                <Folder className="h-3.5 w-3.5 shrink-0 text-amber-400/60" />
-                <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">{item.path}</span>
-              </button>
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handlePick(item.path)}
+                    className={`flex w-full items-center gap-2 px-4 py-2 text-left transition-colors ${
+                      isSelected ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.04]"
+                    }`}
+                  >
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-amber-400/60" />
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">{item.path}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={8}>
+                  <p className="font-mono text-xs">{item.path}</p>
+                </TooltipContent>
+              </Tooltip>
             );
           })}
 
