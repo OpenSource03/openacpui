@@ -560,6 +560,26 @@ export function useAppOrchestrator() {
       return;
     }
 
+    if (session.engine === "openclaw") {
+      const openclawAgent = (session.agentId
+        ? agents.find((a) => a.id === session.agentId)
+        : undefined) ?? agents.find((a) => a.engine === "openclaw");
+      if (openclawAgent && selectedAgent?.id !== openclawAgent.id) {
+        setSelectedAgent(openclawAgent);
+      }
+      return;
+    }
+
+    if (session.engine === "ollama") {
+      const ollamaAgent = (session.agentId
+        ? agents.find((a) => a.id === session.agentId)
+        : undefined) ?? agents.find((a) => a.engine === "ollama");
+      if (ollamaAgent && selectedAgent?.id !== ollamaAgent.id) {
+        setSelectedAgent(ollamaAgent);
+      }
+      return;
+    }
+
     if (selectedAgent !== null) {
       setSelectedAgent(null);
     }

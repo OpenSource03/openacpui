@@ -28,6 +28,12 @@ export const AdvancedSettings = memo(function AdvancedSettings({
   const [claudeCustomBinaryPath, setClaudeCustomBinaryPath] = useState("");
   const [showDevFillInChatTitleBar, setShowDevFillInChatTitleBar] = useState(false);
   const [showJiraBoard, setShowJiraBoard] = useState(false);
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState("http://localhost:11434");
+  const [ollamaDefaultModel, setOllamaDefaultModel] = useState("llama3");
+  const [ollamaTestStatus, setOllamaTestStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
+  const [ollamaTestError, setOllamaTestError] = useState<string | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
 
   useEffect(() => {
     if (appSettings) {
@@ -38,6 +44,8 @@ export const AdvancedSettings = memo(function AdvancedSettings({
       setClaudeCustomBinaryPath(appSettings.claudeCustomBinaryPath || "");
       setShowDevFillInChatTitleBar(!!appSettings.showDevFillInChatTitleBar);
       setShowJiraBoard(!!appSettings.showJiraBoard);
+      setOllamaBaseUrl(appSettings.ollamaBaseUrl || "http://localhost:11434");
+      setOllamaDefaultModel(appSettings.ollamaDefaultModel || "llama3");
     }
   }, [appSettings]);
 
@@ -101,6 +109,58 @@ export const AdvancedSettings = memo(function AdvancedSettings({
     },
     [onUpdateAppSettings],
   );
+
+  const handleOllamaBaseUrlSave = useCallback(
+    async (value: string) => {
+      const next = value.trim() || "http://localhost:11434";
+      setOllamaBaseUrl(next);
+      await onUpdateAppSettings({ ollamaBaseUrl: next });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const handleOllamaDefaultModelSave = useCallback(
+    async (value: string) => {
+      const next = value.trim();
+      setOllamaDefaultModel(next);
+      await onUpdateAppSettings({ ollamaDefaultModel: next });
+    },
+    [onUpdateAppSettings],
+  );
+
+  const handleTestOllama = useCallback(async () => {
+    setOllamaTestStatus("testing");
+    setOllamaTestError(null);
+    try {
+      const result = await window.claude.ollama.status();
+      if (result.available) {
+        setOllamaTestStatus("connected");
+      } else {
+        setOllamaTestStatus("failed");
+        setOllamaTestError(result.error ?? "Connection failed");
+      }
+    } catch (err) {
+      setOllamaTestStatus("failed");
+      setOllamaTestError((err as Error).message || "Connection failed");
+    }
+    setTimeout(() => { setOllamaTestStatus("idle"); setOllamaTestError(null); }, 6000);
+  }, []);
+
+  const handleListOllamaModels = useCallback(async () => {
+    setOllamaModelsLoading(true);
+    try {
+      const result = await window.claude.ollama.listModels();
+      if (result.ok) {
+        setOllamaModels(result.models);
+      } else {
+        setOllamaModels([]);
+      }
+    } catch {
+      setOllamaModels([]);
+    } finally {
+      setOllamaModelsLoading(false);
+    }
+  }, []);
 
   const canConfigureDevFill = section === "advanced" && import.meta.env.DEV;
 
@@ -273,6 +333,108 @@ export const AdvancedSettings = memo(function AdvancedSettings({
               </SettingRow>
             )}
           </div>
+
+          {/* ── Ollama section ── */}
+          {section === "engines" && (
+            <div className="py-3">
+              <div className="mb-1 flex items-center gap-2">
+                <Server className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Ollama
+                </span>
+              </div>
+
+              <SettingRow
+                label="Server URL"
+                description="Base URL of your local Ollama server."
+              >
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={ollamaBaseUrl}
+                      onChange={(e) => setOllamaBaseUrl(e.target.value)}
+                      onBlur={(e) => handleOllamaBaseUrlSave(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleOllamaBaseUrlSave(e.currentTarget.value);
+                      }}
+                      spellCheck={false}
+                      className="h-8 w-64 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                      placeholder="http://localhost:11434"
+                    />
+                    <button
+                      onClick={handleTestOllama}
+                      disabled={ollamaTestStatus === "testing"}
+                      className={`h-8 shrink-0 rounded-md border px-3 text-xs font-medium transition-colors ${
+                        ollamaTestStatus === "connected"
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                          : ollamaTestStatus === "failed"
+                            ? "border-red-500/30 bg-red-500/10 text-red-400"
+                            : "border-foreground/10 bg-background text-foreground hover:border-foreground/20 hover:bg-foreground/[0.03]"
+                      }`}
+                    >
+                      {ollamaTestStatus === "testing" ? "Testing..." :
+                       ollamaTestStatus === "connected" ? "Connected" :
+                       ollamaTestStatus === "failed" ? "Failed" :
+                       "Test"}
+                    </button>
+                  </div>
+                  {ollamaTestError && (
+                    <p className="text-[11px] text-red-400">{ollamaTestError}</p>
+                  )}
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                label="Default model"
+                description="Model to use for new Ollama sessions (e.g. llama3, mistral, codellama)."
+              >
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={ollamaDefaultModel}
+                      onChange={(e) => setOllamaDefaultModel(e.target.value)}
+                      onBlur={(e) => handleOllamaDefaultModelSave(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleOllamaDefaultModelSave(e.currentTarget.value);
+                      }}
+                      spellCheck={false}
+                      className="h-8 w-60 rounded-md border border-foreground/10 bg-background px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                      placeholder="e.g. llama3, mistral, codellama"
+                    />
+                    <button
+                      onClick={handleListOllamaModels}
+                      disabled={ollamaModelsLoading}
+                      className="h-8 shrink-0 rounded-md border border-foreground/10 bg-background px-3 text-xs font-medium text-foreground transition-colors hover:border-foreground/20 hover:bg-foreground/[0.03]"
+                    >
+                      {ollamaModelsLoading ? "Loading..." : "List"}
+                    </button>
+                  </div>
+                  {ollamaModels.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {ollamaModels.map((model) => (
+                        <button
+                          key={model}
+                          onClick={() => {
+                            setOllamaDefaultModel(model);
+                            handleOllamaDefaultModelSave(model);
+                          }}
+                          className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                            ollamaDefaultModel === model
+                              ? "bg-accent text-accent-foreground"
+                              : "bg-foreground/5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                          }`}
+                        >
+                          {model}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </SettingRow>
+            </div>
+          )}
         </div>
       </ScrollArea>
     </div>

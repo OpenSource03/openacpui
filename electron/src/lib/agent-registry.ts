@@ -6,7 +6,7 @@ import { app } from "electron";
 
 const execFileAsync = promisify(execFile);
 
-export type EngineId = "claude" | "acp" | "codex";
+export type EngineId = "claude" | "acp" | "codex" | "openclaw" | "ollama";
 
 export interface InstalledAgent {
   id: string;
@@ -43,11 +43,31 @@ const BUILTIN_CODEX: InstalledAgent = {
   icon: "zap",
 };
 
-const BUILTIN_IDS = new Set([BUILTIN_CLAUDE.id, BUILTIN_CODEX.id]);
+const BUILTIN_OPENCLAW: InstalledAgent = {
+  id: "openclaw",
+  name: "OpenClaw",
+  engine: "openclaw",
+  builtIn: true,
+  icon: "Lobster",
+  description: "Open-source AI agent framework with 300K+ GitHub stars. Connects to local Gateway for multi-tool orchestration.",
+};
+
+const BUILTIN_OLLAMA: InstalledAgent = {
+  id: "ollama",
+  name: "Ollama",
+  engine: "ollama",
+  builtIn: true,
+  icon: "ollama",
+  description: "Run local AI models with Ollama. Connects to your local Ollama server for private, offline inference.",
+};
+
+const BUILTIN_IDS = new Set([BUILTIN_CLAUDE.id, BUILTIN_CODEX.id, BUILTIN_OPENCLAW.id, BUILTIN_OLLAMA.id]);
 
 const agents = new Map<string, InstalledAgent>();
 agents.set(BUILTIN_CLAUDE.id, BUILTIN_CLAUDE);
 agents.set(BUILTIN_CODEX.id, BUILTIN_CODEX);
+agents.set(BUILTIN_OPENCLAW.id, BUILTIN_OPENCLAW);
+agents.set(BUILTIN_OLLAMA.id, BUILTIN_OLLAMA);
 
 function getConfigPath(): string {
   return path.join(app.getPath("userData"), "openacpui-data", "agents.json");

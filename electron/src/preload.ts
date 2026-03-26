@@ -259,6 +259,26 @@ contextBridge.exposeInMainWorld("claude", {
       return () => ipcRenderer.removeListener("codex:exit", listener);
     },
   },
+  ollama: {
+    start: (options: { cwd: string; model?: string }) =>
+      ipcRenderer.invoke("ollama:start", options),
+    send: (sessionId: string, text: string) =>
+      ipcRenderer.invoke("ollama:send", { sessionId, text }),
+    stop: (sessionId: string) => ipcRenderer.invoke("ollama:stop", sessionId),
+    interrupt: (sessionId: string) => ipcRenderer.invoke("ollama:interrupt", sessionId),
+    status: () => ipcRenderer.invoke("ollama:status"),
+    listModels: () => ipcRenderer.invoke("ollama:list-models"),
+    onEvent: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("ollama:event", listener);
+      return () => ipcRenderer.removeListener("ollama:event", listener);
+    },
+    onExit: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("ollama:exit", listener);
+      return () => ipcRenderer.removeListener("ollama:exit", listener);
+    },
+  },
   mcp: {
     list: (projectId: string) => ipcRenderer.invoke("mcp:list", projectId),
     add: (projectId: string, server: unknown) => ipcRenderer.invoke("mcp:add", { projectId, server }),

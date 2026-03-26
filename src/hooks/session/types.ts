@@ -107,14 +107,16 @@ export interface SharedSessionSetters {
 import type { useClaude } from "../useClaude";
 import type { useACP } from "../useACP";
 import type { useCodex } from "../useCodex";
+import type { useOllama } from "../useOllama";
 
 /** The engine hook return types that sub-hooks need to call */
 export interface EngineHooks {
   claude: ReturnType<typeof useClaude>;
   acp: ReturnType<typeof useACP>;
   codex: ReturnType<typeof useCodex>;
-  /** The currently-active engine — one of claude/acp/codex */
-  engine: ReturnType<typeof useClaude> | ReturnType<typeof useACP> | ReturnType<typeof useCodex>;
+  ollama: ReturnType<typeof useOllama>;
+  /** The currently-active engine — one of claude/acp/codex/ollama */
+  engine: ReturnType<typeof useClaude> | ReturnType<typeof useACP> | ReturnType<typeof useCodex> | ReturnType<typeof useOllama>;
 }
 
 // ── Utility functions shared across sub-hooks ──

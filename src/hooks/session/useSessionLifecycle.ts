@@ -75,7 +75,7 @@ export function useSessionLifecycle({
   clearQueue,
   resetCodexEffortToModelDefault,
 }: UseSessionLifecycleParams) {
-  const { claude, acp, codex, engine } = engines;
+  const { claude, acp, codex, ollama, engine } = engines;
   const {
     setSessions,
     setActiveSessionId,
@@ -477,6 +477,9 @@ export function useSessionLifecycle({
         } else if (session.engine === "acp") {
           suppressNextSessionCompletion(id);
           await window.claude.acp.stop(id);
+        } else if (session.engine === "ollama") {
+          suppressNextSessionCompletion(id);
+          await window.claude.ollama.stop(id);
         } else {
           suppressNextSessionCompletion(id);
           await window.claude.stop(id, "session_delete");
@@ -1316,6 +1319,43 @@ export function useSessionLifecycle({
           return;
         }
 
+        if (draftEngine === "ollama") {
+          trackMessageSent();
+          const sessionId = await materializeDraft(text, images, displayText);
+          if (!sessionId) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+
+          ollama.setMessages((prev) => [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: "user" as const,
+              content: text,
+              timestamp: Date.now(),
+              ...(images?.length ? { images } : {}),
+              ...(displayText ? { displayContent: displayText } : {}),
+            },
+          ]);
+          ollama.setIsProcessing(true);
+
+          const sendResult = await window.claude.ollama.send(sessionId, text);
+          if (sendResult?.error) {
+            liveSessionIdsRef.current.delete(sessionId);
+            ollama.setMessages((prev) => [
+              ...prev,
+              {
+                id: `system-send-error-${Date.now()}`,
+                role: "system",
+                content: `Unable to send message: ${sendResult.error}`,
+                timestamp: Date.now(),
+                isError: true,
+              },
+            ]);
+            ollama.setIsProcessing(false);
+          }
+          return;
+        }
+
         // Claude SDK path
         trackMessageSent();
         const sessionId = await materializeDraft(text);
@@ -1380,6 +1420,25 @@ export function useSessionLifecycle({
 
       trackMessageSent();
 
+      if (activeSessionEngine === "ollama") {
+        if (liveSessionIdsRef.current.has(activeId)) {
+          await ollama.send(text, images, displayText);
+          return;
+        }
+        // Ollama sessions don't support revival — show error
+        ollama.setMessages((prev) => [
+          ...prev,
+          {
+            id: `system-send-error-${Date.now()}`,
+            role: "system" as const,
+            content: "Ollama session ended. Please start a new chat.",
+            timestamp: Date.now(),
+            isError: true,
+          },
+        ]);
+        return;
+      }
+
       if (activeSessionEngine === "codex") {
         // Codex sessions: send through Codex hook if live
         if (liveSessionIdsRef.current.has(activeId)) {
@@ -1429,6 +1488,9 @@ export function useSessionLifecycle({
       codex.send,
       codex.setMessages,
       codex.setIsProcessing,
+      ollama.send,
+      ollama.setMessages,
+      ollama.setIsProcessing,
       materializeDraft,
       reviveSession,
       reviveAcpSession,

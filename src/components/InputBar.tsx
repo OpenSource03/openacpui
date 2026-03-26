@@ -298,6 +298,7 @@ function PlanModeToggle({
 function EngineControls({
   isCodexAgent,
   isACPAgent,
+  isOllamaAgent,
   isProcessing,
   showACPConfigOptions,
   // Model
@@ -326,9 +327,12 @@ function EngineControls({
   acpConfigOptions,
   acpConfigOptionsLoading,
   onACPConfigChange,
+  // Ollama
+  ollamaModelName,
 }: {
   isCodexAgent: boolean;
   isACPAgent: boolean;
+  isOllamaAgent: boolean;
   isProcessing: boolean;
   showACPConfigOptions: boolean;
   modelList: Array<{ id: string; label: string; description?: string }>;
@@ -352,7 +356,16 @@ function EngineControls({
   acpConfigOptions?: ACPConfigOption[];
   acpConfigOptionsLoading?: boolean;
   onACPConfigChange?: (configId: string, value: string) => void;
+  ollamaModelName?: string;
 }) {
+  if (isOllamaAgent) {
+    return (
+      <span className="flex shrink-0 items-center rounded-lg px-2 py-1 text-xs text-muted-foreground">
+        {ollamaModelName || "Ollama"}
+      </span>
+    );
+  }
+
   if (isCodexAgent) {
     return (
       <>
@@ -737,6 +750,9 @@ export const InputBar = memo(function InputBar({
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [editingAttachment, setEditingAttachment] = useState<ImageAttachment | null>(null);
+  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [ollamaModelName, setOllamaModelName] = useState<string>("Ollama");
 
   // ── Voice dictation ──
   const speech = useSpeechRecognition({
@@ -757,6 +773,7 @@ export const InputBar = memo(function InputBar({
     : [];
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
   const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
+  const isOllamaAgent = selectedAgent != null && selectedAgent.engine === "ollama";
   const showACPConfigOptions = isACPAgent && (acpConfigOptions?.length ?? 0) > 0;
   const isAwaitingAcpOptions = isACPAgent && !!acpConfigOptionsLoading;
   const modelsLoading = modelList.length === 0;
@@ -804,6 +821,13 @@ export const InputBar = memo(function InputBar({
   }, [refreshFileCache]);
 
   // Fetch and keep the mention file cache fresh for the active project.
+  useEffect(() => {
+    if (!isOllamaAgent) return;
+    window.claude.settings.get().then((s) => {
+      setOllamaModelName(s.ollamaDefaultModel || "Ollama");
+    }).catch(() => {});
+  }, [isOllamaAgent]);
+
   useEffect(() => {
     if (!projectPath) {
       fileCacheFetchIdRef.current += 1;
@@ -1599,7 +1623,14 @@ export const InputBar = memo(function InputBar({
             ) : null}
 
             {agents && agents.length > 1 && onAgentChange && (
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={(open) => {
+                if (open && agents.some((a) => a.engine === "ollama")) {
+                  window.claude.ollama.status().then((s) => {
+                    setOllamaAvailable(s.available);
+                    setOllamaError(s.available ? null : (s.error ?? null));
+                  }).catch(() => { setOllamaAvailable(false); setOllamaError("Connection failed"); });
+                }
+              }}>
                 <DropdownMenuTrigger asChild>
                   <button
                     className="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -1646,6 +1677,11 @@ export const InputBar = memo(function InputBar({
                               <span className="rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium text-amber-400">Beta</span>
                             )}
                           </div>
+                          {agent.engine === "ollama" && ollamaAvailable !== null && (
+                            <div className={`text-[10px] ${ollamaAvailable ? "text-emerald-400" : "text-red-400"}`}>
+                              {ollamaAvailable ? "Ollama running" : (ollamaError ?? "Ollama offline")}
+                            </div>
+                          )}
                           {crossEngine && (
                             <div className="text-[10px] text-muted-foreground/70">
                               Opens new chat
@@ -1672,6 +1708,7 @@ export const InputBar = memo(function InputBar({
             <EngineControls
               isCodexAgent={isCodexAgent}
               isACPAgent={isACPAgent}
+              isOllamaAgent={isOllamaAgent}
               isProcessing={isProcessing}
               showACPConfigOptions={showACPConfigOptions}
               modelList={modelList}
@@ -1695,6 +1732,7 @@ export const InputBar = memo(function InputBar({
               acpConfigOptions={acpConfigOptions}
               acpConfigOptionsLoading={acpConfigOptionsLoading}
               onACPConfigChange={onACPConfigChange}
+              ollamaModelName={ollamaModelName}
             />
           </div>
 

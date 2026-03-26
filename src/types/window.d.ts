@@ -305,6 +305,16 @@ declare global {
         onApprovalRequest: (callback: (data: CodexServerRequest) => void) => () => void;
         onExit: (callback: (data: CodexExitEvent) => void) => () => void;
       };
+      ollama: {
+        start: (options: { cwd: string; model?: string }) => Promise<{ sessionId: string; error?: string }>;
+        send: (sessionId: string, text: string) => Promise<{ ok?: boolean; error?: string }>;
+        stop: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        status: () => Promise<{ available: boolean; error?: string }>;
+        listModels: () => Promise<{ ok: boolean; models: string[]; error?: string }>;
+        onEvent: (callback: (data: { _sessionId: string; type: string; payload: Record<string, unknown> }) => void) => () => void;
+        onExit: (callback: (data: { _sessionId: string }) => void) => () => void;
+      };
       mcp: {
         list: (projectId: string) => Promise<McpServerConfig[]>;
         add: (projectId: string, server: McpServerConfig) => Promise<{ ok?: boolean; error?: string }>;

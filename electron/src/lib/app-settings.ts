@@ -63,6 +63,19 @@ export interface AppSettings {
   analyticsUserId?: string;
   /** Last date (YYYY-MM-DD) when daily_active_user was sent, to deduplicate across restarts */
   analyticsLastDailyActiveDate?: string;
+  /** OpenClaw Gateway WebSocket URL (default: ws://127.0.0.1:18789) */
+  openclawGatewayUrl: string;
+  /** Default model for OpenClaw sessions */
+  openclawDefaultModel: string;
+  openclawDefaultSkills: string[];
+  openclawGatewayToken: string;
+  openclawDeviceToken: string;
+  openclawDeviceId: string;
+  openclawDefaultAgent: string;
+  /** Ollama server base URL (default: http://localhost:11434) */
+  ollamaBaseUrl: string;
+  /** Default Ollama model to use for new sessions */
+  ollamaDefaultModel: string;
 }
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
@@ -86,6 +99,15 @@ const DEFAULTS: AppSettings = {
   showDevFillInChatTitleBar: false,
   showJiraBoard: false,
   analyticsEnabled: true,
+  openclawGatewayUrl: "ws://127.0.0.1:18789",
+  openclawDefaultModel: "",
+  openclawDefaultSkills: [],
+  openclawGatewayToken: "",
+  openclawDeviceToken: "",
+  openclawDeviceId: "",
+  openclawDefaultAgent: "",
+  ollamaBaseUrl: "http://localhost:11434",
+  ollamaDefaultModel: "llama3",
 };
 
 // ── Internal state ──

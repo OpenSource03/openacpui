@@ -5,6 +5,7 @@ import { toMcpStatusState } from "../lib/mcp-utils";
 import { useClaude } from "./useClaude";
 import { useACP } from "./useACP";
 import { useCodex } from "./useCodex";
+import { useOllama } from "./useOllama";
 import { BackgroundSessionStore } from "../lib/background-session-store";
 import {
   DRAFT_ID,
@@ -50,12 +51,14 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     : (sessions.find(s => s.id === activeSessionId)?.engine ?? "claude");
   const isACP = activeEngine === "acp";
   const isCodex = activeEngine === "codex";
+  const isOllama = activeEngine === "ollama";
 
   const claudeSessionId = (activeEngine === "claude" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
   const acpSessionId = activeEngine === "acp"
     ? (activeSessionId !== DRAFT_ID ? activeSessionId : draftAcpSessionId)
     : null;
   const codexSessionId = (activeEngine === "codex" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
+  const ollamaSessionId = (activeEngine === "ollama" && activeSessionId !== DRAFT_ID) ? activeSessionId : null;
   const codexSessionModel = (activeEngine === "codex" && activeSessionId !== DRAFT_ID)
     ? (sessions.find((s) => s.id === activeSessionId)?.model ?? startOptions.model)
     : undefined;
@@ -85,9 +88,14 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     initialMeta: isCodex ? initialMeta : null,
     initialPermission: isCodex ? initialPermission : null,
   });
+  const ollama = useOllama({
+    sessionId: ollamaSessionId,
+    initialMessages: isOllama ? initialMessages : [],
+    initialMeta: isOllama ? initialMeta : null,
+  });
 
   // Pick the active engine's state
-  const engine = isCodex ? codex : isACP ? acp : claude;
+  const engine = isOllama ? ollama : isCodex ? codex : isACP ? acp : claude;
   const { messages, totalCost, contextUsage } = engine;
 
   // ── All refs (21+) — kept for stale-closure avoidance ──
@@ -231,6 +239,7 @@ export function useSessionManager(projects: Project[], acpPermissionBehavior: Ac
     claude,
     acp,
     codex,
+    ollama,
     engine,
   };
 
