@@ -1255,14 +1255,15 @@ Link: ${issue.url}`;
               <div
                 ref={hasToolsColumn ? toolsColumnRef : null}
                 className={`flex shrink-0 flex-col gap-0 overflow-hidden ${!hasToolsColumn ? "hidden" : ""}`}
-                style={{ width: settings.toolsPanelWidth }}
+                style={{ width: maximizedToolId ? "60vw" : settings.toolsPanelWidth }}
               >
                 {sideToolIds.map((id) => {
                   const isActive = activeTools.has(id);
                   const activeIdx = isActive ? activeSideIds.indexOf(id) : -1;
                   const isPinned = pinnedToolId === id;
                   const isMaximized = maximizedToolId === id;
-                  if (isPinned || isMaximized) return <div key={id} className="hidden" />;
+                  const isHiddenByMax = maximizedToolId && !isMaximized;
+                  if (isPinned || isHiddenByMax) return <div key={id} className="hidden" />;
 
                   return (
                     <div key={id} className={isActive ? "contents" : "hidden"}>
@@ -1282,10 +1283,10 @@ Link: ${issue.url}`;
                           <button
                             type="button"
                             className="flex h-5 w-5 items-center justify-center rounded-md text-foreground/30 hover:bg-foreground/[0.06] hover:text-foreground/60 transition-all duration-150 cursor-pointer"
-                            onClick={() => setMaximizedToolId(id)}
-                            title="Maximize"
+                            onClick={() => setMaximizedToolId((prev) => prev === id ? null : id)}
+                            title={maximizedToolId === id ? "Restore" : "Maximize"}
                           >
-                            <Maximize2 className="h-2.5 w-2.5" />
+                            {maximizedToolId === id ? <Minimize2 className="h-2.5 w-2.5" /> : <Maximize2 className="h-2.5 w-2.5" />}
                           </button>
                         </div>
                         {toolComponents[id]}
@@ -1349,39 +1350,6 @@ Link: ${issue.url}`;
                 </>
               )}
 
-              {maximizedToolId && maximizedToolId in toolComponents && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setMaximizedToolId(null)}>
-                  <div
-                    className="island relative flex h-[85vh] w-[80vw] flex-col overflow-hidden rounded-2xl bg-background shadow-2xl"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="absolute start-3 top-3 z-10">
-                      <span className="text-[11px] font-medium text-foreground/35 uppercase tracking-wider select-none">
-                        {(PANEL_TOOLS_MAP as Record<string, { label: string }>)[maximizedToolId]?.label ?? maximizedToolId}
-                      </span>
-                    </div>
-                    <div className="absolute end-3 top-3 z-10 flex items-center gap-1">
-                      <button
-                        type="button"
-                        className="flex h-6 w-6 items-center justify-center rounded-md text-foreground/40 hover:bg-foreground/[0.08] hover:text-foreground/70 transition-all duration-150 cursor-pointer"
-                        onClick={() => { setPinnedToolId(maximizedToolId); setMaximizedToolId(null); }}
-                        title="Pin to side"
-                      >
-                        <Pin className="h-3 w-3" />
-                      </button>
-                      <button
-                        type="button"
-                        className="flex h-6 w-6 items-center justify-center rounded-md text-foreground/40 hover:bg-foreground/[0.08] hover:text-foreground/70 transition-all duration-150 cursor-pointer"
-                        onClick={() => setMaximizedToolId(null)}
-                        title="Close"
-                      >
-                        <Minimize2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                    {toolComponents[maximizedToolId]}
-                  </div>
-                </div>
-              )}
               </>
             );
           })()}
