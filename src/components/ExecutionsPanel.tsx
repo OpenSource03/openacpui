@@ -469,7 +469,7 @@ export const ExecutionsPanel = memo(function ExecutionsPanel({
               )}
               {activeEntry?.output ? (
                 parseAnsi(activeEntry.output).map((span, i) => (
-                  <span key={i} className={span.className || "text-foreground/80"}>{span.text}</span>
+                  <span key={i} className={span.className || "text-foreground/80"} style={span.style}>{span.text}</span>
                 ))
               ) : (
                 <span className="text-foreground/30">No output yet...</span>
