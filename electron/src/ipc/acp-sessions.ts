@@ -505,7 +505,39 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       };
       acpSessions.set(internalId, entry);
 
-      const configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_SPAWN");
+      let configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_SPAWN");
+
+      // Auto-switch to Agent mode if the session starts in Ask/read-only mode.
+      // Gemini CLI defaults to "ask" mode; we switch to the first option whose
+      // value or name contains "agent" so tool use works out of the box.
+      const modeOpt = (configOptions as Array<{ id: string; category?: string; currentValue: string; options?: unknown[] }>)
+        .find((o) => o.category === "mode");
+      if (modeOpt && /ask/i.test(modeOpt.currentValue)) {
+        const flatOptions = (modeOpt.options ?? []) as Array<{ value: string; name?: string; options?: Array<{ value: string; name?: string }> }>;
+        const allOptions: Array<{ value: string; name?: string }> = [];
+        for (const o of flatOptions) {
+          if (Array.isArray(o.options)) allOptions.push(...o.options);
+          else allOptions.push(o);
+        }
+        const agentOpt = allOptions.find((o) => /agent/i.test(o.value) || /agent/i.test(o.name ?? ""));
+        if (agentOpt) {
+          log("ACP_SPAWN", `Auto-switching mode from "${modeOpt.currentValue}" → "${agentOpt.value}"`);
+          try {
+            const modeResult = await connection.setSessionConfigOption({
+              sessionId: sessionResult.sessionId,
+              configId: modeOpt.id,
+              value: agentOpt.value,
+            });
+            if (modeResult.configOptions) {
+              configOptions = modeResult.configOptions as typeof configOptions;
+              configBuffer.set(internalId, configOptions);
+            }
+          } catch (modeErr) {
+            // Non-fatal — session still works in Ask mode if this fails
+            log("ACP_SPAWN", `Mode switch failed (non-fatal): ${(modeErr as Error).message}`);
+          }
+        }
+      }
 
       // Derive MCP statuses — ACP doesn't report them, so infer from config
       const mcpStatuses = (options.mcpServers ?? []).map(s => ({
