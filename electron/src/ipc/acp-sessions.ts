@@ -648,7 +648,18 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       // modes via the `modes` field in the newSession response and the
       // `session/set_mode` RPC. The event-based handler is kept as a fallback
       // for other ACP agents that do use config_option_update.
-      void autoSwitchToAgentMode(entry, sessionResult, internalId, getMainWindow);
+      // Await mode switch (with timeout) so the connection isn't blocked when
+      // the first prompt is sent — Gemini CLI serializes JSON-RPC calls, so a
+      // pending setSessionMode would delay the prompt response beyond the
+      // inactivity timeout.
+      try {
+        await Promise.race([
+          autoSwitchToAgentMode(entry, sessionResult, internalId, getMainWindow),
+          new Promise((resolve) => setTimeout(resolve, 10_000)),
+        ]);
+      } catch {
+        log("ACP_SPAWN", `autoSwitchToAgentMode timed out or failed (non-fatal)`);
+      }
 
       // Derive MCP statuses — ACP doesn't report them, so infer from config
       const mcpStatuses = (options.mcpServers ?? []).map(s => ({
@@ -732,7 +743,14 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         const entry: ACPSessionEntry = { process: proc, connection, acpSessionId, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: false, completedTurns: 0, agentId: options.agentId, mcpServers: options.mcpServers ?? [] };
         acpSessions.set(internalId, entry);
         configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_REVIVE");
-        void autoSwitchToAgentMode(entry, sessionResult, internalId, getMainWindow);
+        try {
+          await Promise.race([
+            autoSwitchToAgentMode(entry, sessionResult, internalId, getMainWindow),
+            new Promise((resolve) => setTimeout(resolve, 10_000)),
+          ]);
+        } catch {
+          log("ACP_REVIVE", `autoSwitchToAgentMode timed out or failed (non-fatal)`);
+        }
         log("ACP_REVIVE", `newSession fallback, session=${acpSessionId.slice(0, 12)}`);
       }
 
@@ -822,7 +840,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     // Inactivity timeout — fires when streaming events stop but the turn never completes.
     // This is the main failure mode for Gemini CLI: it streams "Planning next moves" events
     // then silently stops without sending the session/prompt JSON-RPC response.
-    const INACTIVITY_TIMEOUT_MS = 45_000; // 45 seconds without a new sessionUpdate event
+    // First turn: Gemini CLI can take 60-120s to respond while loading skills,
+    // MCP servers, and completing the mode switch.  Subsequent turns are faster.
+    const INACTIVITY_TIMEOUT_MS = session.completedTurns === 0 ? 120_000 : 45_000;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     let inactivityHandle: ReturnType<typeof setTimeout> | null = null;
 

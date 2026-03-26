@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 import type { UIMessage, ChatSession, McpServerConfig, Project, ImageAttachment, EngineId } from "../../types";
 import { toMcpStatusState } from "../../lib/mcp-utils";
@@ -115,6 +115,8 @@ export function useDraftMaterialization({
     }
   }, []);
 
+  const eagerAcpInFlightRef = useRef<string | null>(null);
+
   const eagerStartAcpSession = useCallback(async (
     projectId: string,
     options?: StartOptions,
@@ -124,7 +126,28 @@ export function useDraftMaterialization({
     const agentId = options?.agentId?.trim();
     if (!project || !agentId) return;
 
+    // Prevent concurrent eager starts — abandon the previous one first
+    if (eagerAcpInFlightRef.current) {
+      const prevId = draftAcpSessionIdRef.current;
+      if (prevId) {
+        suppressNextSessionCompletion(prevId);
+        window.claude.acp.stop(prevId);
+        liveSessionIdsRef.current.delete(prevId);
+        backgroundStoreRef.current.delete(prevId);
+        draftAcpSessionIdRef.current = null;
+        setDraftAcpSessionId(null);
+      }
+    }
+    const callId = `${projectId}-${agentId}-${Date.now()}`;
+    eagerAcpInFlightRef.current = callId;
+
     const mcpServers = overrideServers ?? await window.claude.mcp.list(projectId);
+
+    // Abort if a newer call superseded us
+    if (eagerAcpInFlightRef.current !== callId) {
+      return;
+    }
+
     let result;
     setAcpConfigOptionsLoading(true);
     try {
@@ -162,11 +185,13 @@ export function useDraftMaterialization({
       && draftProjectIdRef.current === projectId
       && (startOptionsRef.current.engine ?? "claude") === "acp"
       && startOptionsRef.current.agentId === agentId;
+    const isStillCurrent = eagerAcpInFlightRef.current === callId;
 
-    if (!isStillDraft) {
+    if (!isStillDraft || !isStillCurrent) {
       suppressNextSessionCompletion(sessionId);
       await window.claude.acp.stop(sessionId);
       setAcpConfigOptionsLoading(false);
+      if (eagerAcpInFlightRef.current === callId) eagerAcpInFlightRef.current = null;
       return;
     }
 
@@ -204,6 +229,7 @@ export function useDraftMaterialization({
       })));
     }
     setAcpConfigOptionsLoading(false);
+    if (eagerAcpInFlightRef.current === callId) eagerAcpInFlightRef.current = null;
   }, [acp, getProjectCwd, setAcpConfigOptionsLoading, setDraftAcpSessionId, setDraftMcpStatuses, setInitialConfigOptions, setInitialSlashCommands]);
 
   const prefetchCodexModels = useCallback(async (preferredModel?: string) => {
