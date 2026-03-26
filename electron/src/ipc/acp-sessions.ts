@@ -74,6 +74,17 @@ interface ACPSessionEntry {
    * JSON-RPC response, the timer fires and unblocks the renderer.
    */
   promptInactivityReset?: () => void;
+  /**
+   * Number of successfully completed prompt turns in this session.
+   * Gemini CLI v0.35.1 only processes the first session/prompt call — on
+   * subsequent calls it's silently ignored. We use this to trigger an
+   * auto-respawn (kill + loadSession) before each turn after the first.
+   */
+  completedTurns: number;
+  /** agentId used to spawn this session — needed for auto-respawn */
+  agentId: string;
+  /** MCP servers configured for this session — needed for auto-respawn */
+  mcpServers: McpServerInput[];
 }
 
 export const acpSessions = new Map<string, ACPSessionEntry>();
@@ -622,6 +633,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         cwd: options.cwd,
         supportsLoadSession,
         isReloading: false,
+        completedTurns: 0,
+        agentId: options.agentId,
+        mcpServers: options.mcpServers ?? [],
       };
       acpSessions.set(internalId, entry);
 
@@ -700,7 +714,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       if (supportsLoadSession && options.agentSessionId) {
         // Restore full context — suppress history replay from reaching the renderer
-        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId: options.agentSessionId, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: true };
+        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId: options.agentSessionId!, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: true, completedTurns: 0, agentId: options.agentId, mcpServers: options.mcpServers ?? [] };
         acpSessions.set(internalId, entry);
         const loadResult = await connection.loadSession({ sessionId: options.agentSessionId, cwd: options.cwd, mcpServers: acpMcpServers });
         entry.isReloading = false;
@@ -713,7 +727,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         // Fall back to fresh session — UI messages already restored from disk
         const sessionResult = await connection.newSession({ cwd: options.cwd, mcpServers: acpMcpServers });
         acpSessionId = sessionResult.sessionId;
-        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: false };
+        const entry: ACPSessionEntry = { process: proc, connection, acpSessionId, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: false, completedTurns: 0, agentId: options.agentId, mcpServers: options.mcpServers ?? [] };
         acpSessions.set(internalId, entry);
         configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_REVIVE");
         void autoSwitchToAgentMode(entry, sessionResult, internalId, getMainWindow);
@@ -742,7 +756,47 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { error: "Session not found" };
     }
 
-    log("ACP_SEND", `session=${sessionId.slice(0, 8)} text=${text.slice(0, 500)} images=${images?.length ?? 0}`);
+    log("ACP_SEND", `session=${sessionId.slice(0, 8)} text=${text.slice(0, 500)} images=${images?.length ?? 0} completedTurns=${session.completedTurns}`);
+
+    // Auto-respawn: Gemini CLI v0.35.1 only processes the FIRST session/prompt
+    // call per process — subsequent calls are silently ignored. To support
+    // multi-turn, we kill the old process, spawn a new one, and use loadSession
+    // to restore the conversation context before sending the next prompt.
+    if (session.completedTurns > 0 && session.supportsLoadSession) {
+      log("ACP_RESPAWN", `session=${sessionId.slice(0, 8)} respawning for turn ${session.completedTurns + 1}`);
+      const prevAcpSessionId = session.acpSessionId;
+      const agentDef = getAgent(session.agentId);
+      if (agentDef?.engine === "acp" && agentDef.binary) {
+        try {
+          // Kill old process
+          try { session.process.kill(); } catch { /* already dead */ }
+          // Spawn fresh process + restore session context
+          const connResult = await createAcpConnection(
+            agentDef as { binary: string; args?: string[]; env?: Record<string, string>; name: string },
+            getMainWindow,
+            "ACP_RESPAWN",
+          );
+          const acpMcpServers = await buildAcpMcpServers(session.mcpServers);
+          const loadResult = await connResult.connection.loadSession({
+            sessionId: prevAcpSessionId,
+            cwd: session.cwd,
+            mcpServers: acpMcpServers,
+          });
+          // Update the session entry in-place so the existing sessionId key is preserved
+          session.process = connResult.proc;
+          session.connection = connResult.connection;
+          session.acpSessionId = prevAcpSessionId;
+          session.supportsLoadSession = connResult.supportsLoadSession;
+          session.eventCounter = 0;
+          session.isReloading = false;
+          session.lastStderrError = undefined;
+          if (loadResult.configOptions) configBuffer.set(sessionId, loadResult.configOptions as unknown[]);
+          log("ACP_RESPAWN", `session=${sessionId.slice(0, 8)} respawn OK, acpSessionId=${prevAcpSessionId.slice(0, 12)}`);
+        } catch (err) {
+          log("ACP_RESPAWN", `session=${sessionId.slice(0, 8)} respawn failed (non-fatal, continuing with old connection): ${(err as Error).message}`);
+        }
+      }
+    }
 
     const prompt: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [];
     if (images) {
@@ -801,8 +855,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       if (timeoutHandle !== null) clearTimeout(timeoutHandle);
       if (inactivityHandle !== null) clearTimeout(inactivityHandle);
       session.promptInactivityReset = undefined;
+      session.completedTurns++;
 
-      log("ACP_TURN_COMPLETE", `session=${sessionId.slice(0, 8)} stopReason=${result.stopReason} usage=${JSON.stringify(result.usage ?? null)}`);
+      log("ACP_TURN_COMPLETE", `session=${sessionId.slice(0, 8)} stopReason=${result.stopReason} completedTurns=${session.completedTurns} usage=${JSON.stringify(result.usage ?? null)}`);
 
       safeSend(getMainWindow,"acp:turn_complete", {
         _sessionId: sessionId,
