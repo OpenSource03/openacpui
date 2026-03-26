@@ -65,6 +65,8 @@ interface ACPSessionEntry {
   utilityTextBuffers?: Map<string, string>;
   /** Last actionable stderr error line observed from the ACP agent process */
   lastStderrError?: string;
+  /** True after we've already attempted to auto-switch mode to agent */
+  modeAutoSwitched?: boolean;
 }
 
 export const acpSessions = new Map<string, ACPSessionEntry>();
@@ -358,6 +360,45 @@ async function createAcpConnection(
       if (eventKind === "config_option_update") {
         const configOptions = (update as { configOptions: unknown[] }).configOptions;
         configBuffer.set(internalId, configOptions);
+
+        // Auto-switch to Agent mode the first time a "mode" config option arrives
+        // in "ask" state. The mode option is sent via event (not in newSession response),
+        // so we must handle it here instead of in acp:start.
+        if (entry && !entry.modeAutoSwitched) {
+          const modeOpt = (configOptions as Array<{ id: string; category?: string; currentValue: string; options?: unknown[] }>)
+            .find((o) => o.category === "mode");
+          if (modeOpt && /ask/i.test(modeOpt.currentValue)) {
+            entry.modeAutoSwitched = true;
+            const flatOptions = (modeOpt.options ?? []) as Array<{ value: string; name?: string; options?: Array<{ value: string; name?: string }> }>;
+            const allOptions: Array<{ value: string; name?: string }> = [];
+            for (const o of flatOptions) {
+              if (Array.isArray(o.options)) allOptions.push(...o.options);
+              else allOptions.push(o);
+            }
+            const agentOpt = allOptions.find((o) => /agent/i.test(o.value) || /agent/i.test(o.name ?? ""));
+            if (agentOpt) {
+              log("ACP_MODE", `session=${internalId.slice(0, 8)} auto-switching mode "${modeOpt.currentValue}" → "${agentOpt.value}"`);
+              void entry.connection.setSessionConfigOption({
+                sessionId: entry.acpSessionId,
+                configId: modeOpt.id,
+                value: agentOpt.value,
+              }).then((r) => {
+                if (r.configOptions) {
+                  configBuffer.set(internalId, r.configOptions);
+                  // Propagate updated config to renderer immediately
+                  safeSend(getMainWindow, "acp:event", {
+                    _sessionId: internalId,
+                    sessionId: entry.acpSessionId,
+                    update: { sessionUpdate: "config_option_update", configOptions: r.configOptions },
+                  });
+                }
+                log("ACP_MODE", `session=${internalId.slice(0, 8)} mode switch OK`);
+              }).catch((err) => {
+                log("ACP_MODE", `session=${internalId.slice(0, 8)} mode switch failed (non-fatal): ${(err as Error).message}`);
+              });
+            }
+          }
+        }
       }
 
       // Buffer available commands for late-subscribing renderer listeners
@@ -505,39 +546,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       };
       acpSessions.set(internalId, entry);
 
-      let configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_SPAWN");
-
-      // Auto-switch to Agent mode if the session starts in Ask/read-only mode.
-      // Gemini CLI defaults to "ask" mode; we switch to the first option whose
-      // value or name contains "agent" so tool use works out of the box.
-      const modeOpt = (configOptions as Array<{ id: string; category?: string; currentValue: string; options?: unknown[] }>)
-        .find((o) => o.category === "mode");
-      if (modeOpt && /ask/i.test(modeOpt.currentValue)) {
-        const flatOptions = (modeOpt.options ?? []) as Array<{ value: string; name?: string; options?: Array<{ value: string; name?: string }> }>;
-        const allOptions: Array<{ value: string; name?: string }> = [];
-        for (const o of flatOptions) {
-          if (Array.isArray(o.options)) allOptions.push(...o.options);
-          else allOptions.push(o);
-        }
-        const agentOpt = allOptions.find((o) => /agent/i.test(o.value) || /agent/i.test(o.name ?? ""));
-        if (agentOpt) {
-          log("ACP_SPAWN", `Auto-switching mode from "${modeOpt.currentValue}" → "${agentOpt.value}"`);
-          try {
-            const modeResult = await connection.setSessionConfigOption({
-              sessionId: sessionResult.sessionId,
-              configId: modeOpt.id,
-              value: agentOpt.value,
-            });
-            if (modeResult.configOptions) {
-              configOptions = modeResult.configOptions as typeof configOptions;
-              configBuffer.set(internalId, configOptions);
-            }
-          } catch (modeErr) {
-            // Non-fatal — session still works in Ask mode if this fails
-            log("ACP_SPAWN", `Mode switch failed (non-fatal): ${(modeErr as Error).message}`);
-          }
-        }
-      }
+      const configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_SPAWN");
+      // Note: mode auto-switch happens in the config_option_update event handler,
+      // since the mode option arrives via event after newSession returns.
 
       // Derive MCP statuses — ACP doesn't report them, so infer from config
       const mcpStatuses = (options.mcpServers ?? []).map(s => ({
@@ -656,9 +667,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
     prompt.push({ type: "text", text });
 
-    // 5-minute hard timeout — prevents infinite hang when the agent stops responding
+    // 2-minute hard timeout — prevents infinite hang when the agent stops responding
     // mid-turn (common with Gemini CLI on multi-turn sessions)
-    const PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
+    const PROMPT_TIMEOUT_MS = 2 * 60 * 1000;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
     try {
