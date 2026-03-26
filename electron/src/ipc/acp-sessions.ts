@@ -430,6 +430,13 @@ async function createAcpConnection(
         }
       }
 
+      // current_mode_update: Gemini CLI sends this after setSessionMode() completes.
+      // Forward it to the renderer so the mode dropdown updates.
+      if (eventKind === "current_mode_update") {
+        const currentModeId = (update as { currentModeId?: string }).currentModeId;
+        log("ACP_MODE", `session=${internalId.slice(0, 8)} current_mode_update modeId=${currentModeId}`);
+      }
+
       // Buffer available commands for late-subscribing renderer listeners
       if (eventKind === "available_commands_update") {
         const commands = (update as { availableCommands: unknown[] }).availableCommands;
@@ -521,6 +528,49 @@ async function createAcpConnection(
   return { proc, connection, pendingPermissions, internalId, supportsLoadSession };
 }
 
+/**
+ * Auto-switch an ACP session from "ask" → "agent" mode using the dedicated
+ * `session/set_mode` RPC (used by Gemini CLI and other agents that expose
+ * modes via the `modes` field in the newSession/loadSession response).
+ *
+ * This is called right after newSession() returns. The session entry must
+ * already be in `acpSessions` before calling this.
+ */
+async function autoSwitchToAgentMode(
+  entry: ACPSessionEntry,
+  sessionResult: { sessionId: string; modes?: { currentModeId?: string; availableModes?: Array<{ id: string; name: string }> } | null },
+  internalId: string,
+  getMainWindow: () => BrowserWindow | null,
+): Promise<void> {
+  if (entry.modeAutoSwitched) return;
+  const modes = sessionResult.modes;
+  if (!modes?.currentModeId || !modes.availableModes?.length) return;
+  if (!/ask/i.test(modes.currentModeId)) return;
+
+  const agentMode = modes.availableModes.find(
+    (m) => /agent/i.test(m.id) || /agent/i.test(m.name),
+  );
+  if (!agentMode) {
+    log("ACP_MODE", `session=${internalId.slice(0, 8)} no agent mode found in availableModes: ${JSON.stringify(modes.availableModes)}`);
+    return;
+  }
+
+  entry.modeAutoSwitched = true;
+  log("ACP_MODE", `session=${internalId.slice(0, 8)} auto-switching mode "${modes.currentModeId}" → "${agentMode.id}" (via setSessionMode)`);
+  try {
+    await entry.connection.setSessionMode({
+      sessionId: entry.acpSessionId,
+      modeId: agentMode.id,
+    });
+    log("ACP_MODE", `session=${internalId.slice(0, 8)} setSessionMode OK`);
+    // The agent will emit current_mode_update which the sessionUpdate handler
+    // will forward to the renderer, updating the mode dropdown there.
+  } catch (err) {
+    log("ACP_MODE", `session=${internalId.slice(0, 8)} setSessionMode failed (non-fatal): ${(err as Error).message}`);
+    entry.modeAutoSwitched = false; // allow retry on next event
+  }
+}
+
 export function register(getMainWindow: () => BrowserWindow | null): void {
 
   // Forward renderer-side ACP logs to main process log file
@@ -576,8 +626,13 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       acpSessions.set(internalId, entry);
 
       const configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_SPAWN");
-      // Note: mode auto-switch happens in the config_option_update event handler,
-      // since the mode option arrives via event after newSession returns.
+
+      // Auto-switch from Ask → Agent mode using the dedicated `modes` API.
+      // Gemini CLI v0.35.1 does NOT send config_option_update events — it exposes
+      // modes via the `modes` field in the newSession response and the
+      // `session/set_mode` RPC. The event-based handler is kept as a fallback
+      // for other ACP agents that do use config_option_update.
+      void autoSwitchToAgentMode(entry, sessionResult, internalId, getMainWindow);
 
       // Derive MCP statuses — ACP doesn't report them, so infer from config
       const mcpStatuses = (options.mcpServers ?? []).map(s => ({
@@ -661,6 +716,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         const entry: ACPSessionEntry = { process: proc, connection, acpSessionId, internalId, analyticsProperties, eventCounter: 0, pendingPermissions, cwd: options.cwd, supportsLoadSession, isReloading: false };
         acpSessions.set(internalId, entry);
         configOptions = resolveConfigOptions(sessionResult, internalId, "ACP_REVIVE");
+        void autoSwitchToAgentMode(entry, sessionResult, internalId, getMainWindow);
         log("ACP_REVIVE", `newSession fallback, session=${acpSessionId.slice(0, 12)}`);
       }
 
