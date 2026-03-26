@@ -7,11 +7,14 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Loader2,
   Check,
   XCircle,
   Terminal,
   Save,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -117,6 +120,8 @@ export const ExecutionsPanel = memo(function ExecutionsPanel({
   const [customLabel, setCustomLabel] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [savedRuns, setSavedRuns] = useState<SavedRun[]>([]);
+  const [logsCollapsed, setLogsCollapsed] = useState(false);
+  const [logsMaximized, setLogsMaximized] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
 
   const projectKey = cwd ? projectKeyFromCwd(cwd) : "";
@@ -386,35 +391,74 @@ export const ExecutionsPanel = memo(function ExecutionsPanel({
                 </button>
               ))}
             </div>
-            {activeEntry?.exitCode === null && (
+            <div className="flex shrink-0 items-center gap-0.5 px-1">
+              {activeEntry?.exitCode === null && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 text-red-500 hover:bg-red-500/10 hover:text-red-600"
+                      onClick={() => { if (exec.activeExecutionId) exec.stopExecution(exec.activeExecutionId); }}
+                    >
+                      <Square className="h-3 w-3 fill-current" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom"><p className="text-xs">Stop</p></TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="mx-1 h-6 w-6 shrink-0 text-red-500 hover:bg-red-500/10 hover:text-red-600"
-                    onClick={() => { if (exec.activeExecutionId) exec.stopExecution(exec.activeExecutionId); }}
+                    className="h-5 w-5 shrink-0 text-foreground/30 hover:text-foreground/60"
+                    onClick={() => setLogsCollapsed((p) => !p)}
                   >
-                    <Square className="h-3 w-3 fill-current" />
+                    {logsCollapsed ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom"><p className="text-xs">Stop</p></TooltipContent>
+                <TooltipContent side="bottom"><p className="text-xs">{logsCollapsed ? "Show Logs" : "Hide Logs"}</p></TooltipContent>
               </Tooltip>
-            )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 shrink-0 text-foreground/30 hover:text-foreground/60"
+                    onClick={() => setLogsMaximized((p) => !p)}
+                  >
+                    {logsMaximized ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom"><p className="text-xs">{logsMaximized ? "Restore" : "Maximize Logs"}</p></TooltipContent>
+              </Tooltip>
+            </div>
           </div>
 
-          <pre
-            ref={outputRef}
-            className="min-h-0 flex-1 overflow-auto bg-background p-2 font-mono text-[10px] leading-relaxed whitespace-pre-wrap break-all"
-          >
-            {activeEntry?.output ? (
-              parseAnsi(activeEntry.output).map((span, i) => (
-                <span key={i} className={span.className || "text-foreground/80"}>{span.text}</span>
-              ))
-            ) : (
-              <span className="text-foreground/30">No output yet...</span>
-            )}
-          </pre>
+          {!logsCollapsed && (
+            <pre
+              ref={outputRef}
+              className={`overflow-auto bg-background p-2 font-mono text-[10px] leading-relaxed whitespace-pre-wrap break-all ${logsMaximized ? "fixed inset-4 z-50 rounded-xl border border-foreground/[0.1] shadow-2xl" : "min-h-0 flex-1"}`}
+            >
+              {logsMaximized && (
+                <button
+                  type="button"
+                  className="absolute end-2 top-2 flex h-6 w-6 items-center justify-center rounded-md bg-foreground/[0.08] text-foreground/50 hover:text-foreground/80 cursor-pointer"
+                  onClick={() => setLogsMaximized(false)}
+                >
+                  <Minimize2 className="h-3 w-3" />
+                </button>
+              )}
+              {activeEntry?.output ? (
+                parseAnsi(activeEntry.output).map((span, i) => (
+                  <span key={i} className={span.className || "text-foreground/80"}>{span.text}</span>
+                ))
+              ) : (
+                <span className="text-foreground/30">No output yet...</span>
+              )}
+            </pre>
+          )}
         </>
       )}
 
