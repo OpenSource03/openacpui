@@ -50,60 +50,59 @@ function emit(
 // ── System prompt ──────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(cwd: string): string {
-  return `Coding assistant with tool access. Emit XML tags → system executes → returns results.
-CWD: ${cwd}
+  return `You are a coding assistant. You have tools to read/write/edit files. CWD: ${cwd}
 
-RULES:
-1. NEVER guess/invent content. Use tools for real data.
-2. NEVER say "I cannot" or "I don't have access".
-3. Match user's language. PT→PT, EN→EN.
-4. File already in conversation? Use that content, don't re-read.
-5. Working? Output ONLY bare XML tags, zero other text.
-6. Done? Answer the user or summarize what changed.
-7. Tags must be bare — NEVER inside \`\`\`backticks\`\`\`.
+HOW IT WORKS:
+You output an XML tag → the system executes it → returns the result → you continue.
 
-TOOLS:
-<list_files path="." pattern="optional"/>
-<read_file path="file"/>
-<search_files pattern="text" path="dir"/>
-<write_file path="file">content</write_file>
+CRITICAL RULES:
+1. You do NOT know any file contents. You MUST call <read_file> to see a file. NEVER write file content from memory — it will be wrong.
+2. NEVER say "I cannot" or "I don't have access" — you have all tools.
+3. Respond in the SAME language as the user. Portuguese→Portuguese, English→English.
+4. When using a tool, output ONLY the XML tag. No other text on the same turn.
+5. After getting tool results, answer the user's question or confirm the change.
+6. XML tags must be bare text — NEVER inside \`\`\`code blocks\`\`\`.
+
+AVAILABLE TOOLS:
+<list_files path="."/>
+<read_file path="relative/path"/>
+<search_files pattern="text" path="."/>
+<write_file path="file">full content here</write_file>
 <edit_file path="file">
 <<<<<<< SEARCH
-old
+exact old text (copy from file)
 =======
-new
+new replacement text
 >>>>>>> REPLACE
 </edit_file>
 <delete_file path="file"/>
-<run_shell command="cmd"/>
+<run_shell command="ls -la"/>
 
-WHEN TO USE EACH:
-Don't know project structure → <list_files path="."/>
-User names a file → <read_file path="file"/>
-Need to find something → <search_files pattern="x" path="."/>
-Need to edit → read first, then <edit_file>
-Need to create → <write_file>
-Need to run command → <run_shell>
-User asked question + you have data → answer in their language
-Edit complete → one sentence summary
+DECISION TREE:
+User asks about a file → <read_file path="that file"/>
+User asks to change a file → <read_file> first, then <edit_file> with EXACT text from the file
+User asks to create a file → <write_file path="new-file">content</write_file>
+Don't know what files exist → <list_files path="."/>
+Looking for specific code → <search_files pattern="keyword" path="."/>
+Need to run a command → <run_shell command="the command"/>
+You already have tool results → answer the user's question
 
-EXAMPLE 1:
-User: "oque tem no package.json"
+EDIT RULES:
+The SEARCH block must match the file EXACTLY (same whitespace, same punctuation).
+Always <read_file> first to get the exact content, then <edit_file>.
+Multiple changes? Use multiple <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks.
 
-<read_file path="package.json"/>
+EXAMPLE — read:
+User: "what's in package.json?"
+You: <read_file path="package.json"/>
+[system returns file content]
+You: The package.json has project "my-app" with React 19...
 
-[system returns content]
-
-O package.json contém o projeto "my-app" com React 19 e Vite.
-
-EXAMPLE 2:
-User: "add test script"
-
-<read_file path="package.json"/>
-
-[system returns content]
-
-<edit_file path="package.json">
+EXAMPLE — edit:
+User: "add a test script to package.json"
+You: <read_file path="package.json"/>
+[system returns: ..."scripts": { "dev": "vite", "build": "vite build" }...]
+You: <edit_file path="package.json">
 <<<<<<< SEARCH
     "build": "vite build"
   },
@@ -113,10 +112,35 @@ User: "add test script"
   },
 >>>>>>> REPLACE
 </edit_file>
+[system confirms edit]
+You: Done! Added "test": "vitest" to scripts.`;
+}
 
-[system confirms]
+// ── Content invention detection ──────────────────────────────────────────────
 
-Adicionado script "test" ao package.json.`;
+/**
+ * Detect when the model is inventing/hallucinating file content instead of
+ * using <read_file>. Common patterns:
+ * - Model outputs a code block that looks like file content
+ * - Model describes a file's contents without having read it
+ * - User asked about a file and model answered without reading
+ */
+function looksLikeInventedContent(response: string, userMessage: string): boolean {
+  // Check if the user asked about a specific file
+  const fileRe = /[\w./-]+\.(ts|tsx|js|jsx|mjs|py|go|rs|css|json|md|yaml|yml|gitignore|env|toml|lock)\b/g;
+  const userMentionedFiles = userMessage.match(fileRe);
+  if (!userMentionedFiles || userMentionedFiles.length === 0) return false;
+
+  // If response contains a code block with 5+ lines, it's likely invented
+  const codeBlockRe = /```[\s\S]*?\n([\s\S]{200,}?)\n```/;
+  if (codeBlockRe.test(response)) return true;
+
+  // If response contains JSON-like or code-like structure (braces/brackets)
+  // and user asked about a file, model is probably inventing
+  const hasStructuredContent = (response.match(/[{}[\]]/g) ?? []).length > 6;
+  if (hasStructuredContent && response.length > 300) return true;
+
+  return false;
 }
 
 // ── Tool execution ─────────────────────────────────────────────────────────────
@@ -135,7 +159,8 @@ interface ToolResult {
 }
 
 function stripCodeFencedToolTags(text: string): string {
-  return text.replace(
+  // Strip code fences wrapping tool tags
+  text = text.replace(
     /```(?:xml|html|plaintext)?\s*\n([\s\S]*?)\n```/g,
     (_match, inner: string) => {
       const trimmed = inner.trim();
@@ -147,6 +172,15 @@ function stripCodeFencedToolTags(text: string): string {
       return _match;
     },
   );
+  // Normalize single quotes to double quotes in tool tags so regexes match
+  text = text.replace(
+    /<(read_file|write_file|edit_file|delete_file|list_files|search_files|run_shell|web_search)\s+([^>]*?)>/g,
+    (_match, tag: string, attrs: string) => {
+      const normalized = attrs.replace(/='([^']*)'/g, '="$1"');
+      return `<${tag} ${normalized}>`;
+    },
+  );
+  return text;
 }
 
 function trimOutput(text: string, max = MAX_SHELL_OUTPUT_BYTES): string {
@@ -220,12 +254,14 @@ async function executeToolTags(
   let ops = 0;
 
   function emitToolStart(toolUseId: string, toolName: string, input: Record<string, unknown>) {
+    log("OLLAMA_EVENT", `tool:start ${toolName} id=${toolUseId}`);
     safeSend(getMainWindow, "ollama:event", {
       _sessionId: sessionId, type: "tool:start",
       payload: { toolUseId, toolName, input }, _seq: 0,
     });
   }
   function emitToolResult(toolUseId: string, toolName: string, result: Record<string, unknown>) {
+    log("OLLAMA_EVENT", `tool:result ${toolName} id=${toolUseId} error=${!!(result as { error?: unknown }).error}`);
     safeSend(getMainWindow, "ollama:event", {
       _sessionId: sessionId, type: "tool:result",
       payload: { toolUseId, toolName, result }, _seq: 0,
@@ -319,7 +355,11 @@ async function executeToolTags(
     }
     try {
       let fileContent = fs.readFileSync(abs, "utf-8");
-      const blockRe = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+      // Accept various formats small models produce:
+      // <<<<<<< SEARCH / ======= / >>>>>>> REPLACE (standard)
+      // <<< SEARCH / === / >>> REPLACE (abbreviated)
+      // Also tolerate extra whitespace and missing labels
+      const blockRe = /<{3,7}\s*SEARCH\s*\n([\s\S]*?)\n={3,7}\s*\n([\s\S]*?)\n>{3,7}\s*REPLACE/g;
       let bm: RegExpExecArray | null;
       let replacements = 0;
       const oldParts: string[] = [];
@@ -648,7 +688,20 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         const { results, cleanedText } = await executeToolTags(fullText, session.cwd, getMainWindow, sessionId);
 
         if (results.length === 0) {
-          // No tool calls — this is the final response
+          // No tool calls — check if the model is inventing file content
+          // instead of using tools (common with small models on first turn)
+          if (loopCount === 1 && looksLikeInventedContent(fullText, text)) {
+            log("OLLAMA", "model invented content instead of using tools — re-prompting");
+            session.messages.push({ role: "assistant", content: fullText });
+            emit(getMainWindow, sessionId, "chat:clear-streaming", {});
+            session.messages.push({
+              role: "user",
+              content: "STOP. You are guessing file content. You MUST use <read_file path=\"...\"/> to see real file content. Try again. Output ONLY the XML tag.",
+            });
+            emit(getMainWindow, sessionId, "lifecycle:start", {});
+            continue;
+          }
+          // This is the final response
           session.messages.push({ role: "assistant", content: fullText });
           emit(getMainWindow, sessionId, "chat:final", { message: fullText });
           break;
@@ -657,7 +710,10 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         // Tool calls were made — store cleaned text and feed results back
         session.messages.push({ role: "assistant", content: fullText });
         if (cleanedText) {
-          emit(getMainWindow, sessionId, "chat:final", { message: cleanedText });
+          // Model wrote text AND used tools — finalize the streaming message
+          // but keep isProcessing=true (we're continuing the loop).
+          // Use chat:mid-final which doesn't set isProcessing=false.
+          emit(getMainWindow, sessionId, "chat:mid-final", { message: cleanedText });
         } else {
           // Model only emitted tool tags with no prose — remove the empty
           // streaming assistant bubble rather than leaving a blank message.
@@ -665,14 +721,16 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         }
 
         // Build feedback — compact, direct, includes user's original request.
-        const feedbackParts: string[] = [];
+        const feedbackParts: string[] = ["Tool results:"];
         for (const r of results) {
           feedbackParts.push(r.result);
           if (r.attachment) {
             feedbackParts.push(`\n${r.attachment.path}:\n\`\`\`\n${r.attachment.content}\n\`\`\``);
           }
         }
-        feedbackParts.push(`\nUser said: "${text}"\nAnswer now. Same language as user.`);
+        // Remind the model of the original request and what to do next
+        feedbackParts.push(`\nOriginal request: "${text}"`);
+        feedbackParts.push("Now answer or apply the change. If you need to edit, use <edit_file> with EXACT text from above. Respond in the user's language.");
 
         session.messages.push({ role: "user", content: feedbackParts.join("\n") });
 

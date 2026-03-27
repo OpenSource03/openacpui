@@ -197,8 +197,8 @@ async function buildIndex(cwd: string): Promise<RagIndex> {
   const files = await listFiles(cwd);
 
   const chunksMeta: ChunkMeta[] = [];
-  const df: Record<string, number> = {};
-  const invertedIndex: Record<string, Array<[number, number]>> = {};
+  const df: Record<string, number> = Object.create(null);
+  const invertedIndex: Record<string, Array<[number, number]>> = Object.create(null);
   const fileMtimes: Record<string, number> = {};
   const termDocSeen = new Map<string, Set<number>>(); // for df counting
 

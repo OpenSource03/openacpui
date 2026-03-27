@@ -85,6 +85,20 @@ export function useOllama({ sessionId, initialMessages, initialMeta }: UseOllama
           break;
         }
 
+        case "chat:mid-final": {
+          // Model wrote text AND used tools — finalize the streaming msg
+          // but DON'T set isProcessing=false (tool loop continues).
+          const midMsg = (event.payload.message as string) ?? "";
+          const midId = streamingMsgId.current;
+          if (midId) {
+            setMessages(prev => prev.map(m =>
+              m.id === midId ? { ...m, content: midMsg, isStreaming: false } : m
+            ));
+            streamingMsgId.current = null;
+          }
+          break;
+        }
+
         case "chat:clear-streaming": {
           // Model only emitted tool tags — remove the empty streaming message
           const clearId = streamingMsgId.current;
