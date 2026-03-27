@@ -6,6 +6,8 @@ import { exec, execFile } from "child_process";
 import { safeSend } from "../lib/safe-send";
 import { getAppSetting } from "../lib/app-settings";
 import { log } from "../lib/logger";
+import { augmentWithRag, triggerIndex, compressConversation } from "../lib/rag/index";
+import { webSearch, formatWebResults } from "../lib/rag/web-search";
 
 interface OllamaMessage {
   role: "user" | "assistant" | "system";
@@ -85,6 +87,9 @@ replacement text
 <run_shell command="pnpm test --filter foo"/>
 → Runs a shell command in the project and returns stdout/stderr.
 
+<web_search query="react memo typescript example"/>
+→ Searches DuckDuckGo and returns results with URLs. Use when you need external docs or API references.
+
 All paths are relative to: ${cwd}
 
 ## Behavior rules
@@ -130,7 +135,7 @@ function stripCodeFencedToolTags(text: string): string {
     (_match, inner: string) => {
       const trimmed = inner.trim();
       if (
-        /^<(read_file|write_file|edit_file|delete_file|list_files|search_files|run_shell)\b/.test(trimmed)
+        /^<(read_file|write_file|edit_file|delete_file|list_files|search_files|run_shell|web_search)\b/.test(trimmed)
       ) {
         return trimmed;
       }
@@ -425,6 +430,32 @@ async function executeToolTags(
     }
   }
 
+  const webSearchRe = /<web_search\s+query="([^"]+)"\s*\/>/g;
+  while ((m = webSearchRe.exec(fullText)) !== null) {
+    const query = m[1];
+    const key = `web:${query}`;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
+    processed.add(key); ops++;
+    const id = `ollama-web-${crypto.randomUUID().slice(0, 8)}`;
+    emitToolStart(id, "WebSearch", { query });
+    try {
+      const searchResult = await webSearch(query);
+      const formatted = formatWebResults(searchResult);
+      log("OLLAMA_TOOL", `web_search "${query}" (${searchResult.results.length} results)`);
+      results.push({ toolName: "WebSearch", input: { query }, result: formatted });
+      emitToolResult(id, "WebSearch", {
+        query,
+        abstract: searchResult.abstract,
+        abstractUrl: searchResult.abstractUrl,
+        results: searchResult.results,
+      });
+    } catch (err) {
+      const error = (err as Error).message;
+      results.push({ toolName: "WebSearch", input: { query }, result: `Web search failed: ${error}` });
+      emitToolResult(id, "WebSearch", { error });
+    }
+  }
+
   const shellRe = /<run_shell\s+command="([^"]+)"\s*\/>/g;
   while ((m = shellRe.exec(fullText)) !== null) {
     const command = m[1];
@@ -456,6 +487,7 @@ async function executeToolTags(
     .replace(/<list_files(?:\s+path="[^"]+")?(?:\s+pattern="[^"]+")?\s*\/>/g, "")
     .replace(/<search_files\s+pattern="[^"]+"(?:\s+path="[^"]+")?\s*\/>/g, "")
     .replace(/<run_shell\s+command="[^"]+"\s*\/>/g, "")
+    .replace(/<web_search\s+query="[^"]+"\s*\/>/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
@@ -475,7 +507,7 @@ async function streamOllamaResponse(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: session.model,
-      messages: session.messages,
+      messages: compressConversation(session.messages),
       stream: true,
       temperature: 0.1,
     }),
@@ -536,6 +568,11 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       model: sessionModel,
       abortController: null,
     });
+
+    // Start indexing the project in background (non-blocking)
+    // Index will be ready by the time the user sends a message
+    triggerIndex(cwd);
+
     return { sessionId, model: sessionModel };
   });
 
@@ -543,7 +580,42 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     const session = sessions.get(sessionId);
     if (!session) return { error: "Session not found" };
 
-    session.messages.push({ role: "user", content: text });
+    // ── RAG augmentation ──────────────────────────────────────────────────────
+    // Two strategies depending on intent:
+    //
+    //  EXPLAIN/SEARCH/GENERAL → single augmented user message with file
+    //    content between clear separators. Small models follow single-turn
+    //    context reliably and ignore injected multi-turn history.
+    //
+    //  EDIT/FIX/REFACTOR → simulated tool turns (model "already read" files)
+    //    so it produces structured edit_file output.
+    //
+    // If no context found → plain message, model explores via tools.
+    try {
+      const rag = await augmentWithRag(text, session.cwd);
+
+      // Push original user message then inject simulated tool-result turns.
+      // The model sees: user asked → it "read" the files → has real content.
+      // This works for any language — the model decides whether to explain
+      // or apply changes based on what the user actually asked.
+      session.messages.push({ role: "user", content: text });
+      for (const turn of rag.injectedTurns ?? []) {
+        session.messages.push(turn);
+      }
+
+      if (rag.contextFileCount > 0) {
+        emit(getMainWindow, sessionId, "rag:context", {
+          fileCount: rag.contextFileCount,
+          intent: rag.intent.type,
+        });
+        log("RAG", `files=${rag.contextFileCount} intent=${rag.intent.type}`);
+      }
+    } catch (err) {
+      // Best-effort — never crash the session
+      log("RAG", `failed, using plain message: ${(err as Error).message}`);
+      session.messages.push({ role: "user", content: text });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const controller = new AbortController();
     session.abortController = controller;
