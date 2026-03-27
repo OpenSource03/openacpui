@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from "electron";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
+import { exec, execFile } from "child_process";
 import { safeSend } from "../lib/safe-send";
 import { getAppSetting } from "../lib/app-settings";
 import { log } from "../lib/logger";
@@ -22,7 +23,11 @@ const sessions = new Map<string, OllamaSession>();
 
 const MAX_FILE_READ_BYTES = 200_000; // 200 KB
 const MAX_TOOL_LOOPS = 6; // prevent infinite loops
-
+const MAX_TOOL_OPS = MAX_TOOL_LOOPS * 2;
+const MAX_SHELL_OUTPUT_BYTES = 16_000;
+const SHELL_TIMEOUT_MS = 15_000;
+const MAX_LIST_FILES = 500;
+const MAX_SEARCH_MATCHES = 100;
 function getBaseUrl(): string {
   return (getAppSetting("ollamaBaseUrl") || "http://localhost:11434").replace(/\/$/, "");
 }
@@ -71,6 +76,15 @@ replacement text
 <delete_file path="relative/path/to/file.ts"/>
 → Deletes a file.
 
+<list_files path="relative/path" pattern="optional-substring"/>
+→ Lists tracked and unignored files under a path.
+
+<search_files pattern="text to find" path="relative/path"/>
+→ Returns files containing the pattern.
+
+<run_shell command="pnpm test --filter foo"/>
+→ Runs a shell command in the project and returns stdout/stderr.
+
 All paths are relative to: ${cwd}
 
 ## Behavior rules
@@ -111,31 +125,84 @@ interface ToolResult {
 }
 
 function stripCodeFencedToolTags(text: string): string {
-  // Match code blocks (```xml, ````, or plain ```) whose body contains a tool XML tag,
-  // and unwrap them so the tool tag appears inline for regex matching.
   return text.replace(
     /```(?:xml|html|plaintext)?\s*\n([\s\S]*?)\n```/g,
     (_match, inner: string) => {
       const trimmed = inner.trim();
-      // Only unwrap if the block contains one of our tool tags
       if (
-        /^<(read_file|write_file|edit_file|delete_file)\b/.test(trimmed)
+        /^<(read_file|write_file|edit_file|delete_file|list_files|search_files|run_shell)\b/.test(trimmed)
       ) {
         return trimmed;
       }
-      // Not a tool tag — leave the code block intact
       return _match;
     },
   );
 }
 
-function executeToolTags(
+function trimOutput(text: string, max = MAX_SHELL_OUTPUT_BYTES): string {
+  return text.length > max ? `${text.slice(0, max)}\n...` : text;
+}
+
+function listFilesGit(cwd: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(stdout.trim().split("\n").filter(Boolean).sort());
+    });
+  });
+}
+
+function runShell(command: string, cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise((resolve) => {
+    exec(command, { cwd, timeout: SHELL_TIMEOUT_MS, maxBuffer: MAX_SHELL_OUTPUT_BYTES }, (err, stdout, stderr) => {
+      const exitCode = typeof err?.code === "number" ? err.code : err ? 1 : 0;
+      resolve({
+        stdout: trimOutput(stdout),
+        stderr: trimOutput(stderr),
+        exitCode,
+      });
+    });
+  });
+}
+
+function searchFiles(pattern: string, cwd: string, relPath: string): Promise<string[]> {
+  const resolved = path.resolve(cwd, relPath || ".");
+  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+    return Promise.reject(new Error("path outside project"));
+  }
+  return listFilesGit(cwd).then((files) => {
+    const normalizedBase = relPath === "." ? "" : `${relPath.replace(/\/$/, "")}/`;
+    const matches: string[] = [];
+    for (const file of files) {
+      if (normalizedBase && file !== relPath && !file.startsWith(normalizedBase)) {
+        continue;
+      }
+      const abs = safePath(cwd, file);
+      if (!abs) continue;
+      try {
+        const stat = fs.statSync(abs);
+        if (!stat.isFile() || stat.size > MAX_FILE_READ_BYTES) continue;
+        const content = fs.readFileSync(abs, "utf-8");
+        if (content.includes(pattern)) {
+          matches.push(file);
+        }
+      } catch {
+      }
+      if (matches.length >= MAX_SEARCH_MATCHES) break;
+    }
+    return matches;
+  });
+}
+
+async function executeToolTags(
   fullText: string,
   cwd: string,
   getMainWindow: () => BrowserWindow | null,
   sessionId: string,
-): { results: ToolResult[]; cleanedText: string } {
-  // Pre-process: unwrap tool tags that the model wrapped in code fences
+): Promise<{ results: ToolResult[]; cleanedText: string }> {
   fullText = stripCodeFencedToolTags(fullText);
 
   const results: ToolResult[] = [];
@@ -155,13 +222,12 @@ function executeToolTags(
     });
   }
 
-  // read_file
   const readRe = /<read_file\s+path="([^"]+)"\s*\/>/g;
   let m: RegExpExecArray | null;
   while ((m = readRe.exec(fullText)) !== null) {
     const rel = m[1];
     const key = `read:${rel}`;
-    if (processed.has(key) || ops >= MAX_TOOL_LOOPS * 2) continue;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
     processed.add(key); ops++;
     const id = `ollama-read-${crypto.randomUUID().slice(0, 8)}`;
     emitToolStart(id, "Read", { file_path: rel });
@@ -195,12 +261,11 @@ function executeToolTags(
     }
   }
 
-  // write_file
   const writeRe = /<write_file\s+path="([^"]+)">([\s\S]*?)<\/write_file>/g;
   while ((m = writeRe.exec(fullText)) !== null) {
     const rel = m[1];
     const key = `write:${rel}`;
-    if (processed.has(key) || ops >= MAX_TOOL_LOOPS * 2) continue;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
     processed.add(key); ops++;
     const content = m[2].replace(/^\n/, "");
     const id = `ollama-write-${crypto.randomUUID().slice(0, 8)}`;
@@ -226,12 +291,11 @@ function executeToolTags(
     }
   }
 
-  // edit_file
   const editRe = /<edit_file\s+path="([^"]+)">([\s\S]*?)<\/edit_file>/g;
   while ((m = editRe.exec(fullText)) !== null) {
     const rel = m[1];
     const key = `edit:${rel}`;
-    if (processed.has(key) || ops >= MAX_TOOL_LOOPS * 2) continue;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
     processed.add(key); ops++;
     const body = m[2];
     const id = `ollama-edit-${crypto.randomUUID().slice(0, 8)}`;
@@ -281,12 +345,11 @@ function executeToolTags(
     }
   }
 
-  // delete_file
   const deleteRe = /<delete_file\s+path="([^"]+)"\s*\/>/g;
   while ((m = deleteRe.exec(fullText)) !== null) {
     const rel = m[1];
     const key = `delete:${rel}`;
-    if (processed.has(key) || ops >= MAX_TOOL_LOOPS * 2) continue;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
     processed.add(key); ops++;
     const id = `ollama-delete-${crypto.randomUUID().slice(0, 8)}`;
     emitToolStart(id, "Delete", { file_path: rel });
@@ -309,12 +372,90 @@ function executeToolTags(
     }
   }
 
-  // Strip tool tags from displayed text (both inline and any remaining code-fenced variants)
+  const listRe = /<list_files(?:\s+path="([^"]+)")?(?:\s+pattern="([^"]+)")?\s*\/>/g;
+  while ((m = listRe.exec(fullText)) !== null) {
+    const rel = m[1] || ".";
+    const pattern = m[2] || "";
+    const key = `list:${rel}:${pattern}`;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
+    processed.add(key); ops++;
+    const id = `ollama-glob-${crypto.randomUUID().slice(0, 8)}`;
+    emitToolStart(id, "Glob", { path: rel, pattern });
+    try {
+      const files = await listFilesGit(cwd);
+      const normalizedBase = rel === "." ? "" : `${rel.replace(/\/$/, "")}/`;
+      const filtered = files
+        .filter((file) => !normalizedBase || file === rel || file.startsWith(normalizedBase))
+        .filter((file) => !pattern || file.includes(pattern.replace(/\*/g, "")))
+        .slice(0, MAX_LIST_FILES);
+      results.push({
+        toolName: "Glob",
+        input: { path: rel, pattern },
+        result: `List ${rel}: OK (${filtered.length} file${filtered.length === 1 ? "" : "s"})`,
+      });
+      emitToolResult(id, "Glob", { files: filtered });
+    } catch (err) {
+      const error = (err as Error).message;
+      results.push({ toolName: "Glob", input: { path: rel, pattern }, result: `List ${rel}: ${error}` });
+      emitToolResult(id, "Glob", { error });
+    }
+  }
+
+  const searchRe = /<search_files\s+pattern="([^"]+)"(?:\s+path="([^"]+)")?\s*\/>/g;
+  while ((m = searchRe.exec(fullText)) !== null) {
+    const pattern = m[1];
+    const rel = m[2] || ".";
+    const key = `search:${rel}:${pattern}`;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
+    processed.add(key); ops++;
+    const id = `ollama-grep-${crypto.randomUUID().slice(0, 8)}`;
+    emitToolStart(id, "Grep", { pattern, path: rel });
+    try {
+      const matches = await searchFiles(pattern, cwd, rel);
+      results.push({
+        toolName: "Grep",
+        input: { pattern, path: rel },
+        result: `Search ${pattern} in ${rel}: OK (${matches.length} match${matches.length === 1 ? "" : "es"})`,
+      });
+      emitToolResult(id, "Grep", { matches, mode: "files_with_matches" });
+    } catch (err) {
+      const error = (err as Error).message;
+      results.push({ toolName: "Grep", input: { pattern, path: rel }, result: `Search ${pattern} in ${rel}: ${error}` });
+      emitToolResult(id, "Grep", { error });
+    }
+  }
+
+  const shellRe = /<run_shell\s+command="([^"]+)"\s*\/>/g;
+  while ((m = shellRe.exec(fullText)) !== null) {
+    const command = m[1];
+    const key = `shell:${command}`;
+    if (processed.has(key) || ops >= MAX_TOOL_OPS) continue;
+    processed.add(key); ops++;
+    const id = `ollama-bash-${crypto.randomUUID().slice(0, 8)}`;
+    emitToolStart(id, "Bash", { command });
+    const shellResult = await runShell(command, cwd);
+    const summary = `Shell ${command}: exit ${shellResult.exitCode}`;
+    results.push({
+      toolName: "Bash",
+      input: { command },
+      result: [summary, shellResult.stdout, shellResult.stderr].filter(Boolean).join("\n"),
+    });
+    emitToolResult(id, "Bash", {
+      stdout: shellResult.stdout,
+      stderr: shellResult.stderr,
+      exitCode: shellResult.exitCode,
+      output: [shellResult.stdout, shellResult.stderr].filter(Boolean).join("\n"),
+    });
+  }
+
   let cleanedText = fullText
     .replace(/<read_file\s+path="[^"]+"\s*\/>/g, "")
     .replace(/<write_file\s+path="[^"]+">([\s\S]*?)<\/write_file>/g, "")
     .replace(/<edit_file\s+path="[^"]+">([\s\S]*?)<\/edit_file>/g, "")
     .replace(/<delete_file\s+path="[^"]+"\s*\/>/g, "")
+    .replace(/<list_files(?:\s+path="[^"]+")?(?:\s+pattern="[^"]+")?\s*\/>/g, "")
+    .replace(/<search_files\s+pattern="[^"]+"(?:\s+path="[^"]+")?\s*\/>/g, "")
+    .replace(/<run_shell\s+command="[^"]+"\s*\/>/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
@@ -418,7 +559,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         const fullText = await streamOllamaResponse(session, controller, getMainWindow, sessionId);
 
         // Parse and execute any tool tags in the response
-        const { results, cleanedText } = executeToolTags(fullText, session.cwd, getMainWindow, sessionId);
+        const { results, cleanedText } = await executeToolTags(fullText, session.cwd, getMainWindow, sessionId);
 
         if (results.length === 0) {
           // No tool calls — this is the final response
@@ -452,7 +593,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") {
-        const last = session.messages.findLast((m) => m.role === "assistant");
+        const last = [...session.messages].reverse().find((m) => m.role === "assistant");
         emit(getMainWindow, sessionId, "chat:final", { message: last?.content ?? "" });
       } else {
         emit(getMainWindow, sessionId, "chat:error", {
