@@ -6,7 +6,7 @@ import { exec, execFile } from "child_process";
 import { safeSend } from "../lib/safe-send";
 import { getAppSetting } from "../lib/app-settings";
 import { log } from "../lib/logger";
-import { augmentWithRag, triggerIndex, compressConversation } from "../lib/rag/index";
+import { triggerIndex, compressConversation } from "../lib/rag/index";
 import { webSearch, formatWebResults } from "../lib/rag/web-search";
 
 interface OllamaMessage {
@@ -50,68 +50,73 @@ function emit(
 // ── System prompt ──────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(cwd: string): string {
-  return `You are an autonomous coding agent. Your responses are machine-parsed — a program reads them and executes any tool tags you emit.
+  return `Coding assistant with tool access. Emit XML tags → system executes → returns results.
+CWD: ${cwd}
 
-Working directory: ${cwd}
+RULES:
+1. NEVER guess/invent content. Use tools for real data.
+2. NEVER say "I cannot" or "I don't have access".
+3. Match user's language. PT→PT, EN→EN.
+4. File already in conversation? Use that content, don't re-read.
+5. Working? Output ONLY bare XML tags, zero other text.
+6. Done? Answer the user or summarize what changed.
+7. Tags must be bare — NEVER inside \`\`\`backticks\`\`\`.
 
-## Tools
-
-The system intercepts these XML tags and executes them. Results are fed back automatically.
-
-<read_file path="relative/path/to/file.ts"/>
-→ Returns file contents.
-
-<write_file path="relative/path/to/file.ts">
-full file content
-</write_file>
-→ Creates or overwrites a file.
-
-<edit_file path="relative/path/to/file.ts">
+TOOLS:
+<list_files path="." pattern="optional"/>
+<read_file path="file"/>
+<search_files pattern="text" path="dir"/>
+<write_file path="file">content</write_file>
+<edit_file path="file">
 <<<<<<< SEARCH
-exact existing text
+old
 =======
-replacement text
+new
 >>>>>>> REPLACE
 </edit_file>
-→ Replaces exact text blocks. SEARCH must match exactly (whitespace included). Multiple SEARCH/REPLACE blocks allowed per call.
+<delete_file path="file"/>
+<run_shell command="cmd"/>
 
-<delete_file path="relative/path/to/file.ts"/>
-→ Deletes a file.
+WHEN TO USE EACH:
+Don't know project structure → <list_files path="."/>
+User names a file → <read_file path="file"/>
+Need to find something → <search_files pattern="x" path="."/>
+Need to edit → read first, then <edit_file>
+Need to create → <write_file>
+Need to run command → <run_shell>
+User asked question + you have data → answer in their language
+Edit complete → one sentence summary
 
-<list_files path="relative/path" pattern="optional-substring"/>
-→ Lists tracked and unignored files under a path.
+EXAMPLE 1:
+User: "oque tem no package.json"
 
-<search_files pattern="text to find" path="relative/path"/>
-→ Returns files containing the pattern.
+<read_file path="package.json"/>
 
-<run_shell command="pnpm test --filter foo"/>
-→ Runs a shell command in the project and returns stdout/stderr.
+[system returns content]
 
-<web_search query="react memo typescript example"/>
-→ Searches DuckDuckGo and returns results with URLs. Use when you need external docs or API references.
+O package.json contém o projeto "my-app" com React 19 e Vite.
 
-All paths are relative to: ${cwd}
+EXAMPLE 2:
+User: "add test script"
 
-## Behavior rules
+<read_file path="package.json"/>
 
-- ACT immediately — do NOT explain what you are about to do. Do it.
-- NEVER narrate, announce, or describe tool usage. Just emit the tag.
-- NEVER say "I will read…", "Let me check…", "I'll now edit…" — skip straight to the tag.
-- Chain tool calls: emit multiple tags per response when needed.
-- Read a file before editing it so SEARCH blocks match exactly.
-- When all work is done, output ONE sentence summarizing what changed. Nothing else.
+[system returns content]
 
-## CRITICAL — Tag formatting
+<edit_file path="package.json">
+<<<<<<< SEARCH
+    "build": "vite build"
+  },
+=======
+    "build": "vite build",
+    "test": "vitest"
+  },
+>>>>>>> REPLACE
+</edit_file>
 
-Tags MUST appear as bare XML in your response. NEVER wrap them in code fences or backticks.
+[system confirms]
 
-WRONG — will not execute:
-\`\`\`xml
-<read_file path="src/index.ts"/>
-\`\`\`
-
-RIGHT — executes immediately:
-<read_file path="src/index.ts"/>`;
+Adicionado script "test" ao package.json.`;
 }
 
 // ── Tool execution ─────────────────────────────────────────────────────────────
@@ -398,7 +403,7 @@ async function executeToolTags(
         input: { path: rel, pattern },
         result: `List ${rel}: OK (${filtered.length} file${filtered.length === 1 ? "" : "s"})`,
       });
-      emitToolResult(id, "Glob", { files: filtered });
+      emitToolResult(id, "Glob", { filenames: filtered, numFiles: filtered.length, mode: "files_with_matches" });
     } catch (err) {
       const error = (err as Error).message;
       results.push({ toolName: "Glob", input: { path: rel, pattern }, result: `List ${rel}: ${error}` });
@@ -422,7 +427,7 @@ async function executeToolTags(
         input: { pattern, path: rel },
         result: `Search ${pattern} in ${rel}: OK (${matches.length} match${matches.length === 1 ? "" : "es"})`,
       });
-      emitToolResult(id, "Grep", { matches, mode: "files_with_matches" });
+      emitToolResult(id, "Grep", { filenames: matches, numFiles: matches.length, mode: "files_with_matches" });
     } catch (err) {
       const error = (err as Error).message;
       results.push({ toolName: "Grep", input: { pattern, path: rel }, result: `Search ${pattern} in ${rel}: ${error}` });
@@ -581,29 +586,43 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     if (!session) return { error: "Session not found" };
 
     // ── RAG augmentation ──────────────────────────────────────────────────────
-    // Skip local RAG for explicit web/shell requests — let the model use its
-    // built-in <web_search> or <run_shell> tools directly.
-    const isWebQuery = /\b(pesquise na web|busque na web|search the web|busca online|web search|na internet|on the internet|look up online)\b/i.test(text);
+    const isWebQuery = /\b(pesquise na web|busque na web|search the web|busca online|web search|na internet|on the internet|look up online|pesquisa|pesquisar|buscar)\b/i.test(text);
     const isShellQuery = /\b(rode|execute|run|roda)\s+(o\s+comando|command|cmd|o\s+script)\b/i.test(text);
 
     try {
-      const rag = (!isWebQuery && !isShellQuery) ? await augmentWithRag(text, session.cwd) : null;
-
-      // Push original user message then inject simulated tool-result turns.
-      // The model sees: user asked → it "read" the files → has real content.
-      // This works for any language — the model decides whether to explain
-      // or apply changes based on what the user actually asked.
-      session.messages.push({ role: "user", content: text });
-      for (const turn of rag?.injectedTurns ?? []) {
-        session.messages.push(turn);
-      }
-
-      if (rag && rag.contextFileCount > 0) {
-        emit(getMainWindow, sessionId, "rag:context", {
-          fileCount: rag.contextFileCount,
-          intent: rag.intent.type,
-        });
-        log("RAG", `files=${rag.contextFileCount} intent=${rag.intent.type}`);
+      if (isWebQuery) {
+        // Web queries: search ourselves and inject results as context.
+        // Small models refuse to "search the internet" due to fine-tuning,
+        // so we do it for them and ask the model to summarize.
+        const searchQuery = text
+          .replace(/\b(pesquise na web|busque na web|search the web|busca online|web search|na internet|on the internet|look up online|pesquisa|pesquisar|buscar)\b/gi, "")
+          .replace(/\b(sobre|about|for|por|de|do|da)\b/gi, "")
+          .trim() || text;
+        const searchId = `ollama-web-${crypto.randomUUID().slice(0, 8)}`;
+        emit(getMainWindow, sessionId, "tool:start", { toolUseId: searchId, toolName: "WebSearch", input: { query: searchQuery } });
+        try {
+          const searchResult = await webSearch(searchQuery);
+          const formatted = formatWebResults(searchResult);
+          log("OLLAMA_WEB", `query="${searchQuery}" results=${searchResult.results.length}`);
+          emit(getMainWindow, sessionId, "tool:result", {
+            toolUseId: searchId, toolName: "WebSearch",
+            result: { query: searchQuery, abstract: searchResult.abstract, abstractUrl: searchResult.abstractUrl, results: searchResult.results },
+          });
+          session.messages.push({ role: "user", content: text });
+          session.messages.push({
+            role: "user",
+            content: `Web search results for "${searchQuery}":\n\n${formatted}\n\nUsing ONLY the information above, answer the user's question. If the results are insufficient, say so.`,
+          });
+        } catch (searchErr) {
+          log("OLLAMA_WEB", `search failed: ${(searchErr as Error).message}`);
+          emit(getMainWindow, sessionId, "tool:result", {
+            toolUseId: searchId, toolName: "WebSearch",
+            result: { error: (searchErr as Error).message },
+          });
+          session.messages.push({ role: "user", content: text });
+        }
+      } else {
+        session.messages.push({ role: "user", content: text });
       }
     } catch (err) {
       // Best-effort — never crash the session
@@ -637,17 +656,23 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
         // Tool calls were made — store cleaned text and feed results back
         session.messages.push({ role: "assistant", content: fullText });
-        emit(getMainWindow, sessionId, "chat:final", { message: cleanedText });
+        if (cleanedText) {
+          emit(getMainWindow, sessionId, "chat:final", { message: cleanedText });
+        } else {
+          // Model only emitted tool tags with no prose — remove the empty
+          // streaming assistant bubble rather than leaving a blank message.
+          emit(getMainWindow, sessionId, "chat:clear-streaming", {});
+        }
 
-        // Build feedback message with file contents for reads
-        const feedbackParts: string[] = ["Tool results:"];
+        // Build feedback — compact, direct, includes user's original request.
+        const feedbackParts: string[] = [];
         for (const r of results) {
           feedbackParts.push(r.result);
           if (r.attachment) {
-            feedbackParts.push(`\nContents of ${r.attachment.path}:\n\`\`\`\n${r.attachment.content}\n\`\`\``);
+            feedbackParts.push(`\n${r.attachment.path}:\n\`\`\`\n${r.attachment.content}\n\`\`\``);
           }
         }
-        feedbackParts.push("\nContinue working silently — emit the next tool tag, or output a one-sentence summary if the task is fully done.");
+        feedbackParts.push(`\nUser said: "${text}"\nAnswer now. Same language as user.`);
 
         session.messages.push({ role: "user", content: feedbackParts.join("\n") });
 
@@ -656,7 +681,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
 
       if (loopCount >= MAX_TOOL_LOOPS) {
-        emit(getMainWindow, sessionId, "chat:error", { message: "Maximum tool loop depth reached" });
+        emit(getMainWindow, sessionId, "chat:error", { message: "Limite de chamadas de ferramentas atingido (6 loops)" });
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") {

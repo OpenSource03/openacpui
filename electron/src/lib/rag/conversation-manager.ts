@@ -21,8 +21,9 @@ export interface ConvMessage {
   content: string;
 }
 
-/** Keep this many user+assistant pairs in full text */
-const MAX_FULL_TURNS = 5; // 10 messages = ~3-5K tokens typical
+/** Keep this many user+assistant pairs in full text.
+ *  3 turns = 6 messages — optimized for 4B models with ~4-8K context. */
+const MAX_FULL_TURNS = 3;
 
 // ── Summary extraction (no LLM call) ─────────────────────────────────────────
 

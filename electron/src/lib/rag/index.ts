@@ -16,6 +16,7 @@
  *     structured edit_file output without unnecessary exploration.
  */
 
+import fs from "fs";
 import path from "path";
 import { detectIntent, type Intent } from "./intent-detector";
 import { searchCode } from "./code-search";
@@ -42,6 +43,8 @@ export interface AugmentResult {
   injectedTurns?: OllamaMessage[];
   intent: Intent;
   contextFileCount: number;
+  /** File paths that were directly read and injected */
+  contextFiles?: string[];
 }
 
 // ── Intent classification ─────────────────────────────────────────────────────
@@ -75,6 +78,80 @@ function langTag(filePath: string): string {
   return map[ext] ?? ext ?? "text";
 }
 
+// ── Direct file read ─────────────────────────────────────────────────────────
+/**
+ * Priority 0: when the user explicitly names a file (e.g. "package.json"),
+ * read it directly from disk — do NOT run BM25 or grep which find random files
+ * that merely contain those words as tokens.
+ */
+function readDirectTargets(
+  targets: string[],
+  cwd: string,
+): Array<{ filePath: string; snippet: string; startLine: number; endLine: number }> {
+  const results: Array<{ filePath: string; snippet: string; startLine: number; endLine: number }> = [];
+
+  for (const target of targets) {
+    if (!path.extname(target)) continue; // skip non-filename targets
+
+    // Try exact relative path first
+    const candidates = [
+      path.resolve(cwd, target),
+    ];
+
+    // Also search by basename if path has no directory component
+    if (!target.includes("/") && !target.includes(path.sep)) {
+      // Walk up to 4 levels to find file by name
+      const found = findByBasenameSync(cwd, target, 4);
+      candidates.push(...found);
+    }
+
+    for (const abs of candidates) {
+      if (!abs.startsWith(cwd)) continue;
+      try {
+        const stat = fs.statSync(abs);
+        if (!stat.isFile() || stat.size > 200_000) continue;
+        const content = fs.readFileSync(abs, "utf-8");
+        const lines = content.split("\n");
+        const relPath = path.relative(cwd, abs);
+        results.push({
+          filePath: relPath,
+          snippet: content,
+          startLine: 1,
+          endLine: lines.length,
+        });
+        break; // found this target, move to next
+      } catch { /* skip */ }
+    }
+
+    if (results.length >= 3) break;
+  }
+
+  return results;
+}
+
+function findByBasenameSync(cwd: string, basename: string, maxDepth: number): string[] {
+  const found: string[] = [];
+  const lc = basename.toLowerCase();
+
+  function walk(dir: string, depth: number) {
+    if (depth > maxDepth || found.length >= 3) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || e.name === "node_modules" || e.name === "vendor") continue;
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(abs, depth + 1);
+      } else if (e.isFile() && e.name.toLowerCase() === lc) {
+        found.push(abs);
+      }
+    }
+  }
+  walk(cwd, 0);
+  return found;
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function augmentWithRag(
@@ -85,10 +162,21 @@ export async function augmentWithRag(
 
   // ── Search ──────────────────────────────────────────────────────────────────
   let snippets: Array<{ filePath: string; snippet: string; startLine: number; endLine: number }> = [];
+  // Track which file paths came from direct reads (Priority 0) so injection
+  // is only done when we are 100% confident we have the right content.
+  const directHitsSet = new Set<string>();
 
   try {
-    if (isIndexReady(cwd)) {
-      // Path 1: BM25 indexed search — best quality
+    // Priority 0: direct file read when user explicitly names a file.
+    // This must run BEFORE BM25 — BM25 matches on tokens ("package", "json")
+    // and returns unrelated files that happen to contain those words.
+    const directHits = readDirectTargets(intent.targets, cwd);
+    if (directHits.length > 0) {
+      snippets = directHits;
+      for (const h of directHits) directHitsSet.add(h.filePath);
+      log("RAG", `direct read: ${directHits.map(h => h.filePath).join(", ")}`);
+    } else if (isIndexReady(cwd)) {
+      // Priority 1: BM25 indexed search — best for semantic/keyword queries
       const query = [userMessage, ...intent.targets].join(" ");
       const hits = searchIndex(cwd, query, 5);
       snippets = hits.map(indexedResultToSnippet);
@@ -116,12 +204,23 @@ export async function augmentWithRag(
   }
 
   // ── Build injection ─────────────────────────────────────────────────────────
+  //
+  // ONLY inject simulated tool-turns for Priority 0 (direct file reads by exact
+  // name). For BM25 / grep results we are not confident enough — injecting wrong
+  // file content actively hurts because the model trusts the "already-read"
+  // history and hallucinate based on irrelevant content.
+  //
+  // When no injection happens the model falls back to its own <read_file> /
+  // <search_files> tools which are always accurate.
 
-  // ── Always use tool-turns format ───────────────────────────────────────────
-  // The model understands any language — let it decide whether to explain or
-  // apply changes. The tool-turns format primes it to use edit_file/write_file
-  // when the user asks for a modification, and respond in text when they ask
-  // a question. Single-turn "answer based on content" blocks tool usage.
+  const isDirectRead = snippets.every((s) =>
+    directHitsSet.has(s.filePath),
+  );
+
+  if (!isDirectRead) {
+    // BM25 / grep path — skip injection, let the model explore on its own
+    return { userMessage, intent, contextFileCount: 0 };
+  }
 
   const readTags = snippets.map((s) => `<read_file path="${s.filePath}"/>`).join("\n");
 
@@ -135,8 +234,8 @@ export async function augmentWithRag(
 
   // Instruction depends on whether this looks like a modification or a question
   const instruction = EDIT_INTENTS.has(intent.type)
-    ? "Apply the requested change using edit_file or write_file. Do NOT show the result as text — emit the tool tag directly."
-    : "If the task requires modifying a file, use edit_file or write_file. If it is a question, answer in text using only the contents above.";
+    ? "Apply the requested change using edit_file or write_file. Do NOT output the file as text — emit the XML tag directly."
+    : "Answer the user's question using ONLY the file content above. Be concise — summarize, do not dump the entire file.";
 
   toolResultParts.push(`\n${instruction}`);
 
@@ -148,5 +247,6 @@ export async function augmentWithRag(
     ],
     intent,
     contextFileCount: snippets.length,
+    contextFiles: snippets.map((s) => s.filePath),
   };
 }

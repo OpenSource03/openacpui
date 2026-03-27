@@ -85,6 +85,16 @@ export function useOllama({ sessionId, initialMessages, initialMeta }: UseOllama
           break;
         }
 
+        case "chat:clear-streaming": {
+          // Model only emitted tool tags — remove the empty streaming message
+          const clearId = streamingMsgId.current;
+          if (clearId) {
+            setMessages(prev => prev.filter(m => m.id !== clearId));
+            streamingMsgId.current = null;
+          }
+          break;
+        }
+
         case "tool:start": {
           // Model started executing a tool — show a loading card
           const { toolUseId, toolName, input } = event.payload as {
