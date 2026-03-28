@@ -28,6 +28,7 @@ import { AboutSettings } from "@/components/settings/AboutSettings";
 import { AnalyticsSettings } from "@/components/settings/AnalyticsSettings";
 import { WebSearchSettings } from "@/components/settings/WebSearchSettings";
 import { CrawlerSettings } from "@/components/settings/CrawlerSettings";
+import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { isMac } from "@/lib/utils";
 import type { InstalledAgent, ThemeOption } from "@/types";
 import type { AppSettings } from "@/types/ui";
@@ -55,7 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "engines", label: "Engines", icon: Cpu },
   { id: "web-search", label: "Web Search", icon: Globe },
   { id: "crawler", label: "Crawler", icon: Scan },
-  { id: "skills", label: "Skills", icon: Sparkles, comingSoon: true },
+  { id: "skills", label: "Skills", icon: Sparkles },
   { id: "custom-agents", label: "Agents", icon: Users, comingSoon: true },
   { id: "advanced", label: "Advanced", icon: Wrench },
   { id: "about", label: "About", icon: Info },
@@ -237,14 +238,7 @@ export const SettingsView = memo(function SettingsView({
           />
         );
       case "skills":
-        return (
-          <PlaceholderSection
-            title="Skills"
-            description="Create, install, and manage agent skills that extend what your AI coding agents can do."
-            icon={Sparkles}
-            comingSoon
-          />
-        );
+        return <SkillsSettings />;
       case "custom-agents":
         return (
           <PlaceholderSection
