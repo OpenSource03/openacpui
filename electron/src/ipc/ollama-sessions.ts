@@ -1185,7 +1185,19 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
             continue;
           }
 
-          const finalDisplay = extractDisplayText(fullText, parsed);
+          let finalDisplay = extractDisplayText(fullText, parsed);
+          if (!finalDisplay && !parsed) {
+            const jsonMatch = fullText.match(/\{\s*"response"\s*:\s*"([\s\S]*?)"\s*\}$/);
+            if (jsonMatch) {
+              finalDisplay = jsonMatch[1]
+                .replace(/\\n/g, "\n")
+                .replace(/\\t/g, "\t")
+                .replace(/\\"/g, '"')
+                .replace(/^[\s`"',;]+/, "")
+                .replace(/[\s`"',;]+$/, "")
+                .trim();
+            }
+          }
           session.messages.push({ role: "assistant", content: fullText });
           emit(getMainWindow, sessionId, "chat:final", { message: finalDisplay || fullText });
           break;
