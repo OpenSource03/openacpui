@@ -49,9 +49,10 @@ interface McpPanelProps {
   onRefreshStatus?: () => void;
   onReconnect?: (name: string) => Promise<void> | void;
   onRestartWithServers?: (servers: McpServerConfig[]) => Promise<void> | void;
+  onBrowseRegistry?: () => void;
 }
 
-export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isPreliminary, hasLiveSession, onRefreshStatus, onReconnect, onRestartWithServers }: McpPanelProps) {
+export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isPreliminary, hasLiveSession, onRefreshStatus, onReconnect, onRestartWithServers, onBrowseRegistry }: McpPanelProps) {
   const { servers, loading, addServer, removeServer } = useMcpServers(projectId);
   const [reconnectingName, setReconnectingName] = useState<string | null>(null);
   const [authenticatingName, setAuthenticatingName] = useState<string | null>(null);

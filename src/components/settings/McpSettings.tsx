@@ -1,6 +1,8 @@
 import { memo, useState, useCallback } from "react";
-import { Search, Package, ExternalLink, Globe, Terminal, ChevronRight, Loader2 } from "lucide-react";
+import { Search, Package, ExternalLink, Globe, Terminal, Download, Loader2, Plug, Store, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface RegistryServer {
   name: string;
@@ -27,220 +29,218 @@ export const McpSettings = memo(function McpSettings() {
   const [searched, setSearched] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [expandedName, setExpandedName] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const doSearch = useCallback(async (searchQuery?: string, cursor?: string) => {
     setLoading(true);
-    setError(null);
     try {
       const result = await window.claude.mcpRegistry.search(searchQuery || undefined, cursor);
       if (result.ok) {
-        if (cursor) {
-          setServers((prev) => [...prev, ...result.servers]);
-        } else {
-          setServers(result.servers);
-        }
+        setServers(cursor ? (prev) => [...prev, ...result.servers] : result.servers);
         setNextCursor(result.nextCursor);
-      } else {
-        setError(result.error ?? "Search failed");
       }
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-      setSearched(true);
-    }
+    } catch {}
+    setLoading(false);
+    setSearched(true);
   }, []);
-
-  const handleSearch = useCallback(() => {
-    doSearch(query);
-  }, [query, doSearch]);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-foreground/[0.06] px-6 py-4">
-        <h2 className="text-base font-semibold text-foreground">MCP Servers</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Browse and discover MCP servers from the official registry. Per-project servers are managed from the toolbar.
-        </p>
-      </div>
-
-      <div className="border-b border-foreground/[0.06] px-6 py-3">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-              placeholder="Search MCP servers (e.g. github, slack, database...)"
-              spellCheck={false}
-              className="h-8 w-full rounded-md border border-foreground/10 bg-background pe-3 ps-8 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
-            />
+      <Tabs defaultValue="store" className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b border-foreground/[0.06] px-6">
+          <div className="py-4">
+            <h2 className="text-base font-semibold text-foreground">MCP Servers</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Browse the MCP registry or manage your project servers
+            </p>
           </div>
-          <button
-            onClick={handleSearch}
-            disabled={loading}
-            className="h-8 shrink-0 rounded-md border border-foreground/10 bg-background px-4 text-xs font-medium text-foreground transition-colors hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Search"}
-          </button>
-          {!searched && (
-            <button
-              onClick={() => doSearch()}
-              disabled={loading}
-              className="h-8 shrink-0 rounded-md border border-foreground/10 bg-background px-4 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:opacity-50"
-            >
-              Browse All
-            </button>
-          )}
+          <TabsList variant="line">
+            <TabsTrigger value="store" className="gap-1.5">
+              <Store className="h-3.5 w-3.5" />
+              MCP Store
+            </TabsTrigger>
+            <TabsTrigger value="my-servers" className="gap-1.5">
+              <Plug className="h-3.5 w-3.5" />
+              My Servers
+            </TabsTrigger>
+          </TabsList>
         </div>
-        {error && <p className="mt-1.5 text-[11px] text-red-400">{error}</p>}
-      </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="px-6 py-2">
-          {servers.length === 0 && searched && !loading && (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No servers found. Try a different search term.
+        <TabsContent value="store" className="min-h-0 flex-1">
+          <div className="flex h-full flex-col">
+            <div className="flex items-center gap-2 px-5 py-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") doSearch(query); }}
+                  placeholder="Search MCP servers..."
+                  spellCheck={false}
+                  className="h-8 w-full rounded-md border border-foreground/10 bg-background pe-3 ps-8 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                />
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => doSearch(query)} disabled={loading}>
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              </Button>
             </div>
-          )}
 
-          {!searched && !loading && (
-            <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <Package className="h-10 w-10 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">
-                Search the official MCP registry to discover servers
-              </p>
-            </div>
-          )}
+            <ScrollArea className="min-h-0 flex-1">
+              {!searched && !loading && (
+                <div className="grid grid-cols-2 gap-3 px-5 py-4">
+                  {["github", "slack", "filesystem", "postgres", "docker", "jira"].map((term) => (
+                    <button
+                      key={term}
+                      onClick={() => { setQuery(term); doSearch(term); }}
+                      className="flex items-center gap-2 rounded-lg border border-foreground/[0.06] px-4 py-3 text-start transition-colors hover:border-foreground/10 hover:bg-foreground/[0.02]"
+                    >
+                      <Package className="h-4 w-4 text-muted-foreground/40" />
+                      <span className="text-sm text-muted-foreground">{term}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-          <div className="space-y-1">
-            {servers.map((server) => {
-              const isExpanded = expandedName === server.name;
-              const npmPkg = server.packages.find((p) => p.registry === "npm");
-              const pypiPkg = server.packages.find((p) => p.registry === "pypi");
-              const mainPkg = npmPkg ?? pypiPkg ?? server.packages[0];
-              const hasRemote = server.remotes.length > 0;
+              {searched && servers.length === 0 && !loading && (
+                <div className="py-12 text-center text-sm text-muted-foreground">No servers found</div>
+              )}
 
-              return (
-                <div key={server.name} className="rounded-lg border border-foreground/[0.06] bg-background transition-colors hover:border-foreground/10">
-                  <button
-                    onClick={() => setExpandedName(isExpanded ? null : server.name)}
-                    className="flex w-full items-start gap-3 px-3 py-2.5 text-start"
-                  >
-                    {server.icon ? (
-                      <img src={server.icon} alt="" className="mt-0.5 h-8 w-8 shrink-0 rounded-md" />
-                    ) : (
-                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-foreground/[0.04]">
-                        <Package className="h-4 w-4 text-muted-foreground/50" />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-foreground">{server.name.split("/").pop()}</span>
-                        <span className="shrink-0 rounded bg-foreground/[0.05] px-1.5 py-px text-[10px] font-mono text-muted-foreground/60">
-                          v{server.version}
-                        </span>
-                        {hasRemote && (
-                          <span className="shrink-0 rounded bg-blue-500/10 px-1.5 py-px text-[10px] text-blue-400">remote</span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{server.description}</p>
-                    </div>
-                    <ChevronRight className={`mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/30 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                  </button>
+              <div className="grid grid-cols-2 gap-3 px-5 pb-5">
+                {servers.map((server) => {
+                  const isExpanded = expandedName === server.name;
+                  const npmPkg = server.packages.find((p) => p.registry === "npm");
+                  const pypiPkg = server.packages.find((p) => p.registry === "pypi");
+                  const mainPkg = npmPkg ?? pypiPkg ?? server.packages[0];
+                  const hasRemote = server.remotes.length > 0;
+                  const shortName = server.name.split("/").pop() ?? server.name;
 
-                  {isExpanded && (
-                    <div className="border-t border-foreground/[0.04] px-3 pb-3 pt-2">
-                      <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Full name: <span className="font-mono text-foreground/60">{server.name}</span>
-                      </div>
-
-                      {mainPkg && (
-                        <div className="mb-2 rounded-md bg-foreground/[0.03] p-2">
-                          <div className="mb-1 text-[10px] font-medium text-muted-foreground">Install ({mainPkg.registry})</div>
-                          <code className="block text-xs text-foreground/80">
-                            {mainPkg.registry === "npm" ? `npx -y ${mainPkg.identifier}` : `uvx ${mainPkg.identifier}`}
-                          </code>
-                          <div className="mt-1 text-[10px] text-muted-foreground/60">
-                            Transport: {mainPkg.transport}
-                          </div>
-                        </div>
-                      )}
-
-                      {hasRemote && (
-                        <div className="mb-2 rounded-md bg-foreground/[0.03] p-2">
-                          <div className="mb-1 text-[10px] font-medium text-muted-foreground">Remote</div>
-                          {server.remotes.map((r, i) => (
-                            <div key={i} className="text-xs text-foreground/80">
-                              <span className="text-muted-foreground">{r.type}:</span> {r.url}
+                  return (
+                    <div key={server.name} className="flex flex-col rounded-lg border border-foreground/[0.06] bg-background transition-colors hover:border-foreground/10">
+                      <button
+                        onClick={() => setExpandedName(isExpanded ? null : server.name)}
+                        className="flex flex-1 flex-col gap-2 p-3 text-start"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          {server.icon ? (
+                            <img src={server.icon} alt="" className="h-9 w-9 shrink-0 rounded-lg" />
+                          ) : (
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.04]">
+                              <Package className="h-4 w-4 text-muted-foreground/50" />
                             </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {mainPkg && mainPkg.envVars.length > 0 && (
-                        <div className="mb-2">
-                          <div className="mb-1 text-[10px] font-medium text-muted-foreground">Environment Variables</div>
-                          <div className="space-y-1">
-                            {mainPkg.envVars.map((env) => (
-                              <div key={env.name} className="flex items-center gap-2 text-xs">
-                                <code className="rounded bg-foreground/[0.05] px-1 py-px text-[11px] text-foreground/70">{env.name}</code>
-                                {env.isRequired && <span className="text-[10px] text-amber-400">required</span>}
-                                {env.isSecret && <span className="text-[10px] text-red-400/60">secret</span>}
-                                <span className="truncate text-muted-foreground/60">{env.description}</span>
-                              </div>
-                            ))}
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-semibold text-foreground">{shortName}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
+                              <span className="font-mono">v{server.version}</span>
+                              {mainPkg && <span>· {mainPkg.registry}</span>}
+                            </div>
                           </div>
                         </div>
-                      )}
+                        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{server.description}</p>
+                      </button>
 
-                      <div className="flex gap-2">
-                        {server.repoUrl && (
-                          <a href={server.repoUrl} target="_blank" rel="noreferrer"
-                            className="flex items-center gap-1 rounded-md border border-foreground/10 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-                            <Globe className="h-3 w-3" /> Repo
-                          </a>
-                        )}
-                        {server.websiteUrl && (
-                          <a href={server.websiteUrl} target="_blank" rel="noreferrer"
-                            className="flex items-center gap-1 rounded-md border border-foreground/10 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-                            <ExternalLink className="h-3 w-3" /> Website
-                          </a>
-                        )}
+                      <div className="flex items-center justify-between border-t border-foreground/[0.04] px-3 py-2">
+                        <div className="flex items-center gap-1.5">
+                          {hasRemote && (
+                            <span className="rounded-full bg-blue-500/10 px-2 py-px text-[10px] font-medium text-blue-400">remote</span>
+                          )}
+                          {mainPkg?.transport && (
+                            <span className="rounded-full bg-foreground/[0.05] px-2 py-px text-[10px] text-muted-foreground/60">{mainPkg.transport}</span>
+                          )}
+                        </div>
                         {mainPkg && (
-                          <button
-                            onClick={() => {
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               const cmd = mainPkg.registry === "npm"
                                 ? `npx -y ${mainPkg.identifier}`
                                 : `uvx ${mainPkg.identifier}`;
                               navigator.clipboard.writeText(cmd);
                             }}
-                            className="flex items-center gap-1 rounded-md border border-foreground/10 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-                            <Terminal className="h-3 w-3" /> Copy Install
-                          </button>
+                          >
+                            <Download className="h-3 w-3" />
+                            Copy Install
+                          </Button>
                         )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
 
-          {nextCursor && (
-            <button
-              onClick={() => doSearch(query || undefined, nextCursor)}
-              disabled={loading}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-foreground/[0.06] py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/10 hover:text-foreground"
-            >
-              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Load More"}
-            </button>
-          )}
-        </div>
-      </ScrollArea>
+                      {isExpanded && (
+                        <div className="border-t border-foreground/[0.04] px-3 pb-3 pt-2 text-xs">
+                          <div className="mb-1.5 font-mono text-[10px] text-muted-foreground/50">{server.name}</div>
+
+                          {mainPkg && (
+                            <div className="mb-2 rounded bg-foreground/[0.03] p-2">
+                              <code className="text-foreground/80">
+                                {mainPkg.registry === "npm" ? `npx -y ${mainPkg.identifier}` : `uvx ${mainPkg.identifier}`}
+                              </code>
+                            </div>
+                          )}
+
+                          {mainPkg?.envVars && mainPkg.envVars.length > 0 && (
+                            <div className="mb-2 space-y-0.5">
+                              {mainPkg.envVars.map((env) => (
+                                <div key={env.name} className="flex items-center gap-1.5">
+                                  <code className="rounded bg-foreground/[0.05] px-1 text-[10px] text-foreground/70">{env.name}</code>
+                                  {env.isRequired && <span className="text-[9px] text-amber-400">req</span>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="flex gap-1.5">
+                            {server.repoUrl && (
+                              <a href={server.repoUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+                                <Globe className="h-3 w-3" /> Repo
+                              </a>
+                            )}
+                            {server.websiteUrl && (
+                              <a href={server.websiteUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+                                <ExternalLink className="h-3 w-3" /> Site
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {nextCursor && (
+                <div className="px-5 pb-5">
+                  <Button variant="outline" className="w-full" onClick={() => doSearch(query || undefined, nextCursor)} disabled={loading}>
+                    {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Load More"}
+                  </Button>
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="my-servers" className="min-h-0 flex-1">
+          <div className="flex flex-1 flex-col items-center justify-center px-4">
+            <div className="flex max-w-md flex-col items-center gap-3 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border/50 bg-muted/30">
+                <Plug className="h-7 w-7 text-foreground/80" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">Project Servers</h3>
+              <p className="text-sm text-muted-foreground">
+                MCP servers are configured per-project from the{" "}
+                <Plug className="inline h-3.5 w-3.5 -translate-y-px text-foreground/70" />{" "}
+                <span className="font-medium text-foreground">MCP Servers</span> panel in the right-side toolbar.
+              </p>
+              <p className="text-xs text-muted-foreground/60">
+                Each project has its own set of MCP servers that connect to your AI sessions.
+              </p>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 });
