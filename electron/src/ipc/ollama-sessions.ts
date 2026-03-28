@@ -620,6 +620,7 @@ async function executeToolCall(
 
 interface StreamResult {
   content: string;
+  thinking: string;
   toolCalls: OllamaToolCall[];
   promptTokens: number;
   completionTokens: number;
@@ -638,6 +639,7 @@ async function streamOllamaChat(
       model: session.model,
       messages: compressConversation(session.messages as Array<{ role: string; content: string }>),
       tools: OLLAMA_TOOLS,
+      think: true,
       stream: true,
     }),
     signal: controller.signal,
@@ -652,6 +654,7 @@ async function streamOllamaChat(
   const reader = (response.body as unknown as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let fullContent = "";
+  let fullThinking = "";
   let buffer = "";
   let toolCalls: OllamaToolCall[] = [];
   let promptTokens = 0;
@@ -670,11 +673,16 @@ async function streamOllamaChat(
       if (!trimmed) continue;
       try {
         const parsed = JSON.parse(trimmed) as {
-          message?: { role?: string; content?: string; tool_calls?: OllamaToolCall[] };
+          message?: { role?: string; content?: string; thinking?: string; tool_calls?: OllamaToolCall[] };
           done?: boolean;
           prompt_eval_count?: number;
           eval_count?: number;
         };
+
+        if (parsed.message?.thinking) {
+          fullThinking += parsed.message.thinking;
+          emit(getMainWindow, sessionId, "chat:thinking", { text: fullThinking });
+        }
 
         if (parsed.message?.content) {
           fullContent += parsed.message.content;
@@ -712,7 +720,7 @@ async function streamOllamaChat(
     .replace(/<\/?think>/g, "")
     .trim();
 
-  return { content: cleanContent, toolCalls, promptTokens, completionTokens };
+  return { content: cleanContent, thinking: fullThinking, toolCalls, promptTokens, completionTokens };
 }
 
 // ── IPC registration ───────────────────────────────────────────────────────────

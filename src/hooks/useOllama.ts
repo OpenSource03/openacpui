@@ -53,6 +53,28 @@ export function useOllama({ sessionId, initialMessages, initialMeta, cwd, model 
           setIsProcessing(true);
           break;
 
+        case "chat:thinking": {
+          const thinkText = (event.payload.text as string) ?? "";
+          if (!streamingMsgId.current) {
+            const id = nextId("ollama-stream");
+            streamingMsgId.current = id;
+            setMessages(prev => [...prev, {
+              id,
+              role: "assistant",
+              content: "",
+              thinking: thinkText,
+              isStreaming: true,
+              timestamp: Date.now(),
+            }]);
+          } else {
+            const id = streamingMsgId.current;
+            setMessages(prev => prev.map(m =>
+              m.id === id ? { ...m, thinking: thinkText } : m
+            ));
+          }
+          break;
+        }
+
         case "chat:delta": {
           const text = (event.payload.text as string) ?? "";
           if (!streamingMsgId.current) {
