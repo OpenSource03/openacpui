@@ -50,6 +50,7 @@ import * as ollamaSessionsIpc from "./ipc/ollama-sessions";
 import * as webSearchIpc from "./ipc/web-search";
 import * as openclawSessionsIpc from "./ipc/openclaw-sessions";
 import * as mcpIpc from "./ipc/mcp";
+import * as mcpRegistryIpc from "./ipc/mcp-registry";
 import { registerGroupSessionHandlers } from "./ipc/group-sessions";
 import * as settingsIpc from "./ipc/settings";
 import * as jiraIpc from "./ipc/jira";
@@ -330,6 +331,7 @@ webSearchIpc.register();
 openclawSessionsIpc.register(getMainWindow);
 registerGroupSessionHandlers(getMainWindow);
 mcpIpc.register();
+mcpRegistryIpc.register();
 settingsIpc.register();
 jiraIpc.register();
 

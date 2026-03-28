@@ -401,6 +401,20 @@ declare global {
         clearExpired: () => Promise<{ removed: number }>;
         clearAll: () => Promise<{ ok: boolean }>;
       };
+      mcpRegistry: {
+        search: (query?: string, cursor?: string) => Promise<{
+          ok: boolean;
+          servers: Array<{
+            name: string; description: string; version: string;
+            websiteUrl?: string; repoUrl?: string; icon?: string;
+            packages: Array<{ registry: string; identifier: string; version?: string; transport: string; envVars: Array<{ name: string; description: string; isRequired: boolean; isSecret?: boolean }> }>;
+            remotes: Array<{ type: string; url: string }>;
+            publishedAt?: string;
+          }>;
+          nextCursor?: string;
+          error?: string;
+        }>;
+      };
       crawler: {
         test: (providerId: string) => Promise<{ ok: boolean; chars?: number; ms?: number; provider?: string; error?: string }>;
         history: (limit?: number) => Promise<Array<{ id: number; url: string; provider: string; contentLength: number; cachedAt: number; hitCount: number; expired: boolean }>>;

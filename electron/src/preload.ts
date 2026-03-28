@@ -390,6 +390,9 @@ contextBridge.exposeInMainWorld("claude", {
     clearExpired: () => ipcRenderer.invoke("web-search:clear-expired"),
     clearAll: () => ipcRenderer.invoke("web-search:clear-all"),
   },
+  mcpRegistry: {
+    search: (query?: string, cursor?: string) => ipcRenderer.invoke("mcp-registry:search", query, cursor),
+  },
   crawler: {
     test: (providerId: string) => ipcRenderer.invoke("crawler:test", providerId),
     history: (limit?: number) => ipcRenderer.invoke("crawler:history", limit),
