@@ -223,7 +223,7 @@ const OLLAMA_TOOLS = [
 
 // ── System prompt (behavior only, no tool format) ──────────────────────────────
 
-function buildSystemPrompt(cwd: string, skillContents?: string[]): string {
+function buildSystemPrompt(cwd: string, skillContents?: string[], mcpToolNames?: string[]): string {
   let prompt = `You are a coding assistant with tools. CWD: ${cwd}
 
 RULES:
@@ -233,6 +233,10 @@ RULES:
 4. Respond in the SAME language as the user.
 5. NEVER say "I cannot" or "I don't have access" — you have all tools.
 6. You can call multiple tools at once.`;
+
+  if (mcpToolNames && mcpToolNames.length > 0) {
+    prompt += `\n\nYou also have MCP (external service) tools available. PREFER these over builtin tools when relevant:\n${mcpToolNames.map((n) => `- ${n}`).join("\n")}`;
+  }
 
   if (skillContents && skillContents.length > 0) {
     prompt += "\n\n--- ACTIVE SKILLS ---\n\n" + skillContents.join("\n\n---\n\n");
@@ -831,8 +835,10 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
     }
 
+    const mcpToolNames = mcpTools.map((t) => `${t.function.name}: ${t.function.description}`);
+
     sessions.set(sessionId, {
-      messages: [{ role: "system", content: buildSystemPrompt(cwd, skillContents) }],
+      messages: [{ role: "system", content: buildSystemPrompt(cwd, skillContents, mcpToolNames) }],
       cwd,
       model: sessionModel,
       contextSize,

@@ -544,7 +544,7 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
           setRegistryAddedNames(new Set());
         }
       }}>
-        <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
+        <DialogContent className="sm:max-w-lg flex flex-col" style={{ maxHeight: "min(80vh, 600px)" }}>
           <DialogHeader>
             <DialogTitle className="text-sm">Add MCP Server</DialogTitle>
           </DialogHeader>
@@ -579,7 +579,7 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
                 </Button>
               </div>
 
-              <ScrollArea className="min-h-0 flex-1 -mx-1 px-1" style={{ maxHeight: "320px" }}>
+              <ScrollArea className="min-h-0 flex-1 -mx-1 px-1 overflow-y-auto" style={{ maxHeight: "350px" }}>
                 {!registrySearched && !registryLoading && (
                   <div className="grid grid-cols-3 gap-2 py-2">
                     {["github", "slack", "filesystem", "postgres", "docker", "jira"].map((term) => (
