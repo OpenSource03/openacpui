@@ -772,6 +772,7 @@ Link: ${issue.url}`;
             onToggleSidebar={sidebar.toggle}
             onReplayWelcome={handleReplayWelcome}
             projectId={activeProjectId}
+            projectPath={activeProjectPath}
           />
         )}
         <div className={showSettings ? "hidden" : "flex min-h-0 flex-1 flex-col"}>

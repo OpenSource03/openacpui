@@ -91,6 +91,7 @@ interface SettingsViewProps {
   /** Resets the welcome wizard so it shows again. Dev-only. */
   onReplayWelcome: () => void;
   projectId?: string | null;
+  projectPath?: string | null;
 }
 
 // ── Component ──
@@ -121,6 +122,7 @@ export const SettingsView = memo(function SettingsView({
   onToggleSidebar,
   onReplayWelcome,
   projectId,
+  projectPath,
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const macIslandTitlebarOffsetClass = "";
@@ -240,7 +242,7 @@ export const SettingsView = memo(function SettingsView({
           />
         );
       case "skills":
-        return <SkillsSettings />;
+        return <SkillsSettings projectPath={projectPath} />;
       case "custom-agents":
         return (
           <PlaceholderSection

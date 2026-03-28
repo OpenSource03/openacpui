@@ -413,6 +413,8 @@ declare global {
           count?: number;
           error?: string;
         }>;
+        install: (cwd: string, source: string, skillId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+        listInstalled: (cwd: string) => Promise<{ skills: Array<{ id: string; filename: string }> }>;
       };
       mcpRegistry: {
         search: (query?: string, cursor?: string) => Promise<{

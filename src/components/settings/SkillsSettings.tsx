@@ -1,5 +1,5 @@
 import { memo, useState, useCallback, useEffect } from "react";
-import { Sparkles, Store, Code, Search, Download, Loader2, Check, RefreshCw, Package } from "lucide-react";
+import { Sparkles, Store, Code, Search, Plus, Loader2, Check, RefreshCw, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -19,11 +19,17 @@ function formatInstalls(n: number): string {
   return String(n);
 }
 
-export const SkillsSettings = memo(function SkillsSettings() {
+interface SkillsSettingsProps {
+  projectPath?: string | null;
+}
+
+export const SkillsSettings = memo(function SkillsSettings({ projectPath }: SkillsSettingsProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [skills, setSkills] = useState<RegistrySkill[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [installingId, setInstallingId] = useState<string | null>(null);
+  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
 
   const doSearch = useCallback(async (query?: string) => {
     setLoading(true);
@@ -115,17 +121,30 @@ export const SkillsSettings = memo(function SkillsSettings() {
                       >
                         {skill.source}
                       </a>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5 text-xs"
-                        onClick={() => {
-                          navigator.clipboard.writeText(`npx skills add ${skill.source}`);
-                        }}
-                      >
-                        <Download className="h-3 w-3" />
-                        Copy Install
-                      </Button>
+                      {(() => {
+                        const isInstalling = installingId === skill.id;
+                        const isInstalled = installedIds.has(skill.id);
+                        return (
+                          <Button
+                            variant={isInstalled ? "ghost" : "outline"}
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={!projectPath || isInstalling || isInstalled}
+                            onClick={async () => {
+                              if (!projectPath) return;
+                              setInstallingId(skill.id);
+                              try {
+                                await window.claude.skillsRegistry.install(projectPath, skill.source, skill.skillId);
+                                setInstalledIds((prev) => new Set(prev).add(skill.id));
+                              } catch {}
+                              setInstallingId(null);
+                            }}
+                          >
+                            {isInstalling ? <Loader2 className="h-3 w-3 animate-spin" /> : isInstalled ? <Check className="h-3 w-3 text-emerald-500" /> : <Plus className="h-3 w-3" />}
+                            {isInstalling ? "Adding..." : isInstalled ? "Added" : "Add"}
+                          </Button>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}

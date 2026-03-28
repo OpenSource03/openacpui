@@ -397,6 +397,8 @@ contextBridge.exposeInMainWorld("claude", {
   },
   skillsRegistry: {
     search: (query?: string, limit?: number) => ipcRenderer.invoke("skills-registry:search", query, limit),
+    install: (cwd: string, source: string, skillId: string) => ipcRenderer.invoke("skills-registry:install", { cwd, source, skillId }),
+    listInstalled: (cwd: string) => ipcRenderer.invoke("skills-registry:list-installed", cwd),
   },
   mcpRegistry: {
     search: (query?: string, cursor?: string) => ipcRenderer.invoke("mcp-registry:search", query, cursor),
