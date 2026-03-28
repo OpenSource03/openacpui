@@ -223,8 +223,8 @@ const OLLAMA_TOOLS = [
 
 // ── System prompt (behavior only, no tool format) ──────────────────────────────
 
-function buildSystemPrompt(cwd: string): string {
-  return `You are a coding assistant with tools. CWD: ${cwd}
+function buildSystemPrompt(cwd: string, skillContents?: string[]): string {
+  let prompt = `You are a coding assistant with tools. CWD: ${cwd}
 
 RULES:
 1. You do NOT know any file contents. ALWAYS use read_file first. NEVER guess.
@@ -233,6 +233,12 @@ RULES:
 4. Respond in the SAME language as the user.
 5. NEVER say "I cannot" or "I don't have access" — you have all tools.
 6. You can call multiple tools at once.`;
+
+  if (skillContents && skillContents.length > 0) {
+    prompt += "\n\n--- ACTIVE SKILLS ---\n\n" + skillContents.join("\n\n---\n\n");
+  }
+
+  return prompt;
 }
 
 // ── File tree (bracket notation) ───────────────────────────────────────────────
@@ -787,7 +793,7 @@ async function streamOllamaChat(
 // ── IPC registration ───────────────────────────────────────────────────────────
 
 export function register(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle("ollama:start", async (_event, { cwd, model, projectId }: { cwd: string; model?: string; projectId?: string }) => {
+  ipcMain.handle("ollama:start", async (_event, { cwd, model, projectId, activeSkills }: { cwd: string; model?: string; projectId?: string; activeSkills?: string[] }) => {
     const sessionId = crypto.randomUUID();
     const sessionModel = model || getDefaultModel();
     const contextSize = await fetchModelContextSize(sessionModel);
@@ -808,8 +814,25 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
     }
 
+    let skillContents: string[] = [];
+    if (activeSkills && activeSkills.length > 0) {
+      const skillsDir = path.join(cwd, ".harnss", "skills");
+      for (const id of activeSkills) {
+        const filePath = path.join(skillsDir, `${id}.md`);
+        try {
+          if (fs.existsSync(filePath)) {
+            skillContents.push(fs.readFileSync(filePath, "utf-8"));
+            log("OLLAMA", `skill loaded: ${id}`);
+          }
+        } catch {}
+      }
+      if (skillContents.length > 0) {
+        log("OLLAMA", `${skillContents.length} skill(s) injected into system prompt`);
+      }
+    }
+
     sessions.set(sessionId, {
-      messages: [{ role: "system", content: buildSystemPrompt(cwd) }],
+      messages: [{ role: "system", content: buildSystemPrompt(cwd, skillContents) }],
       cwd,
       model: sessionModel,
       contextSize,

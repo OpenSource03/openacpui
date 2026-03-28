@@ -95,9 +95,7 @@ export function loadActiveSkills(projectPath: string): string[] {
     if (!stored) return [];
     const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id: unknown) =>
-      typeof id === "string" && BUILTIN_SKILLS.some((s) => s.id === id)
-    );
+    return parsed.filter((id: unknown) => typeof id === "string") as string[];
   } catch {
     return [];
   }

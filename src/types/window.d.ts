@@ -352,7 +352,7 @@ declare global {
         onExit: (callback: (data: CodexExitEvent) => void) => () => void;
       };
       ollama: {
-        start: (options: { cwd: string; model?: string; projectId?: string }) => Promise<{ sessionId: string; error?: string }>;
+        start: (options: { cwd: string; model?: string; projectId?: string; activeSkills?: string[] }) => Promise<{ sessionId: string; error?: string }>;
         send: (sessionId: string, text: string, cwd?: string, model?: string) => Promise<{ ok?: boolean; error?: string }>;
         stop: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
         interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
@@ -415,6 +415,7 @@ declare global {
         }>;
         install: (cwd: string, source: string, skillId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
         listInstalled: (cwd: string) => Promise<{ skills: Array<{ id: string; filename: string }> }>;
+        loadContents: (cwd: string, skillIds: string[]) => Promise<{ contents: Array<{ id: string; content: string }> }>;
       };
       mcpRegistry: {
         search: (query?: string, cursor?: string) => Promise<{

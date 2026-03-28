@@ -54,6 +54,20 @@ export function register(): void {
     }
   });
 
+  ipcMain.handle("skills-registry:load-contents", async (_event, { cwd, skillIds }: { cwd: string; skillIds: string[] }) => {
+    const contents: Array<{ id: string; content: string }> = [];
+    const skillsDir = path.join(cwd, ".harnss", "skills");
+    for (const id of skillIds) {
+      const filePath = path.join(skillsDir, `${id}.md`);
+      try {
+        if (fs.existsSync(filePath)) {
+          contents.push({ id, content: fs.readFileSync(filePath, "utf-8") });
+        }
+      } catch {}
+    }
+    return { contents };
+  });
+
   ipcMain.handle("skills-registry:search", async (_event, query?: string, limit = 50) => {
     try {
       const url = new URL(SKILLS_API);

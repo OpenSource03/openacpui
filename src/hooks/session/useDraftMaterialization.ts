@@ -529,9 +529,18 @@ export function useDraftMaterialization({
           engine: "ollama" as const,
         }, ...prev.map(s => ({ ...s, isActive: false }))]);
 
+        const projectCwd = getProjectCwd(project);
+        let ollamaActiveSkills: string[] = [];
+        try {
+          const key = `harnss-${projectCwd.replace(/\//g, "-")}-active-skills`;
+          const stored = localStorage.getItem(key);
+          if (stored) ollamaActiveSkills = JSON.parse(stored);
+        } catch {}
+
         const result = await window.claude.ollama.start({
-          cwd: getProjectCwd(project),
+          cwd: projectCwd,
           projectId: project.id,
+          activeSkills: ollamaActiveSkills.length > 0 ? ollamaActiveSkills : undefined,
           ...(options.model ? { model: options.model } : {}),
         });
 

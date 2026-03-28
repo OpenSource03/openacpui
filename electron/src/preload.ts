@@ -320,7 +320,7 @@ contextBridge.exposeInMainWorld("claude", {
     },
   },
   ollama: {
-    start: (options: { cwd: string; model?: string; projectId?: string }) =>
+    start: (options: { cwd: string; model?: string; projectId?: string; activeSkills?: string[] }) =>
       ipcRenderer.invoke("ollama:start", options),
     send: (sessionId: string, text: string, cwd?: string, model?: string) =>
       ipcRenderer.invoke("ollama:send", { sessionId, text, cwd, model }),
@@ -399,6 +399,7 @@ contextBridge.exposeInMainWorld("claude", {
     search: (query?: string, limit?: number) => ipcRenderer.invoke("skills-registry:search", query, limit),
     install: (cwd: string, source: string, skillId: string) => ipcRenderer.invoke("skills-registry:install", { cwd, source, skillId }),
     listInstalled: (cwd: string) => ipcRenderer.invoke("skills-registry:list-installed", cwd),
+    loadContents: (cwd: string, skillIds: string[]) => ipcRenderer.invoke("skills-registry:load-contents", { cwd, skillIds }),
   },
   mcpRegistry: {
     search: (query?: string, cursor?: string) => ipcRenderer.invoke("mcp-registry:search", query, cursor),
