@@ -760,10 +760,12 @@ function SkillsDropdown({
   activeSkills,
   onToggleSkill,
   isProcessing,
+  installedSkills,
 }: {
   activeSkills: Set<string>;
   onToggleSkill: (skillId: string) => void;
   isProcessing: boolean;
+  installedSkills: Array<{ id: string; filename: string }>;
 }) {
   const count = activeSkills.size;
   return (
@@ -786,8 +788,27 @@ function SkillsDropdown({
         </TooltipTrigger>
         <TooltipContent side="top">Skills</TooltipContent>
       </Tooltip>
-      <PopoverContent align="start" side="top" className="w-56 p-1.5">
-        <div className="pb-1 ps-2 pt-1 text-[11px] font-medium text-muted-foreground/70">Skills</div>
+      <PopoverContent align="start" side="top" className="w-56 max-h-80 overflow-y-auto p-1.5">
+        {installedSkills.length > 0 && (
+          <>
+            <div className="pb-1 ps-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/50">Installed</div>
+            {installedSkills.map((skill) => {
+              const active = activeSkills.has(skill.id);
+              return (
+                <button
+                  key={skill.id}
+                  onClick={() => onToggleSkill(skill.id)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-muted/50"
+                >
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-xs text-foreground">{skill.id}</span>
+                  {active && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                </button>
+              );
+            })}
+          </>
+        )}
+        <div className="pb-1 ps-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/50">Builtin</div>
         {BUILTIN_SKILLS.map((skill) => {
           const Icon = skill.icon;
           const active = activeSkills.has(skill.id);
@@ -1178,6 +1199,12 @@ export const InputBar = memo(function InputBar({
       if (projectPath) saveActiveSkills(projectPath, Array.from(next));
       return next;
     });
+  }, [projectPath]);
+
+  const [installedSkills, setInstalledSkills] = useState<Array<{ id: string; filename: string }>>([]);
+  useEffect(() => {
+    if (!projectPath) return;
+    window.claude.skillsRegistry.listInstalled(projectPath).then((r) => setInstalledSkills(r.skills));
   }, [projectPath]);
 
   const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
@@ -2296,6 +2323,7 @@ export const InputBar = memo(function InputBar({
               activeSkills={activeSkills}
               onToggleSkill={handleToggleSkill}
               isProcessing={isProcessing}
+              installedSkills={installedSkills}
             />
           </div>
 
