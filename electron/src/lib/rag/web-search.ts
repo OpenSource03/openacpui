@@ -1,11 +1,13 @@
-/**
- * Web search via DuckDuckGo Instant Answer API.
- * No API key required. Best-effort — returns empty results on failure.
- */
+import { log } from "../logger";
+import { getEnabledProviders, getSearchConfig } from "./providers/factory";
+import type { SearchResponse } from "./providers/types";
 
-const DDG_API = "https://api.duckduckgo.com/";
-const TIMEOUT_MS = 8000;
-const MAX_RESULTS = 6;
+let cacheModule: typeof import("./search-cache") | null = null;
+try {
+  cacheModule = require("./search-cache") as typeof import("./search-cache");
+} catch (err) {
+  log("SEARCH_CACHE", `SQLite cache unavailable: ${(err as Error).message}`);
+}
 
 export interface WebResult {
   title: string;
@@ -18,83 +20,72 @@ export interface WebSearchResult {
   abstract: string;
   abstractUrl: string;
   results: WebResult[];
-}
-
-interface DdgResponse {
-  Abstract?: string;
-  AbstractURL?: string;
-  AbstractText?: string;
-  Results?: Array<{ Text?: string; FirstURL?: string }>;
-  RelatedTopics?: Array<{
-    Text?: string;
-    FirstURL?: string;
-    Name?: string;
-    Topics?: Array<{ Text?: string; FirstURL?: string }>;
-  }>;
-}
-
-function cleanText(s: string | undefined): string {
-  return (s ?? "").replace(/<[^>]+>/g, "").trim();
+  cached?: boolean;
+  provider?: string;
 }
 
 export async function webSearch(query: string): Promise<WebSearchResult> {
-  const url = new URL(DDG_API);
-  url.searchParams.set("q", query);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("no_html", "1");
-  url.searchParams.set("skip_disambig", "1");
-  url.searchParams.set("t", "harnss");
+  try {
+    const cached = cacheModule?.getCachedAnyProvider(query);
+    if (cached) {
+      log("WEB_SEARCH", `cache hit: "${query}" [${cached.provider}]`);
+      return {
+        query,
+        abstract: cached.abstract,
+        abstractUrl: cached.abstractUrl,
+        results: cached.results,
+        cached: true,
+        provider: cached.provider,
+      };
+    }
+  } catch {}
 
-  const response = await fetch(url.toString(), {
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { "Accept": "application/json" },
-  });
+  const providers = getEnabledProviders();
+  const { maxResults, timeout } = getSearchConfig();
 
-  if (!response.ok) {
-    throw new Error(`DDG API error: HTTP ${response.status}`);
+  if (providers.length === 0) {
+    throw new Error("No search providers enabled — configure in Settings > Web Search");
   }
 
-  const data = (await response.json()) as DdgResponse;
+  const errors: string[] = [];
 
-  const results: WebResult[] = [];
+  for (const provider of providers) {
+    try {
+      log("WEB_SEARCH", `trying ${provider.id} for "${query}"`);
+      const response = await provider.search(query, maxResults, timeout);
+      log("WEB_SEARCH", `${provider.id}: ${response.results.length} results`);
 
-  // Direct results (rare but high quality)
-  for (const r of data.Results ?? []) {
-    if (results.length >= MAX_RESULTS) break;
-    const title = cleanText(r.Text);
-    const url = r.FirstURL ?? "";
-    if (title && url) results.push({ title, url, snippet: title });
-  }
+      try {
+        if (cacheModule && (response.results.length > 0 || response.abstract)) {
+          cacheModule.putCache(query, provider.id, response.abstract, response.abstractUrl, response.results);
+        }
+      } catch {}
 
-  // Related topics (most common source of results)
-  for (const t of data.RelatedTopics ?? []) {
-    if (results.length >= MAX_RESULTS) break;
-    // Some topics are nested groups
-    if (t.Topics) {
-      for (const sub of t.Topics) {
-        if (results.length >= MAX_RESULTS) break;
-        const title = cleanText(sub.Text);
-        const url = sub.FirstURL ?? "";
-        if (title && url) results.push({ title, url, snippet: title });
-      }
-    } else {
-      const title = cleanText(t.Text);
-      const url = t.FirstURL ?? "";
-      if (title && url) results.push({ title, url, snippet: title });
+      return toWebSearchResult(response);
+    } catch (err) {
+      const msg = `${provider.id}: ${(err as Error).message}`;
+      log("WEB_SEARCH", `${msg} — trying next provider`);
+      errors.push(msg);
     }
   }
 
+  throw new Error(`All providers failed:\n${errors.join("\n")}`);
+}
+
+function toWebSearchResult(response: SearchResponse): WebSearchResult {
   return {
-    query,
-    abstract: cleanText(data.AbstractText ?? data.Abstract),
-    abstractUrl: data.AbstractURL ?? "",
-    results,
+    query: response.query,
+    abstract: response.abstract,
+    abstractUrl: response.abstractUrl,
+    results: response.results,
+    provider: response.provider,
   };
 }
 
-/** Format a WebSearchResult as a compact string for injection into LLM context */
 export function formatWebResults(result: WebSearchResult): string {
   const lines: string[] = [`Web search: "${result.query}"`];
+  if (result.cached) lines.push("(cached)");
+  if (result.provider) lines.push(`Provider: ${result.provider}`);
 
   if (result.abstract) {
     lines.push(`\nSummary: ${result.abstract}`);
@@ -105,6 +96,7 @@ export function formatWebResults(result: WebSearchResult): string {
     lines.push("\nResults:");
     for (const r of result.results) {
       lines.push(`- ${r.title}`);
+      if (r.snippet && r.snippet !== r.title) lines.push(`  ${r.snippet}`);
       lines.push(`  ${r.url}`);
     }
   }

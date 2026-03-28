@@ -32,6 +32,21 @@ export interface NotificationSettings {
   sessionComplete: NotificationEventSettings;
 }
 
+export type WebSearchProvider = "searxng" | "ddg-html" | "ddg-api" | "brave" | "tavily" | "google-cse";
+
+export interface WebSearchProviderConfig {
+  id: WebSearchProvider;
+  enabled: boolean;
+  baseUrl?: string;
+  apiKey?: string;
+}
+
+export interface WebSearchSettings {
+  providers: WebSearchProviderConfig[];
+  maxResults: number;
+  timeout: number;
+}
+
 export interface AppSettings {
   /** Include pre-release versions when checking for updates (default: false) */
   allowPrereleaseUpdates: boolean;
@@ -76,7 +91,26 @@ export interface AppSettings {
   ollamaBaseUrl: string;
   /** Default Ollama model to use for new sessions */
   ollamaDefaultModel: string;
+  /** Web search provider configuration with priority ordering */
+  webSearch: WebSearchSettings;
+  /** Extra ignore patterns appended to .harnssignore defaults (user can override) */
+  ignorePatterns: string[];
+  /** Disable default ignore patterns (only use .harnssignore file + custom patterns) */
+  ignoreDefaultsDisabled: boolean;
 }
+
+const WEB_SEARCH_DEFAULTS: WebSearchSettings = {
+  providers: [
+    { id: "searxng", enabled: false, baseUrl: "http://localhost:8080" },
+    { id: "ddg-html", enabled: true },
+    { id: "brave", enabled: false, apiKey: "" },
+    { id: "tavily", enabled: false, apiKey: "" },
+    { id: "google-cse", enabled: false, apiKey: "" },
+    { id: "ddg-api", enabled: true },
+  ],
+  maxResults: 6,
+  timeout: 8000,
+};
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
   exitPlanMode: { osNotification: "unfocused", sound: "always" },
@@ -108,6 +142,9 @@ const DEFAULTS: AppSettings = {
   openclawDefaultAgent: "",
   ollamaBaseUrl: "http://localhost:11434",
   ollamaDefaultModel: "llama3",
+  webSearch: WEB_SEARCH_DEFAULTS,
+  ignorePatterns: [],
+  ignoreDefaultsDisabled: false,
 };
 
 // ── Internal state ──
@@ -131,6 +168,7 @@ export function getAppSettings(): AppSettings {
     // Deep-merge `notifications` so upgrading users get defaults for each event type
     // even if their settings.json has a partial or missing notifications object.
     const parsedNotif = parsed.notifications as Partial<NotificationSettings> | undefined;
+    const parsedWebSearch = parsed.webSearch as Partial<WebSearchSettings> | undefined;
     cached = {
       ...DEFAULTS,
       ...parsed,
@@ -139,6 +177,11 @@ export function getAppSettings(): AppSettings {
         permissions: { ...NOTIFICATION_DEFAULTS.permissions, ...parsedNotif?.permissions },
         askUserQuestion: { ...NOTIFICATION_DEFAULTS.askUserQuestion, ...parsedNotif?.askUserQuestion },
         sessionComplete: { ...NOTIFICATION_DEFAULTS.sessionComplete, ...parsedNotif?.sessionComplete },
+      },
+      webSearch: {
+        ...WEB_SEARCH_DEFAULTS,
+        ...parsedWebSearch,
+        providers: parsedWebSearch?.providers ?? WEB_SEARCH_DEFAULTS.providers,
       },
     };
   } catch {

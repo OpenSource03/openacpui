@@ -23,6 +23,21 @@ export interface NotificationSettings {
   sessionComplete: NotificationEventSettings;
 }
 
+export type WebSearchProvider = "searxng" | "ddg-html" | "ddg-api" | "brave" | "tavily" | "google-cse";
+
+export interface WebSearchProviderConfig {
+  id: WebSearchProvider;
+  enabled: boolean;
+  baseUrl?: string;
+  apiKey?: string;
+}
+
+export interface WebSearchSettings {
+  providers: WebSearchProviderConfig[];
+  maxResults: number;
+  timeout: number;
+}
+
 export interface AppSettings {
     allowPrereleaseUpdates: boolean;
     defaultChatLimit: number;
@@ -48,6 +63,9 @@ export interface AppSettings {
     openclawDefaultAgent: string;
     ollamaBaseUrl: string;
     ollamaDefaultModel: string;
+    webSearch: WebSearchSettings;
+    ignorePatterns: string[];
+    ignoreDefaultsDisabled: boolean;
 }
 
 export interface SpaceColor {
