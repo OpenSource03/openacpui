@@ -10,6 +10,7 @@ import {
 import {
   ArrowUp,
   Brain,
+  Check,
   ChevronDown,
   Crosshair,
   File,
@@ -21,6 +22,7 @@ import {
   Paperclip,
   Pencil,
   Shield,
+  Sparkles,
   Square,
   Users,
   X,
@@ -38,10 +40,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { BUILTIN_SKILLS, loadActiveSkills, saveActiveSkills } from "@/lib/skills";
 import type { ImageAttachment, GrabbedElement, CodeSnippet, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, ClaudeEffort, EngineId, SlashCommand } from "@/types";
 import { flattenConfigOptions } from "@/lib/acp-utils";
 import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
@@ -748,6 +756,58 @@ function EngineControls({
   );
 }
 
+function SkillsDropdown({
+  activeSkills,
+  onToggleSkill,
+  isProcessing,
+}: {
+  activeSkills: Set<string>;
+  onToggleSkill: (skillId: string) => void;
+  isProcessing: boolean;
+}) {
+  const count = activeSkills.size;
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              className="relative flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              disabled={isProcessing}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {count > 0 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                  {count}
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">Skills</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="start" side="top" className="w-56 p-1.5">
+        <div className="pb-1 ps-2 pt-1 text-[11px] font-medium text-muted-foreground/70">Skills</div>
+        {BUILTIN_SKILLS.map((skill) => {
+          const Icon = skill.icon;
+          const active = activeSkills.has(skill.id);
+          return (
+            <button
+              key={skill.id}
+              onClick={() => onToggleSkill(skill.id)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-muted/50"
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="flex-1 text-xs text-foreground">{skill.name}</span>
+              {active && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 const CLAUDE_EFFORT_DESCRIPTIONS: Record<ClaudeEffort, string> = {
   low: "Minimal thinking, fastest responses",
   medium: "Moderate thinking",
@@ -1102,6 +1162,24 @@ export const InputBar = memo(function InputBar({
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [editingAttachment, setEditingAttachment] = useState<ImageAttachment | null>(null);
+  const [activeSkills, setActiveSkills] = useState<Set<string>>(() => {
+    if (!projectPath) return new Set();
+    return new Set(loadActiveSkills(projectPath));
+  });
+
+  const handleToggleSkill = useCallback((skillId: string) => {
+    setActiveSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillId)) {
+        next.delete(skillId);
+      } else {
+        next.add(skillId);
+      }
+      if (projectPath) saveActiveSkills(projectPath, Array.from(next));
+      return next;
+    });
+  }, [projectPath]);
+
   const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const [ollamaModelName, setOllamaModelName] = useState<string>("Ollama");
@@ -2213,6 +2291,11 @@ export const InputBar = memo(function InputBar({
               groups={groups}
               selectedGroupId={selectedGroupId}
               onGroupChange={onGroupChange}
+            />
+            <SkillsDropdown
+              activeSkills={activeSkills}
+              onToggleSkill={handleToggleSkill}
+              isProcessing={isProcessing}
             />
           </div>
 

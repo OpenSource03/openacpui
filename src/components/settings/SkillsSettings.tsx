@@ -1,85 +1,8 @@
-import { memo, useState, useCallback } from "react";
-import { Sparkles, Store, Zap, Search, Code, Bug, GitCommit, FileText, TestTube, RefreshCw, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { memo, useState } from "react";
+import { Sparkles, Store, Code, Search } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import type { LucideIcon } from "lucide-react";
-
-interface BuiltinSkill {
-  id: string;
-  name: string;
-  description: string;
-  icon: LucideIcon;
-  tags: string[];
-  status: "available" | "coming-soon";
-}
-
-const BUILTIN_SKILLS: BuiltinSkill[] = [
-  {
-    id: "code-review",
-    name: "Code Review",
-    description: "Review code for bugs, security vulnerabilities, performance issues, and best practices.",
-    icon: Search,
-    tags: ["quality", "security"],
-    status: "coming-soon",
-  },
-  {
-    id: "refactor",
-    name: "Refactor",
-    description: "Refactor code for readability, maintainability, and performance while preserving behavior.",
-    icon: RefreshCw,
-    tags: ["quality", "clean-code"],
-    status: "coming-soon",
-  },
-  {
-    id: "test-writer",
-    name: "Test Writer",
-    description: "Generate unit tests, integration tests, and edge case coverage for your code.",
-    icon: TestTube,
-    tags: ["testing", "quality"],
-    status: "coming-soon",
-  },
-  {
-    id: "commit-message",
-    name: "Commit Message",
-    description: "Generate conventional commit messages based on staged changes and diff context.",
-    icon: GitCommit,
-    tags: ["git", "workflow"],
-    status: "coming-soon",
-  },
-  {
-    id: "explain-code",
-    name: "Explain Code",
-    description: "Explain complex code, architecture patterns, and design decisions in plain language.",
-    icon: FileText,
-    tags: ["learning", "documentation"],
-    status: "coming-soon",
-  },
-  {
-    id: "debug",
-    name: "Debug",
-    description: "Systematically debug issues by analyzing error messages, stack traces, and code flow.",
-    icon: Bug,
-    tags: ["debugging", "troubleshooting"],
-    status: "coming-soon",
-  },
-  {
-    id: "optimize",
-    name: "Optimize",
-    description: "Identify and fix performance bottlenecks, memory leaks, and inefficient patterns.",
-    icon: Zap,
-    tags: ["performance", "optimization"],
-    status: "coming-soon",
-  },
-  {
-    id: "document",
-    name: "Document",
-    description: "Generate API documentation, README files, and inline documentation for your code.",
-    icon: FileText,
-    tags: ["documentation", "api"],
-    status: "coming-soon",
-  },
-];
+import { BUILTIN_SKILLS } from "@/lib/skills";
 
 export const SkillsSettings = memo(function SkillsSettings() {
   const [searchQuery, setSearchQuery] = useState("");
