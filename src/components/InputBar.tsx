@@ -10,6 +10,7 @@ import {
 import {
   ArrowUp,
   Brain,
+  Check,
   ChevronDown,
   Crosshair,
   File,
@@ -21,7 +22,9 @@ import {
   Paperclip,
   Pencil,
   Shield,
+  Sparkles,
   Square,
+  Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,19 +40,28 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ImageAttachment, GrabbedElement, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, ClaudeEffort, EngineId, SlashCommand } from "@/types";
+import { BUILTIN_SKILLS, loadActiveSkills, saveActiveSkills } from "@/lib/skills";
+import type { ImageAttachment, GrabbedElement, CodeSnippet, ContextUsage, InstalledAgent, ACPConfigOption, ModelInfo, AcpPermissionBehavior, ClaudeEffort, EngineId, SlashCommand } from "@/types";
 import { flattenConfigOptions } from "@/lib/acp-utils";
 import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { resolveModelValue } from "@/lib/model-utils";
 import { isMac } from "@/lib/utils";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { AgentIcon } from "@/components/AgentIcon";
 import { ImageAnnotationEditor } from "@/components/ImageAnnotationEditor";
 import { ENGINE_ICONS, getAgentIcon } from "@/lib/engine-icons";
+import { getLanguageFromPath } from "@/lib/languages";
 
 const ACP_PERMISSION_BEHAVIORS = [
   { id: "ask" as const, label: "Ask", description: "Show permission prompt" },
@@ -99,9 +111,7 @@ function getContextStrokeColor(percent: number): string {
   return "stroke-foreground/40";
 }
 
-// ── Reusable engine control sub-components ──
 
-/** Model selector dropdown — used by Claude and Codex engines */
 function ModelDropdown({
   modelList,
   selectedModel,
@@ -211,7 +221,6 @@ function ModelDropdown({
   );
 }
 
-/** Permission mode dropdown — used by Claude and Codex engines */
 function PermissionDropdown({
   permissionMode,
   onPermissionModeChange,
@@ -219,52 +228,91 @@ function PermissionDropdown({
 }: {
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
-  /** When true, shows policy + description (Codex style) */
   showDetails?: boolean;
 }) {
+  const isAllowAll = permissionMode === "bypassPermissions";
+  const previousModeRef = useRef("default");
+
+  if (!isAllowAll) {
+    previousModeRef.current = permissionMode;
+  }
+
+  const handleToggleAllowAll = useCallback(() => {
+    if (isAllowAll) {
+      onPermissionModeChange(previousModeRef.current);
+    } else {
+      onPermissionModeChange("bypassPermissions");
+    }
+  }, [isAllowAll, onPermissionModeChange]);
+
   const selectedMode =
     PERMISSION_MODES.find((m) => m.id === permissionMode) ?? PERMISSION_MODES[0];
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-        >
-          <Shield className="h-3 w-3" />
-          {selectedMode.label}
-          <ChevronDown className="h-3 w-3" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {PERMISSION_MODES.map((m) => {
-          const details = showDetails ? CODEX_PERMISSION_MODE_DETAILS[m.id] : undefined;
-          return (
-            <DropdownMenuItem
-              key={m.id}
-              onClick={() => onPermissionModeChange(m.id)}
-              className={m.id === permissionMode ? "bg-accent" : ""}
-            >
-              {details ? (
-                <div className="flex min-w-0 flex-col">
-                  <span>{m.label}</span>
-                  <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <span className="font-mono text-foreground/80">{details.policy}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{details.description}</span>
-                  </span>
-                </div>
-              ) : (
-                m.label
-              )}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex shrink-0 items-center">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={handleToggleAllowAll}
+            className={`flex shrink-0 items-center gap-1 rounded-s-lg border-e border-foreground/5 px-2 py-1 text-xs transition-colors ${
+              isAllowAll
+                ? "bg-amber-500/15 text-amber-400"
+                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            }`}
+          >
+            <Shield className="h-3 w-3" />
+            {isAllowAll ? "Allow All" : selectedMode.label}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <p className="text-xs">
+            {isAllowAll
+              ? "Click to restore approval prompts"
+              : "Click to allow all tools without prompts"}
+          </p>
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className={`flex shrink-0 items-center rounded-e-lg px-1 py-1 text-xs transition-colors ${
+              isAllowAll
+                ? "bg-amber-500/15 text-amber-400"
+                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            }`}
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {PERMISSION_MODES.map((m) => {
+            const details = showDetails ? CODEX_PERMISSION_MODE_DETAILS[m.id] : undefined;
+            return (
+              <DropdownMenuItem
+                key={m.id}
+                onClick={() => onPermissionModeChange(m.id)}
+                className={m.id === permissionMode ? "bg-accent" : ""}
+              >
+                {details ? (
+                  <div className="flex min-w-0 flex-col">
+                    <span>{m.label}</span>
+                    <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="font-mono text-foreground/80">{details.policy}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{details.description}</span>
+                    </span>
+                  </div>
+                ) : (
+                  m.label
+                )}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
-/** Plan mode toggle button — used by Claude and Codex engines */
 function PlanModeToggle({
   planMode,
   onPlanModeChange,
@@ -296,13 +344,89 @@ function PlanModeToggle({
   );
 }
 
-/** Renders the correct combination of controls per engine */
+function OpenClawAgentDropdown({
+  agentId,
+  onAgentChange,
+  disabled,
+}: {
+  agentId: string;
+  onAgentChange: (id: string) => void;
+  disabled?: boolean;
+}) {
+  const [agents, setAgents] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const fetched = useRef(false);
+
+  const fetchAgents = useCallback(() => {
+    if (fetched.current || loading) return;
+    setLoading(true);
+    window.claude.openclaw.listAgents().then((result) => {
+      fetched.current = true;
+      setLoading(false);
+      if (result.agents && Array.isArray(result.agents)) {
+        const ids = result.agents.map((a: unknown) =>
+          typeof a === "string" ? a : (a as { id?: string; name?: string })?.id ?? (a as { name?: string })?.name ?? ""
+        ).filter(Boolean);
+        setAgents(ids);
+      }
+    }).catch(() => {
+      setLoading(false);
+    });
+  }, [loading]);
+
+  return (
+    <DropdownMenu onOpenChange={(open) => { if (open) fetchAgents(); }}>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          disabled={disabled}
+        >
+          {agentId || "default"}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
+        {loading && agents.length === 0 ? (
+          <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading agents...
+          </div>
+        ) : agents.length === 0 ? (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            No agents found
+          </div>
+        ) : (
+          <>
+            <DropdownMenuItem
+              onClick={() => onAgentChange("")}
+              className={!agentId ? "bg-accent" : ""}
+            >
+              default
+            </DropdownMenuItem>
+            {agents.map((id) => (
+              <DropdownMenuItem
+                key={id}
+                onClick={() => onAgentChange(id)}
+                className={agentId === id ? "bg-accent" : ""}
+              >
+                {id}
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function EngineControls({
   isCodexAgent,
   isACPAgent,
+  isOllamaAgent,
+  isOpenClawAgent,
+  isGroupAgent,
   isProcessing,
   showACPConfigOptions,
-  // Model
   modelList,
   selectedModel,
   selectedModelId,
@@ -312,25 +436,35 @@ function EngineControls({
   claudeActiveEffort,
   modelsLoading,
   modelsLoadingText,
-  // Permission
   permissionMode,
   onPermissionModeChange,
-  // Plan
   planMode,
   onPlanModeChange,
-  // Codex effort
   codexEffortOptions,
   codexActiveEffort,
   onCodexEffortChange,
-  // ACP
   acpPermissionBehavior,
   onAcpPermissionBehaviorChange,
   acpConfigOptions,
   acpConfigOptionsLoading,
   onACPConfigChange,
+  // Ollama
+  ollamaModelName,
+  ollamaModels,
+  ollamaModelsLoading,
+  onOllamaModelChange,
+  onFetchOllamaModels,
+  openclawAgentId,
+  onOpenclawAgentChange,
+  groups,
+  selectedGroupId,
+  onGroupChange,
 }: {
   isCodexAgent: boolean;
   isACPAgent: boolean;
+  isOllamaAgent: boolean;
+  isOpenClawAgent: boolean;
+  isGroupAgent: boolean;
   isProcessing: boolean;
   showACPConfigOptions: boolean;
   modelList: Array<{ id: string; label: string; description?: string }>;
@@ -354,7 +488,115 @@ function EngineControls({
   acpConfigOptions?: ACPConfigOption[];
   acpConfigOptionsLoading?: boolean;
   onACPConfigChange?: (configId: string, value: string) => void;
+  ollamaModelName?: string;
+  ollamaModels?: string[];
+  ollamaModelsLoading?: boolean;
+  onOllamaModelChange?: (model: string) => void;
+  onFetchOllamaModels?: () => void;
+  openclawAgentId?: string;
+  onOpenclawAgentChange?: (agentId: string) => void;
+  groups?: Array<{ id: string; name: string; slots: Array<{ label: string; engine: string; model: string; color: string; role: string }> }>;
+  selectedGroupId?: string | null;
+  onGroupChange?: (groupId: string | null) => void;
 }) {
+  if (isOllamaAgent) {
+    return (
+      <DropdownMenu onOpenChange={(open) => { if (open && onFetchOllamaModels) onFetchOllamaModels(); }}>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            disabled={isProcessing}
+          >
+            {ollamaModelName || "Ollama"}
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {ollamaModelsLoading ? (
+            <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading models…
+            </div>
+          ) : ollamaModels && ollamaModels.length > 0 ? (
+            ollamaModels.map((m) => (
+              <DropdownMenuItem
+                key={m}
+                onClick={() => onOllamaModelChange?.(m)}
+                className={m === ollamaModelName ? "bg-accent" : ""}
+              >
+                {m}
+              </DropdownMenuItem>
+            ))
+          ) : (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">No models found</div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  if (isGroupAgent && groups && onGroupChange) {
+    const selectedGroup = selectedGroupId ? groups.find((g) => g.id === selectedGroupId) : undefined;
+    return (
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              disabled={isProcessing}
+            >
+              <Users className="h-3 w-3" />
+              {selectedGroup?.name ?? "Select group..."}
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {groups.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                No groups created yet
+              </div>
+            ) : (
+              groups.map((g) => (
+                <DropdownMenuItem
+                  key={g.id}
+                  onClick={() => onGroupChange(g.id)}
+                  className={g.id === selectedGroupId ? "bg-accent" : ""}
+                >
+                  <div>
+                    <div className="font-medium">{g.name}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {g.slots.map((s) => s.label).join(", ")}
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {selectedGroup && (
+          <div className="flex items-center gap-1">
+            {selectedGroup.slots.map((slot) => (
+              <Tooltip key={slot.label}>
+                <TooltipTrigger asChild>
+                  <div
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                    style={{ backgroundColor: slot.color }}
+                  >
+                    {slot.label[0].toUpperCase()}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  <div className="font-medium">{slot.label}</div>
+                  <div className="text-muted-foreground">{slot.engine}/{slot.model}</div>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
   if (isCodexAgent) {
     return (
       <>
@@ -367,7 +609,6 @@ function EngineControls({
           modelsLoading={modelsLoading}
           modelsLoadingText={modelsLoadingText}
         />
-        {/* Codex reasoning effort dropdown */}
         {codexEffortOptions.length > 0 && onCodexEffortChange && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -404,10 +645,24 @@ function EngineControls({
     );
   }
 
+  if (isOpenClawAgent) {
+    return (
+      <>
+        {onOpenclawAgentChange && (
+          <OpenClawAgentDropdown
+            agentId={openclawAgentId ?? ""}
+            onAgentChange={onOpenclawAgentChange}
+            disabled={isProcessing}
+          />
+        )}
+        <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
+      </>
+    );
+  }
+
   if (isACPAgent) {
     return (
       <>
-        {/* ACP permission behavior dropdown */}
         {onAcpPermissionBehaviorChange && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -436,7 +691,6 @@ function EngineControls({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {/* Agent-provided config dropdowns */}
         {showACPConfigOptions && acpConfigOptions && acpConfigOptions.length > 0 && onACPConfigChange &&
           acpConfigOptions.map((opt) => {
             const flat = flattenConfigOptions(opt.options);
@@ -482,7 +736,6 @@ function EngineControls({
     );
   }
 
-  // Claude SDK controls
   return (
     <>
       <ModelDropdown
@@ -500,6 +753,79 @@ function EngineControls({
       <PlanModeToggle planMode={planMode} onPlanModeChange={onPlanModeChange} />
       <PermissionDropdown permissionMode={permissionMode} onPermissionModeChange={onPermissionModeChange} />
     </>
+  );
+}
+
+function SkillsDropdown({
+  activeSkills,
+  onToggleSkill,
+  isProcessing,
+  installedSkills,
+}: {
+  activeSkills: Set<string>;
+  onToggleSkill: (skillId: string) => void;
+  isProcessing: boolean;
+  installedSkills: Array<{ id: string; filename: string }>;
+}) {
+  const count = activeSkills.size;
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              className="relative flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              disabled={isProcessing}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {count > 0 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                  {count}
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">Skills</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="start" side="top" className="w-56 max-h-80 overflow-y-auto p-1.5">
+        {installedSkills.length > 0 && (
+          <>
+            <div className="pb-1 ps-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/50">Installed</div>
+            {installedSkills.map((skill) => {
+              const active = activeSkills.has(skill.id);
+              return (
+                <button
+                  key={skill.id}
+                  onClick={() => onToggleSkill(skill.id)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-muted/50"
+                >
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-xs text-foreground">{skill.id}</span>
+                  {active && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                </button>
+              );
+            })}
+          </>
+        )}
+        <div className="pb-1 ps-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/50">Builtin</div>
+        {BUILTIN_SKILLS.map((skill) => {
+          const Icon = skill.icon;
+          const active = activeSkills.has(skill.id);
+          return (
+            <button
+              key={skill.id}
+              onClick={() => onToggleSkill(skill.id)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-muted/50"
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="flex-1 text-xs text-foreground">{skill.name}</span>
+              {active && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -531,12 +857,51 @@ function isAcceptedImage(file: globalThis.File): boolean {
 }
 
 
-// Lucide SVG paths for inline chip icons (can't use React components in DOM-created elements)
 const FILE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 shrink-0 text-muted-foreground"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>`;
 const FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 shrink-0 text-blue-400"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
 
+function CodeSnippetCard({ snippet, onRemove }: { snippet: CodeSnippet; onRemove: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const fileName = snippet.filePath.split("/").pop() ?? snippet.filePath;
+  const range = snippet.lineStart === snippet.lineEnd ? `L${snippet.lineStart}` : `L${snippet.lineStart}-${snippet.lineEnd}`;
+
+  return (
+    <div className="group/snippet relative overflow-hidden rounded-lg border border-foreground/10 bg-foreground/[0.03]">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-start transition-colors hover:bg-foreground/[0.04] cursor-pointer"
+      >
+        <File className="h-3.5 w-3.5 shrink-0 text-foreground/45" />
+        <span className="text-[11px] font-medium text-foreground/80">{fileName}</span>
+        <span className="text-[10px] font-mono text-foreground/40">{range}</span>
+        <ChevronDown className={`ms-auto h-3 w-3 shrink-0 text-foreground/30 transition-transform ${expanded ? "" : "-rotate-90"}`} />
+      </button>
+      {expanded && (
+        <div className="max-h-48 overflow-auto border-t border-foreground/[0.06] text-xs">
+          <SyntaxHighlighter
+            language={getLanguageFromPath(snippet.filePath) ?? "text"}
+            style={oneDark}
+            customStyle={{ margin: 0, padding: "8px 12px", background: "transparent", fontSize: "11px" }}
+            showLineNumbers
+            startingLineNumber={snippet.lineStart}
+          >
+            {snippet.code}
+          </SyntaxHighlighter>
+        </div>
+      )}
+      <button
+        onClick={onRemove}
+        className="absolute -end-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover/snippet:opacity-100"
+      >
+        <X className="h-2.5 w-2.5" />
+      </button>
+    </div>
+  );
+}
+
 interface InputBarProps {
-  onSend: (text: string, images?: ImageAttachment[], displayText?: string) => void;
+  onSend: (text: string, images?: ImageAttachment[], displayText?: string, codeSnippets?: CodeSnippet[]) => void;
   onClear?: () => void | Promise<void>;
   onStop: () => void;
   isProcessing: boolean;
@@ -555,7 +920,6 @@ interface InputBarProps {
   agents?: InstalledAgent[];
   selectedAgent?: InstalledAgent | null;
   onAgentChange?: (agent: InstalledAgent | null) => void;
-  /** Slash commands available for the current engine session */
   slashCommands?: SlashCommand[];
   acpConfigOptions?: ACPConfigOption[];
   acpConfigOptionsLoading?: boolean;
@@ -564,23 +928,22 @@ interface InputBarProps {
   onAcpPermissionBehaviorChange?: (behavior: AcpPermissionBehavior) => void;
   supportedModels?: ModelInfo[];
   codexModelsLoadingMessage?: string | null;
-  /** Codex reasoning effort — per-model configurable effort level */
   codexEffort?: string;
   onCodexEffortChange?: (effort: string) => void;
-  /** Codex models carry their supported effort levels — passed through for the effort dropdown */
   codexModelData?: Array<{ id: string; supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }>; defaultReasoningEffort: string; isDefault?: boolean }>;
-  /** Non-null when session is active (not draft) — engine is locked and cross-engine agents show "Opens new chat" */
   lockedEngine?: EngineId | null;
-  /** Non-null when an ACP session is active — switching to a different ACP agent opens new chat */
   lockedAgentId?: string | null;
-  /** Number of messages currently queued for sending */
   queuedCount?: number;
-  /** Grabbed elements from browser inspector, displayed as context cards */
   grabbedElements?: GrabbedElement[];
-  /** Remove a grabbed element by ID */
   onRemoveGrabbedElement?: (id: string) => void;
-  /** Controls width profile for island vs flat layout */
+  codeSnippets?: CodeSnippet[];
+  onRemoveCodeSnippet?: (id: string) => void;
   isIslandLayout?: boolean;
+  openclawAgentId?: string;
+  onOpenclawAgentChange?: (agentId: string) => void;
+  groups?: Array<{ id: string; name: string; slots: Array<{ label: string; engine: string; model: string; color: string; role: string }> }>;
+  selectedGroupId?: string | null;
+  onGroupChange?: (groupId: string | null) => void;
 }
 
 export const LOCAL_CLEAR_COMMAND: SlashCommand = {
@@ -611,12 +974,10 @@ export function getSlashCommandReplacement(cmd: SlashCommand): string {
     case "codex-app":
       return `$${cmd.appSlug ?? cmd.name} `;
     case "local":
-      // Local commands execute directly, so keep the exact command text with no trailing space.
       return `/${cmd.name}`;
   }
 }
 
-// Simple fuzzy match: all query chars must appear in order
 function fuzzyMatch(query: string, target: string): { match: boolean; score: number } {
   const q = query.toLowerCase();
   const t = target.toLowerCase();
@@ -633,43 +994,38 @@ function fuzzyMatch(query: string, target: string): { match: boolean; score: num
   return { match: false, score: 0 };
 }
 
-/** Insert text at the current cursor position in a contentEditable element */
 function insertTextAtCursor(el: HTMLElement | null, text: string): void {
   if (!el) return;
   el.focus();
 
   const sel = window.getSelection();
   if (!sel || !sel.rangeCount) {
-    // No cursor — append to end
     el.appendChild(document.createTextNode(text));
   } else {
     const range = sel.getRangeAt(0);
     range.deleteContents();
     const textNode = document.createTextNode(text);
     range.insertNode(textNode);
-    // Move cursor after inserted text
     range.setStartAfter(textNode);
     range.collapse(true);
     sel.removeAllRanges();
     sel.addRange(range);
   }
 
-  // Trigger input handler so hasContent updates and send button enables
   el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-/** Fast non-whitespace check that short-circuits early for typical prompts */
 function hasMeaningfulText(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
     if (
-      code !== 32 && // space
-      code !== 9 && // tab
-      code !== 10 && // \n
-      code !== 13 && // \r
-      code !== 11 && // vertical tab
-      code !== 12 && // form feed
-      code !== 160 // nbsp
+      code !== 32 &&
+      code !== 9 &&
+      code !== 10 &&
+      code !== 13 &&
+      code !== 11 &&
+      code !== 12 &&
+      code !== 160
     ) {
       return true;
     }
@@ -677,7 +1033,6 @@ function hasMeaningfulText(text: string): boolean {
   return false;
 }
 
-/** Extract full text + mention paths from a contentEditable element */
 function extractEditableContent(el: HTMLElement): {
   text: string;
   mentionPaths: string[];
@@ -716,7 +1071,6 @@ function extractEditableContent(el: HTMLElement): {
         text += "\n";
       } else {
         for (const child of node.childNodes) walk(child);
-        // Preserve line boundaries when the editor stores rows as block nodes.
         if (BLOCK_TAGS.has(node.tagName) && !text.endsWith("\n")) {
           text += "\n";
         }
@@ -807,13 +1161,19 @@ export const InputBar = memo(function InputBar({
   queuedCount = 0,
   grabbedElements,
   onRemoveGrabbedElement,
+  codeSnippets,
+  onRemoveCodeSnippet,
+  openclawAgentId,
+  onOpenclawAgentChange,
+  groups,
+  selectedGroupId,
+  onGroupChange,
 }: InputBarProps) {
   const [hasContent, setHasContent] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
 
-  // Slash command picker state
   const [showCommands, setShowCommands] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [commandIndex, setCommandIndex] = useState(0);
@@ -823,8 +1183,38 @@ export const InputBar = memo(function InputBar({
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [editingAttachment, setEditingAttachment] = useState<ImageAttachment | null>(null);
+  const [activeSkills, setActiveSkills] = useState<Set<string>>(() => {
+    if (!projectPath) return new Set();
+    return new Set(loadActiveSkills(projectPath));
+  });
 
-  // ── Deep folder confirmation ──
+  const handleToggleSkill = useCallback((skillId: string) => {
+    setActiveSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillId)) {
+        next.delete(skillId);
+      } else {
+        next.add(skillId);
+      }
+      if (projectPath) saveActiveSkills(projectPath, Array.from(next));
+      return next;
+    });
+  }, [projectPath]);
+
+  const [installedSkills, setInstalledSkills] = useState<Array<{ id: string; filename: string }>>([]);
+  useEffect(() => {
+    if (!projectPath) return;
+    window.claude.skillsRegistry.listInstalled(projectPath).then((r) => setInstalledSkills(r.skills));
+  }, [projectPath]);
+
+  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [ollamaModelName, setOllamaModelName] = useState<string>("Ollama");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
+  const [gatewayAvailable, setGatewayAvailable] = useState<boolean | null>(null);
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+
   const [showDeepFolderConfirm, setShowDeepFolderConfirm] = useState(false);
   const [deepFolderInfo, setDeepFolderInfo] = useState<{
     fileCount: number;
@@ -834,7 +1224,6 @@ export const InputBar = memo(function InputBar({
   } | null>(null);
   const pendingSendRef = useRef<(() => Promise<void>) | null>(null);
 
-  // ── Voice dictation ──
   const speech = useSpeechRecognition({
     onResult: (text) => insertTextAtCursor(editableRef.current, text),
   });
@@ -853,6 +1242,9 @@ export const InputBar = memo(function InputBar({
     : [];
   const isACPAgent = selectedAgent != null && selectedAgent.engine === "acp";
   const isCodexAgent = selectedAgent != null && selectedAgent.engine === "codex";
+  const isOllamaAgent = selectedAgent != null && selectedAgent.engine === "ollama";
+  const isOpenClawAgent = selectedAgent != null && selectedAgent.engine === "openclaw";
+  const isGroupAgent = selectedAgent != null && selectedAgent.engine === "group";
   const showACPConfigOptions = isACPAgent && (acpConfigOptions?.length ?? 0) > 0;
   const availableSlashCommands = useMemo(
     () => getAvailableSlashCommands(slashCommands),
@@ -880,7 +1272,6 @@ export const InputBar = memo(function InputBar({
     ? claudeEffort
     : (claudeEffortOptions.includes("high") ? "high" : (claudeEffortOptions[0] ?? "high"));
 
-  // Codex: find the effort options for the currently selected model
   const codexCurrentModel = codexModelData?.find((m) => m.id === selectedModelId)
     ?? codexModelData?.find((m) => m.isDefault)
     ?? codexModelData?.[0];
@@ -903,7 +1294,31 @@ export const InputBar = memo(function InputBar({
     }, 150);
   }, [refreshFileCache]);
 
-  // Fetch and keep the mention file cache fresh for the active project.
+  useEffect(() => {
+    if (!isOllamaAgent) return;
+    window.claude.settings.get().then((s) => {
+      setOllamaModelName(s.ollamaDefaultModel || "Ollama");
+    }).catch(() => {});
+  }, [isOllamaAgent]);
+
+  const handleOllamaModelChange = useCallback(async (model: string) => {
+    setOllamaModelName(model);
+    const s = await window.claude.settings.get();
+    await window.claude.settings.set({ ...s, ollamaDefaultModel: model });
+  }, []);
+
+  const handleFetchOllamaModels = useCallback(async () => {
+    setOllamaModelsLoading(true);
+    try {
+      const result = await window.claude.ollama.listModels();
+      if (result.ok) setOllamaModels(result.models);
+    } catch {
+      // ignore
+    } finally {
+      setOllamaModelsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!projectPath) {
       fileCacheFetchIdRef.current += 1;
@@ -940,7 +1355,6 @@ export const InputBar = memo(function InputBar({
     };
   }, [projectPath, refreshFileCache, scheduleFileCacheRefresh]);
 
-  // Filtered mention results
   const mentionResults = useCallback(() => {
     if (!fileCache) return [];
     const q = mentionQuery;
@@ -949,7 +1363,6 @@ export const InputBar = memo(function InputBar({
       ...fileCache.files.map((f) => ({ path: f, isDir: false })),
     ];
 
-    // Filter out paths already mentioned as chips
     const mentionedPaths = new Set<string>();
     if (editableRef.current) {
       editableRef.current.querySelectorAll("[data-mention-path]").forEach((el) => {
@@ -983,7 +1396,6 @@ export const InputBar = memo(function InputBar({
 
   const results = showMentions ? mentionResults() : [];
 
-  // Slash command filtered results
   const cmdResults = (() => {
     if (!showCommands || availableSlashCommands.length === 0) return [];
     const q = commandQuery.toLowerCase();
@@ -993,14 +1405,12 @@ export const InputBar = memo(function InputBar({
       .slice(0, 15);
   })();
 
-  // Clamp mention index
   useEffect(() => {
     if (mentionIndex >= results.length) {
       setMentionIndex(Math.max(0, results.length - 1));
     }
   }, [results.length, mentionIndex]);
 
-  // Scroll active mention into view
   useEffect(() => {
     if (!mentionListRef.current) return;
     const active = mentionListRef.current.querySelector("[data-active='true']");
@@ -1052,7 +1462,6 @@ export const InputBar = memo(function InputBar({
 
     el.textContent = getSlashCommandReplacement(cmd);
 
-    // Move cursor to end
     const range = document.createRange();
     const sel = window.getSelection();
     range.selectNodeContents(el);
@@ -1061,7 +1470,6 @@ export const InputBar = memo(function InputBar({
     sel?.addRange(range);
     el.focus();
 
-    // Update hasContent
     hasContentRef.current = true;
     setHasContent(true);
   }, []);
@@ -1076,7 +1484,6 @@ export const InputBar = memo(function InputBar({
         return;
       }
 
-      // Delete the @query text (from @ to current cursor position)
       const range = document.createRange();
       range.setStart(node, mentionStartOffset.current);
       const curRange = sel.getRangeAt(0);
@@ -1089,7 +1496,6 @@ export const InputBar = memo(function InputBar({
 
       range.deleteContents();
 
-      // Create chip element
       const chip = document.createElement("span");
       chip.contentEditable = "false";
       chip.className =
@@ -1104,14 +1510,11 @@ export const InputBar = memo(function InputBar({
       }
       chip.innerHTML = `${entry.isDir ? FOLDER_ICON_SVG : FILE_ICON_SVG}<span>${isDeepDir ? "#" : ""}${entry.path}</span>`;
 
-      // Insert chip at cursor
       range.insertNode(chip);
 
-      // Add space after chip so cursor has somewhere to go
       const space = document.createTextNode(" ");
       chip.after(space);
 
-      // Move cursor after the space
       const newRange = document.createRange();
       newRange.setStartAfter(space);
       newRange.collapse(true);
@@ -1131,8 +1534,9 @@ export const InputBar = memo(function InputBar({
 
     const { text: fullText, mentionPaths, deepMentionPaths } = extractEditableContent(el);
     const trimmed = fullText.trim();
-    const hasGrabs = grabbedElements && grabbedElements.length > 0;
-    if (isAwaitingAcpOptions || (!trimmed && attachments.length === 0 && !hasGrabs) || isSending) return;
+    const hasGrabs = !!(grabbedElements && grabbedElements.length > 0);
+    const hasSnippets = !!(codeSnippets && codeSnippets.length > 0);
+    if (isAwaitingAcpOptions || (!trimmed && attachments.length === 0 && !hasGrabs && !hasSnippets) || isSending) return;
 
     if (isClearCommandText(trimmed)) {
       try {
@@ -1177,12 +1581,12 @@ export const InputBar = memo(function InputBar({
     hasGrabs: boolean,
   ) => {
     const trimmed = fullText.trim();
+    const hasSnippets = !!(codeSnippets?.length);
     const currentImages = attachments.length > 0 ? [...attachments] : undefined;
     const contextParts: string[] = [];
     const grabbedElementDisplayTokens: string[] = [];
     let hasContext = false;
 
-    // File mentions → <file>/<folder> context blocks
     if (mentionPaths.length > 0 && projectPath) {
       setIsSending(true);
       try {
@@ -1203,9 +1607,7 @@ export const InputBar = memo(function InputBar({
       }
     }
 
-    // Grabbed elements → <element> context blocks
     if (hasGrabs && grabbedElements) {
-      // Escape special chars for XML attribute values (webpage content can contain anything)
       const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const compact = (s: string) => s.trim().replace(/\s+/g, " ");
 
@@ -1238,6 +1640,14 @@ export const InputBar = memo(function InputBar({
       hasContext = true;
     }
 
+    if (hasSnippets) {
+      for (const snippet of codeSnippets) {
+        const range = snippet.lineStart === snippet.lineEnd ? `L${snippet.lineStart}` : `L${snippet.lineStart}-${snippet.lineEnd}`;
+        contextParts.push(`<file path="${snippet.filePath}:${range}">\n${snippet.code}\n</file>`);
+      }
+      hasContext = true;
+    }
+
     if (hasContext) {
       const contextBlock = contextParts.join("\n\n");
       const fullMessage = contextBlock ? `${contextBlock}\n\n${trimmed}` : trimmed;
@@ -1245,14 +1655,13 @@ export const InputBar = memo(function InputBar({
         grabbedElementDisplayTokens.length > 0
           ? `${trimmed}${trimmed ? "\n\n" : ""}${grabbedElementDisplayTokens.join(" ")}`
           : trimmed;
-      // Pass display text (including browser element chips) so MessageBubble doesn't need regex stripping
-      onSend(fullMessage, currentImages, displayText);
+      onSend(fullMessage, currentImages, displayText, hasSnippets ? codeSnippets : undefined);
     } else {
       onSend(trimmed, currentImages);
     }
 
     clearComposer(el);
-  }, [attachments, projectPath, onSend, clearComposer, grabbedElements]);
+  }, [attachments, projectPath, onSend, clearComposer, grabbedElements, codeSnippets]);
 
   const handleDeepFolderConfirm = useCallback(async () => {
     if (pendingSendRef.current) {
@@ -1264,12 +1673,10 @@ export const InputBar = memo(function InputBar({
   }, []);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    // Slash command picker keyboard navigation
     if (showCommands && cmdResults.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setCommandIndex((prev) => (prev + 1) % cmdResults.length);
-        // Scroll active item into view
         requestAnimationFrame(() => {
           commandListRef.current?.querySelector("[data-active=true]")?.scrollIntoView({ block: "nearest" });
         });
@@ -1332,12 +1739,10 @@ export const InputBar = memo(function InputBar({
     }
   };
 
-  // Detect @ trigger on contentEditable input
   const handleEditableInput = useCallback((e: React.FormEvent<HTMLDivElement>) => {
     const el = editableRef.current;
     if (!el) return;
 
-    // Avoid re-scanning huge buffers on normal inserts; only re-check when necessary.
     const nativeEvent = e.nativeEvent;
     const inputType = nativeEvent instanceof InputEvent ? nativeEvent.inputType : "";
     const shouldRecomputeHasContent =
@@ -1360,7 +1765,6 @@ export const InputBar = memo(function InputBar({
       setHasContent(true);
     }
 
-    // Detect @ trigger
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) {
       if (showMentions) closeMentions();
@@ -1393,7 +1797,6 @@ export const InputBar = memo(function InputBar({
       if (showMentions) closeMentions();
     }
 
-    // Slash command detection — "/" at position 0 with no spaces (still typing the command name)
     const fullText = (el.textContent ?? "").trimStart();
     const slashMatch = fullText.match(/^\/(\S*)$/);
     if (slashMatch && availableSlashCommands.length > 0) {
@@ -1422,7 +1825,6 @@ export const InputBar = memo(function InputBar({
         }
       }
 
-      // Paste as plain text only (strip HTML formatting)
       e.preventDefault();
       const text = e.clipboardData.getData("text/plain");
       if (!hasContentRef.current && text.length > 0) {
@@ -1453,6 +1855,43 @@ export const InputBar = memo(function InputBar({
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
+
+      const droppedPath = e.dataTransfer?.getData("application/x-harnss-path");
+      if (droppedPath) {
+        const isDir = e.dataTransfer.getData("application/x-harnss-is-dir") === "true";
+        const el = editableRef.current;
+        if (el) {
+          el.focus();
+          const chip = document.createElement("span");
+          chip.contentEditable = "false";
+          chip.className =
+            "mention-chip inline-flex items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-xs text-accent-foreground font-mono align-baseline cursor-default select-none";
+          chip.setAttribute("data-mention-path", droppedPath);
+          chip.setAttribute("data-mention-dir", String(isDir));
+          chip.innerHTML = `${isDir ? FOLDER_ICON_SVG : FILE_ICON_SVG}<span>${droppedPath}</span>`;
+
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount) {
+            const range = sel.getRangeAt(0);
+            range.collapse(false);
+            range.insertNode(chip);
+            const space = document.createTextNode(" ");
+            chip.after(space);
+            range.setStartAfter(space);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } else {
+            el.appendChild(chip);
+            el.appendChild(document.createTextNode(" "));
+          }
+
+          hasContentRef.current = true;
+          setHasContent(true);
+        }
+        return;
+      }
+
       if (e.dataTransfer?.files) {
         addImageFiles(e.dataTransfer.files);
       }
@@ -1492,7 +1931,6 @@ export const InputBar = memo(function InputBar({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {/* Mention popup */}
         {showMentions && results.length > 0 && (
           <div
             ref={mentionListRef}
@@ -1524,7 +1962,6 @@ export const InputBar = memo(function InputBar({
           </div>
         )}
 
-        {/* Slash command popup */}
         {showCommands && cmdResults.length > 0 && (
           <div
             ref={commandListRef}
@@ -1570,12 +2007,10 @@ export const InputBar = memo(function InputBar({
           </div>
         )}
 
-        {/* Input area — contentEditable with inline chip support */}
         <div
           className="relative px-4 pt-3.5 pb-2"
           onClick={() => editableRef.current?.focus()}
         >
-          {/* Placeholder (shown when input is empty) */}
           {!hasContent && (
             <div className="pointer-events-none absolute inset-0 flex items-start px-4 pt-3.5 pb-2 text-sm text-muted-foreground/50">
               {isCompacting
@@ -1609,7 +2044,6 @@ export const InputBar = memo(function InputBar({
           />
         </div>
 
-        {/* Attachment previews — click to open annotation editor */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 px-4 pb-2">
             {attachments.map((att) => (
@@ -1623,11 +2057,9 @@ export const InputBar = memo(function InputBar({
                   alt={att.fileName ?? "attachment"}
                   className="h-full w-full object-cover"
                 />
-                {/* Edit overlay icon — bottom-right, visible on hover */}
                 <div className="absolute bottom-0.5 end-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover/att:opacity-100">
                   <Pencil className="h-2.5 w-2.5" />
                 </div>
-                {/* Remove button — top-right, stops propagation to prevent opening editor */}
                 <button
                   onClick={(e) => { e.stopPropagation(); removeAttachment(att.id); }}
                   className="absolute -end-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover/att:opacity-100"
@@ -1639,7 +2071,6 @@ export const InputBar = memo(function InputBar({
           </div>
         )}
 
-        {/* Grabbed element previews (from browser inspector) */}
         {grabbedElements && grabbedElements.length > 0 && (
           <div className="flex flex-wrap gap-2 px-4 pb-2">
             {grabbedElements.map((ge) => (
@@ -1675,6 +2106,14 @@ export const InputBar = memo(function InputBar({
           </div>
         )}
 
+        {codeSnippets && codeSnippets.length > 0 && (
+          <div className="flex flex-col gap-1.5 px-4 pb-2">
+            {codeSnippets.map((snippet) => (
+              <CodeSnippetCard key={snippet.id} snippet={snippet} onRemove={() => onRemoveCodeSnippet?.(snippet.id)} />
+            ))}
+          </div>
+        )}
+
         {editingAttachment && (
           <ImageAnnotationEditor
             image={editingAttachment}
@@ -1688,7 +2127,6 @@ export const InputBar = memo(function InputBar({
         )}
 
         <div className="flex items-center gap-1 px-3 pb-2.5">
-          {/* Left controls — scrollable as a defensive fallback (should never trigger with proper MIN_CHAT_WIDTH) */}
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -1698,7 +2136,6 @@ export const InputBar = memo(function InputBar({
               <Paperclip className="h-3.5 w-3.5" />
             </button>
 
-            {/* Voice dictation button */}
             {speech.isAvailable ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1750,7 +2187,20 @@ export const InputBar = memo(function InputBar({
             ) : null}
 
             {agents && agents.length > 1 && onAgentChange && (
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={(open) => {
+                if (open && agents.some((a) => a.engine === "ollama")) {
+                  window.claude.ollama.status().then((s) => {
+                    setOllamaAvailable(s.available);
+                    setOllamaError(s.available ? null : (s.error ?? null));
+                  }).catch(() => { setOllamaAvailable(false); setOllamaError("Connection failed"); });
+                }
+                if (open && agents.some((a) => a.engine === "openclaw")) {
+                  window.claude.openclaw.status().then((s) => {
+                    setGatewayAvailable(s.available);
+                    setGatewayError(s.available ? null : (s.error ?? null));
+                  }).catch(() => { setGatewayAvailable(false); setGatewayError("Connection failed"); });
+                }
+              }}>
                 <DropdownMenuTrigger asChild>
                   <button
                     className="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -1767,7 +2217,6 @@ export const InputBar = memo(function InputBar({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   {(() => {
-                    // An agent "will open new chat" if engine differs OR same ACP engine but different agent
                     const willOpenNewChat = (agent: InstalledAgent) => {
                       if (lockedEngine == null) return false;
                       if (agent.engine !== lockedEngine) return true;
@@ -1797,6 +2246,16 @@ export const InputBar = memo(function InputBar({
                               <span className="rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium text-amber-400">Beta</span>
                             )}
                           </div>
+                          {agent.engine === "ollama" && ollamaAvailable !== null && (
+                            <div className={`text-[10px] ${ollamaAvailable ? "text-emerald-400" : "text-red-400"}`}>
+                              {ollamaAvailable ? "Ollama running" : (ollamaError ?? "Ollama offline")}
+                            </div>
+                          )}
+                          {agent.engine === "openclaw" && gatewayAvailable !== null && (
+                            <div className={`text-[10px] ${gatewayAvailable ? "text-emerald-400" : "text-red-400"}`}>
+                              {gatewayAvailable ? "Gateway connected" : (gatewayError ?? "Gateway offline")}
+                            </div>
+                          )}
                           {crossEngine && (
                             <div className="text-[10px] text-muted-foreground/70">
                               Opens new chat
@@ -1823,6 +2282,9 @@ export const InputBar = memo(function InputBar({
             <EngineControls
               isCodexAgent={isCodexAgent}
               isACPAgent={isACPAgent}
+              isOllamaAgent={isOllamaAgent}
+              isOpenClawAgent={isOpenClawAgent}
+              isGroupAgent={isGroupAgent}
               isProcessing={isProcessing}
               showACPConfigOptions={showACPConfigOptions}
               modelList={modelList}
@@ -1846,10 +2308,25 @@ export const InputBar = memo(function InputBar({
               acpConfigOptions={acpConfigOptions}
               acpConfigOptionsLoading={acpConfigOptionsLoading}
               onACPConfigChange={onACPConfigChange}
+              ollamaModelName={ollamaModelName}
+              ollamaModels={ollamaModels}
+              ollamaModelsLoading={ollamaModelsLoading}
+              onOllamaModelChange={handleOllamaModelChange}
+              onFetchOllamaModels={handleFetchOllamaModels}
+              openclawAgentId={openclawAgentId}
+              onOpenclawAgentChange={onOpenclawAgentChange}
+              groups={groups}
+              selectedGroupId={selectedGroupId}
+              onGroupChange={onGroupChange}
+            />
+            <SkillsDropdown
+              activeSkills={activeSkills}
+              onToggleSkill={handleToggleSkill}
+              isProcessing={isProcessing}
+              installedSkills={installedSkills}
             />
           </div>
 
-          {/* Right controls — always visible, never shrink */}
           <div className="flex shrink-0 items-center gap-1.5">
             {contextUsage && (() => {
               const totalInput = contextUsage.inputTokens + contextUsage.cacheReadTokens + contextUsage.cacheCreationTokens;
@@ -1930,7 +2407,7 @@ export const InputBar = memo(function InputBar({
               <Button
                 size="icon"
                 onClick={handleSend}
-                disabled={isAwaitingAcpOptions || ((!hasContent && attachments.length === 0 && (!grabbedElements || grabbedElements.length === 0)) || isSending)}
+                disabled={isAwaitingAcpOptions || ((!hasContent && attachments.length === 0 && (!grabbedElements || grabbedElements.length === 0) && (!codeSnippets || codeSnippets.length === 0)) || isSending)}
                 className="h-8 w-8 rounded-full"
               >
                 <ArrowUp className="h-4 w-4" />

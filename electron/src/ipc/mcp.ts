@@ -174,6 +174,55 @@ export function register(): void {
     return { hasToken: true, expiresAt };
   });
 
+  ipcMain.handle("mcp:add-from-registry", (_event, payload: {
+    projectId: string;
+    name: string;
+    transport: "stdio" | "sse" | "http";
+    registry?: string;
+    identifier?: string;
+    command?: string;
+    args?: string[];
+    url?: string;
+    envVars?: Array<{ name: string; description: string; isRequired: boolean }>;
+  }) => {
+    try {
+      const { projectId, name, transport, registry, identifier, command, args, url, envVars } = payload;
+      const server: McpServerConfig = { name, transport };
+
+      if (transport === "stdio") {
+        if (command && args) {
+          server.command = command;
+          server.args = args;
+        } else if (identifier && registry === "npm") {
+          server.command = "npx";
+          server.args = ["-y", identifier];
+        } else if (identifier && registry === "pypi") {
+          server.command = "uvx";
+          server.args = [identifier];
+        } else if (identifier) {
+          server.command = "npx";
+          server.args = ["-y", identifier];
+        }
+      } else {
+        if (url) server.url = url;
+      }
+
+      if (envVars && envVars.length > 0) {
+        const env: Record<string, string> = {};
+        for (const v of envVars) {
+          env[v.name] = "";
+        }
+        server.env = env;
+      }
+
+      addMcpServer(projectId, server);
+      void captureEvent("mcp_server_added_from_registry", { name, transport, registry });
+      return { ok: true };
+    } catch (err) {
+      return { error: reportError("MCP_ADD_REGISTRY_ERR", err) };
+    }
+  });
+
   ipcMain.handle("mcp:probe", async (_event, servers: McpServerConfig[]) => {
     log("MCP_PROBE", `Probing ${servers.length} server(s)`);
     const results = await Promise.all(

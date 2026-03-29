@@ -1,5 +1,5 @@
 import { memo, useState, useCallback, useMemo, useEffect } from "react";
-import { Plug, Plus, Trash2, Terminal, Globe, Network, RefreshCw, CircleCheck, CircleAlert, CircleDashed, Lock, CircleX, Loader2, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Plug, Plus, Trash2, Terminal, Globe, Network, RefreshCw, CircleCheck, CircleAlert, CircleDashed, Lock, CircleX, Loader2, ShieldCheck, ShieldAlert, Search, Package, Check, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMcpServers } from "@/hooks/useMcpServers";
 import type { McpTransport, McpServerConfig, McpServerStatus, McpServerStatusState } from "@/types";
 
@@ -49,9 +50,10 @@ interface McpPanelProps {
   onRefreshStatus?: () => void;
   onReconnect?: (name: string) => Promise<void> | void;
   onRestartWithServers?: (servers: McpServerConfig[]) => Promise<void> | void;
+  onBrowseRegistry?: () => void;
 }
 
-export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isPreliminary, hasLiveSession, onRefreshStatus, onReconnect, onRestartWithServers }: McpPanelProps) {
+export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isPreliminary, hasLiveSession, onRefreshStatus, onReconnect, onRestartWithServers, onBrowseRegistry }: McpPanelProps) {
   const { servers, loading, addServer, removeServer } = useMcpServers(projectId);
   const [reconnectingName, setReconnectingName] = useState<string | null>(null);
   const [authenticatingName, setAuthenticatingName] = useState<string | null>(null);
@@ -117,7 +119,18 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
     return map;
   }, [runtimeStatuses]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogTab, setDialogTab] = useState<"registry" | "manual">("registry");
   const [removingName, setRemovingName] = useState<string | null>(null);
+  const [registryQuery, setRegistryQuery] = useState("");
+  const [registryResults, setRegistryResults] = useState<Array<{
+    name: string; description: string; version: string; icon?: string;
+    packages: Array<{ registry: string; identifier: string; version?: string; transport: string; envVars: Array<{ name: string; description: string; isRequired: boolean }> }>;
+    remotes: Array<{ type: string; url: string }>;
+  }>>([]);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registrySearched, setRegistrySearched] = useState(false);
+  const [registryAddingName, setRegistryAddingName] = useState<string | null>(null);
+  const [registryAddedNames, setRegistryAddedNames] = useState<Set<string>>(new Set());
 
   // Form state
   const [name, setName] = useState("");
@@ -137,6 +150,48 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
     setUrl("");
     setHeadersText("");
   }, []);
+
+  const searchRegistry = useCallback(async (q?: string) => {
+    setRegistryLoading(true);
+    try {
+      const result = await window.claude.mcpRegistry.search(q || undefined);
+      if (result.ok) setRegistryResults(result.servers);
+    } catch {}
+    setRegistryLoading(false);
+    setRegistrySearched(true);
+  }, []);
+
+  const handleAddFromRegistry = useCallback(async (
+    server: typeof registryResults[0],
+    pkg: typeof registryResults[0]["packages"][0],
+  ) => {
+    if (!projectId || registryAddingName) return;
+    const shortName = server.name.split("/").pop() ?? server.name;
+    setRegistryAddingName(server.name);
+    try {
+      await window.claude.mcp.addFromRegistry({
+        projectId,
+        name: shortName,
+        transport: pkg.transport as "stdio" | "sse" | "http",
+        registry: pkg.registry,
+        identifier: pkg.identifier,
+        envVars: pkg.envVars,
+      });
+      setRegistryAddedNames((prev) => new Set(prev).add(server.name));
+
+      if (hasLiveSession && onRestartWithServers) {
+        const newServer: McpServerConfig = {
+          name: shortName,
+          transport: pkg.transport as McpTransport,
+          ...(pkg.transport === "stdio"
+            ? { command: pkg.registry === "npm" ? "npx" : "uvx", args: pkg.registry === "npm" ? ["-y", pkg.identifier] : [pkg.identifier] }
+            : {}),
+        };
+        await onRestartWithServers([...servers.filter((s) => s.name !== shortName), newServer]);
+      }
+    } catch {}
+    setRegistryAddingName(null);
+  }, [projectId, registryAddingName, hasLiveSession, onRestartWithServers, servers]);
 
   const parseKeyValuePairs = useCallback((text: string): Record<string, string> => {
     const result: Record<string, string> = {};
@@ -479,124 +534,232 @@ export const McpPanel = memo(function McpPanel({ projectId, runtimeStatuses, isP
       </ScrollArea>
 
       {/* Add Server Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={dialogOpen} onOpenChange={(open) => {
+        setDialogOpen(open);
+        if (!open) {
+          resetForm();
+          setRegistryQuery("");
+          setRegistryResults([]);
+          setRegistrySearched(false);
+          setRegistryAddedNames(new Set());
+        }
+      }}>
+        <DialogContent className="sm:max-w-lg flex flex-col" style={{ maxHeight: "min(80vh, 600px)" }}>
           <DialogHeader>
             <DialogTitle className="text-sm">Add MCP Server</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            {/* Name */}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Name</label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="my-server"
-                className="h-8 text-xs"
-              />
-            </div>
+          <Tabs value={dialogTab} onValueChange={(v) => setDialogTab(v as "registry" | "manual")} className="flex min-h-0 flex-1 flex-col">
+            <TabsList variant="line" className="mb-3">
+              <TabsTrigger value="registry" className="gap-1.5 text-xs">
+                <Store className="h-3 w-3" />
+                From Registry
+              </TabsTrigger>
+              <TabsTrigger value="manual" className="gap-1.5 text-xs">
+                <Terminal className="h-3 w-3" />
+                Manual
+              </TabsTrigger>
+            </TabsList>
 
-            {/* Transport */}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Transport</label>
-              <div className="flex gap-1">
-                {(["stdio", "sse", "http"] as McpTransport[]).map((t) => (
-                  <Button
-                    key={t}
-                    variant={transport === t ? "default" : "outline"}
-                    size="sm"
-                    className="h-7 text-xs flex-1"
-                    onClick={() => setTransport(t)}
-                  >
-                    {t.toUpperCase()}
-                  </Button>
-                ))}
+            <TabsContent value="registry" className="min-h-0 flex-1 flex flex-col">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                  <input
+                    type="text"
+                    value={registryQuery}
+                    onChange={(e) => setRegistryQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") searchRegistry(registryQuery); }}
+                    placeholder="Search MCP servers..."
+                    spellCheck={false}
+                    className="h-8 w-full rounded-md border border-foreground/10 bg-background pe-3 ps-8 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-foreground/20 focus:border-foreground/30 focus:ring-1 focus:ring-foreground/20"
+                  />
+                </div>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => searchRegistry(registryQuery)} disabled={registryLoading}>
+                  {registryLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                </Button>
               </div>
-            </div>
 
-            {/* Conditional fields */}
-            {transport === "stdio" ? (
-              <>
+              <ScrollArea className="min-h-0 flex-1 -mx-1 px-1 overflow-y-auto" style={{ maxHeight: "350px" }}>
+                {!registrySearched && !registryLoading && (
+                  <div className="grid grid-cols-3 gap-2 py-2">
+                    {["github", "slack", "filesystem", "postgres", "docker", "jira"].map((term) => (
+                      <button
+                        key={term}
+                        onClick={() => { setRegistryQuery(term); searchRegistry(term); }}
+                        className="flex items-center gap-1.5 rounded-md border border-foreground/[0.06] px-3 py-2 text-start text-xs transition-colors hover:border-foreground/10 hover:bg-foreground/[0.02]"
+                      >
+                        <Package className="h-3 w-3 text-muted-foreground/40" />
+                        <span className="text-muted-foreground">{term}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {registrySearched && registryResults.length === 0 && !registryLoading && (
+                  <div className="py-8 text-center text-xs text-muted-foreground">No servers found</div>
+                )}
+
+                <div className="space-y-1.5 pb-2">
+                  {registryResults.map((server) => {
+                    const npmPkg = server.packages.find((p) => p.registry === "npm");
+                    const pypiPkg = server.packages.find((p) => p.registry === "pypi");
+                    const mainPkg = npmPkg ?? pypiPkg ?? server.packages[0];
+                    const shortName = server.name.split("/").pop() ?? server.name;
+                    const isAdding = registryAddingName === server.name;
+                    const isAdded = registryAddedNames.has(server.name);
+
+                    return (
+                      <div key={server.name} className="flex items-center gap-2.5 rounded-md border border-foreground/[0.06] p-2.5 transition-colors hover:border-foreground/10">
+                        {server.icon ? (
+                          <img src={server.icon} alt="" className="h-8 w-8 shrink-0 rounded-md" />
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-foreground/[0.04]">
+                            <Package className="h-3.5 w-3.5 text-muted-foreground/50" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-xs font-semibold">{shortName}</span>
+                            <span className="shrink-0 text-[10px] text-muted-foreground/50 font-mono">v{server.version}</span>
+                          </div>
+                          <p className="truncate text-[10px] text-muted-foreground">{server.description}</p>
+                        </div>
+                        {mainPkg && (
+                          <Button
+                            variant={isAdded ? "ghost" : "outline"}
+                            size="sm"
+                            className="h-7 shrink-0 gap-1 text-[11px]"
+                            disabled={isAdding || isAdded}
+                            onClick={() => handleAddFromRegistry(server, mainPkg)}
+                          >
+                            {isAdding ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : isAdded ? (
+                              <Check className="h-3 w-3 text-emerald-500" />
+                            ) : (
+                              <Plus className="h-3 w-3" />
+                            )}
+                            {isAdding ? "Adding..." : isAdded ? "Added" : "Add"}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="manual" className="min-h-0 flex-1">
+              <div className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Command</label>
+                  <label className="text-xs font-medium text-muted-foreground">Name</label>
                   <Input
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    placeholder="npx -y @modelcontextprotocol/server-github"
-                    className="h-8 text-xs font-mono"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="my-server"
+                    className="h-8 text-xs"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Arguments <span className="text-muted-foreground/60">(space-separated)</span>
-                  </label>
-                  <Input
-                    value={args}
-                    onChange={(e) => setArgs(e.target.value)}
-                    placeholder="--config config.json"
-                    className="h-8 text-xs font-mono"
-                  />
+                  <label className="text-xs font-medium text-muted-foreground">Transport</label>
+                  <div className="flex gap-1">
+                    {(["stdio", "sse", "http"] as McpTransport[]).map((t) => (
+                      <Button
+                        key={t}
+                        variant={transport === t ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 text-xs flex-1"
+                        onClick={() => setTransport(t)}
+                      >
+                        {t.toUpperCase()}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Environment Variables <span className="text-muted-foreground/60">(KEY=value, one per line)</span>
-                  </label>
-                  <textarea
-                    value={envText}
-                    onChange={(e) => setEnvText(e.target.value)}
-                    placeholder={"GITHUB_TOKEN=ghp_...\nAPI_KEY=sk-..."}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
-                    rows={3}
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">URL</label>
-                  <Input
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://api.example.com/mcp"
-                    className="h-8 text-xs font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Headers <span className="text-muted-foreground/60">(Name=Value, one per line)</span>
-                  </label>
-                  <textarea
-                    value={headersText}
-                    onChange={(e) => setHeadersText(e.target.value)}
-                    placeholder={"Authorization=Bearer token123"}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
-                    rows={2}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => {
-                resetForm();
-                setDialogOpen(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 text-xs"
-              onClick={handleAdd}
-              disabled={!name.trim() || (transport === "stdio" ? !command.trim() : !url.trim())}
-            >
-              Add Server
-            </Button>
-          </DialogFooter>
+                {transport === "stdio" ? (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Command</label>
+                      <Input
+                        value={command}
+                        onChange={(e) => setCommand(e.target.value)}
+                        placeholder="npx -y @modelcontextprotocol/server-github"
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Arguments <span className="text-muted-foreground/60">(space-separated)</span>
+                      </label>
+                      <Input
+                        value={args}
+                        onChange={(e) => setArgs(e.target.value)}
+                        placeholder="--config config.json"
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Environment Variables <span className="text-muted-foreground/60">(KEY=value, one per line)</span>
+                      </label>
+                      <textarea
+                        value={envText}
+                        onChange={(e) => setEnvText(e.target.value)}
+                        placeholder={"GITHUB_TOKEN=ghp_...\nAPI_KEY=sk-..."}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
+                        rows={3}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">URL</label>
+                      <Input
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder="https://api.example.com/mcp"
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Headers <span className="text-muted-foreground/60">(Name=Value, one per line)</span>
+                      </label>
+                      <textarea
+                        value={headersText}
+                        onChange={(e) => setHeadersText(e.target.value)}
+                        placeholder={"Authorization=Bearer token123"}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
+                        rows={2}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <DialogFooter className="mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    resetForm();
+                    setDialogOpen(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={handleAdd}
+                  disabled={!name.trim() || (transport === "stdio" ? !command.trim() : !url.trim())}
+                >
+                  Add Server
+                </Button>
+              </DialogFooter>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </div>
