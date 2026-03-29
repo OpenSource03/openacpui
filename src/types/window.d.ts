@@ -10,8 +10,10 @@ import type {
 import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent, ACPConfigOption } from "./acp";
 import type { EngineId, AppPermissionBehavior } from "./engine";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "./codex";
+import type { OpenClawSessionEvent, OpenClawExitEvent, OpenClawStartOptions, OpenClawConnectResult } from "@shared/types/openclaw";
 import type { Model as CodexModel } from "./codex-protocol/v2/Model";
 import type { CollaborationMode } from "./codex-protocol/CollaborationMode";
+import type { AgentGroup, GroupSessionEvent } from "@/types/groups";
 import type {
   JiraProjectConfig,
   JiraBoard,
@@ -34,7 +36,6 @@ interface SessionListItem {
   projectId: string;
   title: string;
   createdAt: number;
-  /** Timestamp of the most recent message — used for sidebar sort order */
   lastMessageAt: number;
   model?: string;
   planMode?: boolean;
@@ -61,9 +62,7 @@ declare global {
         thinkingEnabled?: boolean;
         effort?: ClaudeEffort;
         resume?: string;
-        /** Fork to a new session ID when resuming (model forgets messages after resumeSessionAt) */
         forkSession?: boolean;
-        /** Resume at a specific message UUID — used with forkSession to truncate history */
         resumeSessionAt?: string;
         mcpServers?: McpServerConfig[];
       }) => Promise<{ sessionId: string; pid: number; error?: string }>;
@@ -191,6 +190,12 @@ declare global {
             | { path: string; error: string; content?: undefined; isDir?: undefined }
           >
         >;
+        createFile: (cwd: string, path: string, content?: string) => Promise<{ ok?: boolean; error?: string }>;
+        createDirectory: (cwd: string, path: string) => Promise<{ ok?: boolean; error?: string }>;
+        writeFile: (cwd: string, path: string, content: string) => Promise<{ ok?: boolean; error?: string }>;
+        rename: (cwd: string, fromPath: string, toPath: string) => Promise<{ ok?: boolean; error?: string }>;
+        copy: (cwd: string, fromPath: string, toPath: string) => Promise<{ ok?: boolean; error?: string }>;
+        delete: (cwd: string, path: string) => Promise<{ ok?: boolean; error?: string }>;
         onChanged: (callback: (data: { cwd: string }) => void) => () => void;
       };
       git: {
@@ -213,12 +218,36 @@ declare global {
         fetch: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
         diffFile: (cwd: string, file: string, staged: boolean) => Promise<{ diff?: string; error?: string }>;
         diffStat: (cwd: string) => Promise<{ additions: number; deletions: number }>;
+        showFileAtHead: (cwd: string, file: string) => Promise<{ content?: string; error?: string }>;
+        reflog: (cwd: string, count?: number) => Promise<{ entries: Array<{ hash: string; ref: string; subject: string; date: string }>; error?: string }>;
+        undo: (cwd: string) => Promise<{ success?: boolean; hash?: string; error?: string }>;
+        stashList: (cwd: string) => Promise<{ stashes: Array<{ ref: string; message: string; date: string }> }>;
+        stashSave: (cwd: string, message?: string) => Promise<{ success?: boolean; error?: string }>;
+        stashPop: (cwd: string, ref?: string) => Promise<{ success?: boolean; error?: string }>;
+        stashApply: (cwd: string, ref?: string) => Promise<{ success?: boolean; error?: string }>;
+        stashDrop: (cwd: string, ref?: string) => Promise<{ success?: boolean; error?: string }>;
+        cherryPick: (cwd: string, hash: string) => Promise<{ success?: boolean; error?: string }>;
+        blame: (cwd: string, file: string) => Promise<{ lines?: Array<{ hash: string; author: string; date: string; lineNumber: number; content: string }>; error?: string }>;
         log: (cwd: string, count?: number) => Promise<GitLogEntry[] | { error: string }>;
+        commitFiles: (cwd: string, hash: string) => Promise<{ files: Array<{ status: string; path: string }>; error?: string }>;
+        commitFileDiff: (cwd: string, hash: string, file: string) => Promise<{ diff: string; error?: string }>;
+        graph: (cwd: string, count?: number) => Promise<{ entries: Array<{ hash: string; shortHash: string; parents: string[]; refs: string[]; message: string; author: string; date: string }>; graph: string; error?: string }>;
         generateCommitMessage: (
           cwd: string,
           engine?: EngineId,
           sessionId?: string,
         ) => Promise<{ message?: string; error?: string }>;
+      };
+      executions: {
+        detectRunners: (cwd: string) => Promise<{ runners: Array<{ source: string; scripts: Record<string, string> }>; error?: string }>;
+        run: (options: { cwd: string; command: string; label?: string }) => Promise<{ executionId?: string; error?: string }>;
+        stop: (executionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        onData: (callback: (data: { executionId: string; data: string }) => void) => () => void;
+        onExit: (callback: (data: { executionId: string; exitCode: number }) => void) => () => void;
+      };
+      search: {
+        files: (options: { cwd: string; query: string; maxResults?: number }) => Promise<{ results: Array<{ path: string; name: string; dir: string; score: number }>; error?: string }>;
+        content: (options: { cwd: string; pattern: string; isRegex?: boolean; caseSensitive?: boolean; maxResults?: number; include?: string; exclude?: string }) => Promise<{ results: Array<{ file: string; line: number; column: number; match: string; preview: string }>; totalCount: number; error?: string }>;
       };
       terminal: {
         create: (options: { cwd?: string; cols?: number; rows?: number; spaceId?: string }) => Promise<{ terminalId?: string; error?: string }>;
@@ -322,6 +351,28 @@ declare global {
         onApprovalRequest: (callback: (data: CodexServerRequest) => void) => () => void;
         onExit: (callback: (data: CodexExitEvent) => void) => () => void;
       };
+      ollama: {
+        start: (options: { cwd: string; model?: string; projectId?: string; activeSkills?: string[] }) => Promise<{ sessionId: string; error?: string }>;
+        send: (sessionId: string, text: string, cwd?: string, model?: string) => Promise<{ ok?: boolean; error?: string }>;
+        stop: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        status: () => Promise<{ available: boolean; error?: string }>;
+        listModels: () => Promise<{ ok: boolean; models: string[]; error?: string }>;
+        onEvent: (callback: (data: { _sessionId: string; type: string; payload: Record<string, unknown> }) => void) => () => void;
+        onExit: (callback: (data: { _sessionId: string }) => void) => () => void;
+      };
+      openclaw: {
+        start: (options: OpenClawStartOptions) => Promise<OpenClawConnectResult>;
+        send: (sessionId: string, text: string) => Promise<{ ok?: boolean; error?: string }>;
+        stop: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        status: () => Promise<{ available: boolean; error?: string }>;
+        pair: () => Promise<{ ok: boolean; paired?: boolean; version?: string; error?: string }>;
+        spawnAgent: (sessionId: string, agentName: string, prompt: string, skills?: string[]) => Promise<{ ok?: boolean; agentId?: string; error?: string }>;
+        listAgents: (sessionId?: string) => Promise<{ ok?: boolean; agents?: unknown; error?: string }>;
+        onEvent: (callback: (data: OpenClawSessionEvent) => void) => () => void;
+        onExit: (callback: (data: OpenClawExitEvent) => void) => () => void;
+      };
       mcp: {
         list: (projectId: string) => Promise<McpServerConfig[]>;
         add: (projectId: string, server: McpServerConfig) => Promise<{ ok?: boolean; error?: string }>;
@@ -329,13 +380,17 @@ declare global {
         authenticate: (serverName: string, serverUrl: string) => Promise<{ ok?: boolean; error?: string }>;
         authStatus: (serverName: string) => Promise<{ hasToken: boolean; expiresAt?: number }>;
         probe: (servers: McpServerConfig[]) => Promise<Array<{ name: string; status: "connected" | "needs-auth" | "failed"; error?: string }>>;
+        addFromRegistry: (payload: {
+          projectId: string; name: string; transport: string;
+          registry?: string; identifier?: string; command?: string; args?: string[];
+          url?: string; envVars?: Array<{ name: string; description: string; isRequired: boolean }>;
+        }) => Promise<{ ok?: boolean; error?: string }>;
       };
       agents: {
         list: () => Promise<InstalledAgent[]>;
         save: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
         delete: (id: string) => Promise<{ ok?: boolean; error?: string }>;
         updateCachedConfig: (agentId: string, configOptions: ACPConfigOption[]) => Promise<{ ok?: boolean }>;
-        /** Batch-check if binary-only agents are installed on the system PATH. */
         checkBinaries: (
           agents: Array<{ id: string; binary: Record<string, { cmd: string; args?: string[] }> }>,
         ) => Promise<Record<string, { path: string; args?: string[] } | null>>;
@@ -343,6 +398,44 @@ declare global {
       settings: {
         get: () => Promise<AppSettings>;
         set: (patch: Partial<AppSettings>) => Promise<{ ok?: boolean; error?: string }>;
+      };
+      webSearch: {
+        test: (providerId: string) => Promise<{ ok: boolean; count?: number; ms?: number; error?: string }>;
+        history: (limit?: number) => Promise<Array<{ id: number; query: string; provider: string; resultCount: number; cachedAt: number; hitCount: number; expired: boolean }>>;
+        stats: () => Promise<{ totalEntries: number; totalSearches: number; cacheHits: number; cacheMisses: number; hitRate: string; providerBreakdown: Array<{ provider: string; count: number; avgResults: number }>; dbSizeBytes: number }>;
+        clearExpired: () => Promise<{ removed: number }>;
+        clearAll: () => Promise<{ ok: boolean }>;
+      };
+      skillsRegistry: {
+        search: (query?: string, limit?: number) => Promise<{
+          ok: boolean;
+          skills: Array<{ id: string; skillId: string; name: string; installs: number; source: string }>;
+          count?: number;
+          error?: string;
+        }>;
+        install: (cwd: string, source: string, skillId: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+        listInstalled: (cwd: string) => Promise<{ skills: Array<{ id: string; filename: string }> }>;
+        loadContents: (cwd: string, skillIds: string[]) => Promise<{ contents: Array<{ id: string; content: string }> }>;
+      };
+      mcpRegistry: {
+        search: (query?: string, cursor?: string) => Promise<{
+          ok: boolean;
+          servers: Array<{
+            name: string; description: string; version: string;
+            websiteUrl?: string; repoUrl?: string; icon?: string;
+            packages: Array<{ registry: string; identifier: string; version?: string; transport: string; envVars: Array<{ name: string; description: string; isRequired: boolean; isSecret?: boolean }> }>;
+            remotes: Array<{ type: string; url: string }>;
+            publishedAt?: string;
+          }>;
+          nextCursor?: string;
+          error?: string;
+        }>;
+      };
+      crawler: {
+        test: (providerId: string) => Promise<{ ok: boolean; chars?: number; ms?: number; provider?: string; error?: string }>;
+        history: (limit?: number) => Promise<Array<{ id: number; url: string; provider: string; contentLength: number; cachedAt: number; hitCount: number; expired: boolean }>>;
+        stats: () => Promise<{ totalEntries: number; totalChars: number; dbSizeBytes: number }>;
+        clearAll: () => Promise<{ ok: boolean }>;
       };
       jira: {
         getConfig: (projectId: string) => Promise<JiraProjectConfig | null>;
@@ -366,15 +459,11 @@ declare global {
         transitionIssue: (params: JiraTransitionIssueParams) => Promise<{ ok: true }>;
       };
       analytics: {
-        /** Fire-and-forget analytics event via the main process PostHog client. */
         capture: (event: string, properties?: Record<string, unknown>) => void;
       };
       speech: {
-        /** Triggers macOS native dictation (Cocoa startDictation: selector). Returns { ok: false } on non-macOS. */
         startNativeDictation: () => Promise<{ ok: boolean; reason?: string }>;
-        /** Returns the OS platform string (darwin, win32, linux) */
         getPlatform: () => Promise<string>;
-        /** Requests microphone permission (macOS system dialog). Returns { granted } on all platforms. */
         requestMicPermission: () => Promise<{ granted: boolean }>;
       };
       updater: {
@@ -386,6 +475,23 @@ declare global {
         install: () => Promise<void>;
         check: () => Promise<unknown>;
         currentVersion: () => Promise<string>;
+      };
+      groups: {
+        list: () => Promise<{ ok: boolean; groups?: AgentGroup[]; error?: string }>;
+        create: (group: AgentGroup) => Promise<{ ok: boolean; group?: AgentGroup; error?: string }>;
+        update: (group: AgentGroup) => Promise<{ ok: boolean; group?: AgentGroup; error?: string }>;
+        delete: (groupId: string) => Promise<{ ok: boolean; error?: string }>;
+        startSession: (params: { groupId: string; prompt: string; cwd?: string; projectId?: string }) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+        stopSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+        generateTeam: (params: { prompt: string; cwd?: string }) => Promise<{ ok: boolean; result?: string; error?: string }>;
+        getSession: (sessionId: string) => Promise<{ ok: boolean; session?: unknown; error?: string }>;
+        resumeSession: (sessionId: string, projectId?: string) => Promise<{ ok: boolean; error?: string }>;
+        sendMessage: (sessionId: string, message: unknown, projectId?: string) => Promise<{ ok?: boolean; error?: string }>;
+        interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        onSlotEvent: (callback: (data: unknown) => void) => () => void;
+        respondPermission: (sessionId: string, slotId: string, requestId: string, behavior: string) => Promise<{ ok?: boolean; error?: string }>;
+        onPermissionRequest: (callback: (data: unknown) => void) => () => void;
+        onEvent: (callback: (data: GroupSessionEvent) => void) => () => void;
       };
     };
   }

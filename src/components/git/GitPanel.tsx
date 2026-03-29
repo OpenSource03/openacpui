@@ -6,6 +6,13 @@ import {
   Loader2,
   Trash2,
   FolderGit2,
+  Undo2,
+  Archive,
+  Play,
+  ArrowUpFromLine,
+  ChevronDown,
+  ChevronRight,
+  GitCommitHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,6 +28,7 @@ import { useGitStatus } from "@/hooks/useGitStatus";
 import { RepoSection } from "./RepoSection";
 import { InlineSelector } from "./InlineSelector";
 import { formatWorktreeLabel } from "./git-panel-utils";
+import { GitGraphSection } from "./GitGraphSection";
 import type { EngineId } from "@/types";
 
 interface GitPanelProps {
@@ -29,10 +37,9 @@ interface GitPanelProps {
   onToggleRepoCollapsed?: (path: string) => void;
   selectedWorktreePath?: string | null;
   onSelectWorktreePath?: (path: string | null) => void;
-  /** Active session engine — used to route commit message generation */
   activeEngine?: EngineId;
-  /** Active session ID — used for ACP utility prompts */
   activeSessionId?: string | null;
+  onOpenFileInWorkspace?: (filePath: string, line?: number) => void;
 }
 
 export const GitPanel = memo(function GitPanel({
@@ -43,6 +50,7 @@ export const GitPanel = memo(function GitPanel({
   onSelectWorktreePath,
   activeEngine,
   activeSessionId,
+  onOpenFileInWorkspace,
 }: GitPanelProps) {
   const git = useGitStatus({ projectPath: cwd });
 
@@ -62,6 +70,14 @@ export const GitPanel = memo(function GitPanel({
   const [isRemovingWorktree, setIsRemovingWorktree] = useState(false);
   const [isPruningWorktrees, setIsPruningWorktrees] = useState(false);
 
+  const [graphExpanded, setGraphExpanded] = useState(false);
+  const [stashExpanded, setStashExpanded] = useState(false);
+  const [stashes, setStashes] = useState<Array<{ ref: string; message: string; date: string }>>([]);
+  const [stashLoading, setStashLoading] = useState(false);
+  const [stashError, setStashError] = useState<string | null>(null);
+  const [cherryPickHash, setCherryPickHash] = useState("");
+  const [cherryPickLoading, setCherryPickLoading] = useState(false);
+
   const selectableRepos = useMemo(() => git.repoStates.map((rs) => rs.repo), [git.repoStates]);
   const hasSubRepos = useMemo(() => selectableRepos.some((r) => r.isSubRepo), [selectableRepos]);
   const linkedWorktrees = useMemo(
@@ -74,9 +90,6 @@ export const GitPanel = memo(function GitPanel({
       label: formatWorktreeLabel(repo, { showRoot: hasSubRepos && !repo.isSubRepo }),
     }));
 
-    // Always ensure the project root directory is available as an option.
-    // When the root isn't a discovered git repo (e.g. a dir containing sub-repos),
-    // we still need it so the user can point the agent at the root.
     if (cwd && !selectableRepos.some((r) => r.path === cwd)) {
       const rootName = cwd.split("/").pop() ?? cwd;
       opts.unshift({ value: cwd, label: `${rootName} (root)` });
@@ -92,11 +105,9 @@ export const GitPanel = memo(function GitPanel({
   const selectedCwdValue = useMemo(() => {
     if (selectableRepos.length === 0 && !cwd) return "";
     if (selectedWorktreePath) {
-      // Check discovered repos and the cwd itself
       if (selectedWorktreePath === cwd) return cwd;
       if (selectableRepos.some((repo) => repo.path === selectedWorktreePath)) return selectedWorktreePath;
     }
-    // Default to project root
     return cwd ?? selectableRepos[0]?.path ?? "";
   }, [selectableRepos, selectedWorktreePath, cwd]);
 
@@ -104,7 +115,9 @@ export const GitPanel = memo(function GitPanel({
     setCreateError(null);
     setCreateDialogOpen(true);
     setCreateSourcePath((prev) => prev || selectedCwdValue || selectableRepos[0]?.path || "");
-  }, [selectedCwdValue, selectableRepos]);
+    const rootPath = selectedCwdValue || selectableRepos[0]?.path || cwd || "";
+    setCreateWorktreePath((prev) => prev || (rootPath ? `${rootPath}/.harnss/worktrees/` : ""));
+  }, [selectedCwdValue, selectableRepos, cwd]);
 
   const openRemoveDialog = useCallback(() => {
     setRemoveError(null);
@@ -181,10 +194,69 @@ export const GitPanel = memo(function GitPanel({
       setCreateBranchName("");
       setCreateFromRef("");
       setCreateError(null);
+
     } finally {
       setIsCreatingWorktree(false);
     }
   }, [createSourcePath, createWorktreePath, createBranchName, createFromRef, git, requestWorktreeSelection]);
+
+  const handleUndo = useCallback(async () => {
+    if (!cwd) return;
+    const result = await window.claude.git.undo(cwd);
+    if (result.error) setStashError(result.error);
+    else git.refreshAll();
+  }, [cwd, git]);
+
+  const fetchStashes = useCallback(async () => {
+    if (!cwd) return;
+    setStashLoading(true);
+    try {
+      const result = await window.claude.git.stashList(cwd);
+      setStashes(result.stashes);
+    } finally {
+      setStashLoading(false);
+    }
+  }, [cwd]);
+
+  const handleStashToggle = useCallback(() => {
+    const next = !stashExpanded;
+    setStashExpanded(next);
+    if (next) fetchStashes();
+  }, [stashExpanded, fetchStashes]);
+
+  const handleStashSave = useCallback(async () => {
+    if (!cwd) return;
+    const message = prompt("Stash message (optional):");
+    if (message === null) return;
+    setStashError(null);
+    const result = await window.claude.git.stashSave(cwd, message || undefined);
+    if (result.error) setStashError(result.error);
+    else { fetchStashes(); git.refreshAll(); }
+  }, [cwd, fetchStashes, git]);
+
+  const handleStashAction = useCallback(async (action: "apply" | "pop" | "drop", ref: string) => {
+    if (!cwd) return;
+    setStashError(null);
+    const fn = action === "apply" ? window.claude.git.stashApply
+      : action === "pop" ? window.claude.git.stashPop
+      : window.claude.git.stashDrop;
+    const result = await fn(cwd, ref);
+    if (result.error) setStashError(result.error);
+    else { fetchStashes(); if (action !== "drop") git.refreshAll(); }
+  }, [cwd, fetchStashes, git]);
+
+  const handleCherryPick = useCallback(async () => {
+    if (!cwd || !cherryPickHash.trim()) return;
+    setCherryPickLoading(true);
+    setStashError(null);
+    try {
+      const result = await window.claude.git.cherryPick(cwd, cherryPickHash.trim());
+      if (result.error) setStashError(result.error);
+      else { setCherryPickHash(""); git.refreshAll(); }
+    } finally {
+      setCherryPickLoading(false);
+    }
+  }, [cwd, cherryPickHash, git]);
 
   if (!cwd) {
     return (
@@ -202,9 +274,23 @@ export const GitPanel = memo(function GitPanel({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
       <PanelHeader icon={GitBranchIcon} label="Source Control" iconClass="text-orange-600/70 dark:text-orange-200/50">
         {git.isLoading && <Loader2 className="h-3 w-3 animate-spin text-foreground/40" />}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 shrink-0 text-foreground/45 hover:text-foreground/70"
+              onClick={handleUndo}
+            >
+              <Undo2 className="h-3 w-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={4}>
+            <p className="text-xs">Undo Last Action</p>
+          </TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -267,7 +353,111 @@ export const GitPanel = memo(function GitPanel({
         </div>
       )}
 
-      {/* Scrollable list of all repos */}
+      {stashError && (
+        <div className="mx-3 mb-1.5 rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-600/90 dark:text-red-300/90">
+          {stashError}
+        </div>
+      )}
+
+      <div className="border-b border-foreground/[0.06]">
+        <button
+          type="button"
+          onClick={handleStashToggle}
+          className="flex w-full items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-foreground/[0.03] cursor-pointer"
+        >
+          {stashExpanded ? <ChevronDown className="h-3 w-3 shrink-0 text-foreground/45" /> : <ChevronRight className="h-3 w-3 shrink-0 text-foreground/45" />}
+          <Archive className="h-3 w-3 shrink-0 text-foreground/45" />
+          <span className="text-[11px] font-semibold text-foreground/60">Stashes</span>
+          {stashes.length > 0 && (
+            <span className="rounded-full bg-foreground/[0.07] px-1.5 py-px text-[10px] font-medium tabular-nums text-foreground/45">{stashes.length}</span>
+          )}
+          {stashLoading && <Loader2 className="ms-auto h-3 w-3 animate-spin text-foreground/40" />}
+        </button>
+        {stashExpanded && (
+          <div className="pb-1.5">
+            <div className="px-3 pb-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-full justify-start gap-1.5 text-[10px] text-foreground/60 hover:text-foreground/80"
+                onClick={handleStashSave}
+              >
+                <Archive className="h-3 w-3" />
+                Save Stash
+              </Button>
+            </div>
+            {stashes.length === 0 && !stashLoading && (
+              <p className="px-3 text-[10px] text-foreground/40">No stashes</p>
+            )}
+            {stashes.map((stash) => (
+              <div key={stash.ref} className="group flex items-center gap-1.5 px-3 py-[3px] text-[10px] transition-colors hover:bg-foreground/[0.03]">
+                <span className="shrink-0 rounded bg-foreground/[0.06] px-1 py-px font-mono text-[9px] text-foreground/50">{stash.ref}</span>
+                <span className="min-w-0 flex-1 truncate text-foreground/70">{stash.message}</span>
+                <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-5 w-5 text-foreground/40 hover:text-foreground/70" onClick={() => handleStashAction("apply", stash.ref)}>
+                        <Play className="h-2.5 w-2.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom"><p className="text-xs">Apply</p></TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-5 w-5 text-foreground/40 hover:text-foreground/70" onClick={() => handleStashAction("pop", stash.ref)}>
+                        <ArrowUpFromLine className="h-2.5 w-2.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom"><p className="text-xs">Pop</p></TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-5 w-5 text-foreground/40 hover:text-foreground/70" onClick={() => handleStashAction("drop", stash.ref)}>
+                        <Trash2 className="h-2.5 w-2.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom"><p className="text-xs">Drop</p></TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+            ))}
+            <div className="mt-1 flex items-center gap-1 px-3">
+              <input
+                type="text"
+                value={cherryPickHash}
+                onChange={(e) => setCherryPickHash(e.target.value)}
+                placeholder="Cherry-pick commit hash"
+                className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-2 font-mono text-[10px] text-foreground/85 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onKeyDown={(e) => { if (e.key === "Enter") handleCherryPick(); }}
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0 text-foreground/40 hover:text-foreground/70"
+                    onClick={handleCherryPick}
+                    disabled={!cherryPickHash.trim() || cherryPickLoading}
+                  >
+                    <GitCommitHorizontal className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom"><p className="text-xs">Cherry Pick</p></TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {cwd && (
+        <GitGraphSection
+          cwd={cwd}
+          expanded={graphExpanded}
+          onToggle={() => setGraphExpanded((p) => !p)}
+          onOpenFile={(filePath) => onOpenFileInWorkspace?.(`${cwd}/${filePath}`)}
+        />
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         {git.repoStates.length === 0 && git.isLoading && (
           <div className="flex flex-col items-center justify-center gap-2 py-8">
@@ -339,7 +529,7 @@ export const GitPanel = memo(function GitPanel({
                 type="text"
                 value={createWorktreePath}
                 onChange={(e) => setCreateWorktreePath(e.target.value)}
-                placeholder="../repo-feature-my-work"
+                placeholder=".harnss/worktrees/feature-my-work"
                 className="h-8 w-full rounded border border-input bg-background px-2 text-xs text-foreground/85 outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>

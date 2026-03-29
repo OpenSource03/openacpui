@@ -11,7 +11,7 @@ export function formatCompactSummary(message: UIMessage): string {
   const result = message.toolResult;
   const filePathFromResult = extractResultFilePath(result);
   if (!input) {
-    return filePathFromResult ? filePathFromResult.split("/").pop() ?? filePathFromResult : "";
+    return filePathFromResult ?? "";
   }
 
   // Plan mode tools — extract plan title from markdown heading
@@ -69,8 +69,8 @@ export function formatCompactSummary(message: UIMessage): string {
   if (input.file_path && patchPaths.length > 1) {
     return `${patchPaths.length} files`;
   }
-  if (input.file_path) return String(input.file_path).split("/").pop() ?? "";
-  if (filePathFromResult) return filePathFromResult.split("/").pop() ?? filePathFromResult;
+  if (input.file_path) return String(input.file_path);
+  if (filePathFromResult) return filePathFromResult;
   if (input.pattern) {
     const pat = String(input.pattern);
     const glob = input.glob ? ` in ${String(input.glob)}` : "";

@@ -12,6 +12,8 @@ import {
   Users,
   BarChart3,
   PanelLeft,
+  Globe,
+  Scan,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,13 +26,17 @@ import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
 import { AboutSettings } from "@/components/settings/AboutSettings";
 import { AnalyticsSettings } from "@/components/settings/AnalyticsSettings";
+import { WebSearchSettings } from "@/components/settings/WebSearchSettings";
+import { CrawlerSettings } from "@/components/settings/CrawlerSettings";
+import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { isMac } from "@/lib/utils";
 import type { InstalledAgent, ThemeOption } from "@/types";
 import type { AppSettings } from "@/types/ui";
+import { useEditorTheme } from "@/hooks/useEditorTheme";
 
 // ── Section definitions ──
 
-type SettingsSection = "general" | "appearance" | "notifications" | "analytics" | "agents" | "mcp" | "engines" | "skills" | "custom-agents" | "advanced" | "about";
+type SettingsSection = "general" | "appearance" | "notifications" | "analytics" | "agents" | "mcp" | "engines" | "web-search" | "crawler" | "skills" | "custom-agents" | "advanced" | "about";
 
 interface NavItem {
   id: SettingsSection;
@@ -48,7 +54,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: "agents", label: "ACP Agents", icon: Bot },
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "engines", label: "Engines", icon: Cpu },
-  { id: "skills", label: "Skills", icon: Sparkles, comingSoon: true },
+  { id: "web-search", label: "Web Search", icon: Globe },
+  { id: "crawler", label: "Crawler", icon: Scan },
+  { id: "skills", label: "Skills", icon: Sparkles },
   { id: "custom-agents", label: "Agents", icon: Users, comingSoon: true },
   { id: "advanced", label: "Advanced", icon: Wrench },
   { id: "about", label: "About", icon: Info },
@@ -82,6 +90,8 @@ interface SettingsViewProps {
   onToggleSidebar?: () => void;
   /** Resets the welcome wizard so it shows again. Dev-only. */
   onReplayWelcome: () => void;
+  projectId?: string | null;
+  projectPath?: string | null;
 }
 
 // ── Component ──
@@ -111,9 +121,12 @@ export const SettingsView = memo(function SettingsView({
   sidebarOpen = false,
   onToggleSidebar,
   onReplayWelcome,
+  projectId,
+  projectPath,
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const macIslandTitlebarOffsetClass = "";
+  const { currentThemeId, setTheme: setEditorTheme } = useEditorTheme();
 
   // ── Main-process app settings (loaded once, updated optimistically) ──
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -153,6 +166,8 @@ export const SettingsView = memo(function SettingsView({
           <AppearanceSettings
             theme={theme}
             onThemeChange={onThemeChange}
+            editorThemeId={currentThemeId}
+            onEditorThemeChange={setEditorTheme}
             islandLayout={islandLayout}
             onIslandLayoutChange={onIslandLayoutChange}
             autoGroupTools={autoGroupTools}
@@ -193,7 +208,7 @@ export const SettingsView = memo(function SettingsView({
           />
         );
       case "mcp":
-        return <McpSettings />;
+        return <McpSettings projectId={projectId ?? null} />;
       case "engines":
         return (
           <AdvancedSettings
@@ -201,6 +216,20 @@ export const SettingsView = memo(function SettingsView({
             onUpdateAppSettings={updateAppSettings}
             section="engines"
             onReplayWelcome={onReplayWelcome}
+          />
+        );
+      case "web-search":
+        return (
+          <WebSearchSettings
+            appSettings={appSettings}
+            onUpdateAppSettings={updateAppSettings}
+          />
+        );
+      case "crawler":
+        return (
+          <CrawlerSettings
+            appSettings={appSettings}
+            onUpdateAppSettings={updateAppSettings}
           />
         );
       case "advanced":
@@ -213,14 +242,7 @@ export const SettingsView = memo(function SettingsView({
           />
         );
       case "skills":
-        return (
-          <PlaceholderSection
-            title="Skills"
-            description="Create, install, and manage agent skills that extend what your AI coding agents can do."
-            icon={Sparkles}
-            comingSoon
-          />
-        );
+        return <SkillsSettings projectPath={projectPath} />;
       case "custom-agents":
         return (
           <PlaceholderSection

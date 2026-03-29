@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Terminal as TerminalIcon, Plus, X, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TerminalTab } from "@/hooks/useSpaceTerminals";
@@ -76,7 +76,7 @@ interface ToolsPanelProps {
   resolvedTheme: ResolvedTheme;
 }
 
-export function ToolsPanel({
+export const ToolsPanel = memo(function ToolsPanel({
   spaceId,
   tabs,
   activeTabId,
@@ -212,7 +212,7 @@ export function ToolsPanel({
       )}
     </div>
   );
-}
+});
 
 function TerminalInstance({
   terminalId,

@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type FormEvent } from "react";
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type FormEvent } from "react";
 import type { GrabbedElement } from "@/types/ui";
 import { getInspectorScript, getCleanupScript, GRAB_MARKER } from "@/lib/element-inspector";
 import { capture } from "@/lib/analytics";
@@ -96,7 +96,7 @@ const BrowserHeaderIcon = forwardRef<SVGSVGElement, React.ComponentPropsWithoutR
   ),
 );
 
-export function BrowserPanel({ onElementGrab }: BrowserPanelProps) {
+export const BrowserPanel = memo(function BrowserPanel({ onElementGrab }: BrowserPanelProps) {
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [inspectMode, setInspectMode] = useState(false);
@@ -303,7 +303,7 @@ export function BrowserPanel({ onElementGrab }: BrowserPanelProps) {
       </div>
     </div>
   );
-}
+});
 
 function BrowserStartPage({
   input,

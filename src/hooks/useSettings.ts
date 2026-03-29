@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ToolId } from "@/components/ToolPicker";
 import type { AcpPermissionBehavior, ClaudeEffort, EngineId, ThemeOption } from "@/types";
 
+export type WorkspaceMode = "chat" | "code" | "both";
+
 // ── Helpers ──
 
 function readJson<T>(key: string, fallback: T): T {
@@ -57,6 +59,10 @@ const DEFAULT_TOOLS_PANEL = 420;
 const MIN_SPLIT = 0.2;
 const MAX_SPLIT = 0.8;
 const DEFAULT_SPLIT = 0.5;
+const MIN_WORKSPACE_SPLIT = 0.3;
+const MAX_WORKSPACE_SPLIT = 0.7;
+const DEFAULT_WORKSPACE_SPLIT = 0.56;
+const DEFAULT_WORKSPACE_MODE: WorkspaceMode = "both";
 
 const DEFAULT_MODEL = "claude-opus-4-6";
 const DEFAULT_PERMISSION_MODE = "default";
@@ -66,13 +72,16 @@ const DEFAULT_ENGINE_MODELS: Record<EngineId, string> = {
   claude: DEFAULT_MODEL,
   acp: "",
   codex: "",
+  openclaw: "",
+  ollama: "",
+  group: "",
 };
 
 const MIN_BOTTOM_HEIGHT = 120;
 const MAX_BOTTOM_HEIGHT = 600;
 const DEFAULT_BOTTOM_HEIGHT = 250;
 
-const DEFAULT_TOOL_ORDER: ToolId[] = ["terminal", "git", "browser", "files", "project-files", "mcp"];
+const DEFAULT_TOOL_ORDER: ToolId[] = ["terminal", "git", "browser", "project-files", "mcp", "skills", "groups", "executions", "search"];
 const VALID_TOOL_IDS = new Set<ToolId>([
   "terminal",
   "browser",
@@ -82,6 +91,10 @@ const VALID_TOOL_IDS = new Set<ToolId>([
   "tasks",
   "agents",
   "mcp",
+  "skills",
+  "groups",
+  "executions",
+  "search",
 ]);
 
 // ── Hook ──
@@ -156,6 +169,21 @@ export interface Settings {
   bottomToolsSplitRatios: number[];
   setBottomToolsSplitRatios: (r: number[]) => void;
   saveBottomToolsSplitRatios: () => void;
+  /** Whether split-chat mode is active (two chat panes side by side) */
+  splitMode: boolean;
+  setSplitMode: (on: boolean) => void;
+  /** Fractional width of the left chat pane when split mode is active (0.2–0.8) */
+  chatSplitRatio: number;
+  setChatSplitRatio: (r: number) => void;
+  saveChatSplitRatio: () => void;
+  /** Working directory / worktree path for chat pane 1 (right pane) */
+  pane1GitCwd: string | null;
+  setPane1GitCwd: (path: string | null) => void;
+  workspaceMode: WorkspaceMode;
+  setWorkspaceMode: (mode: WorkspaceMode) => void;
+  /** Fractional width for chat in both mode (0.3–0.7) */
+  workspaceSplitRatio: number;
+  setWorkspaceSplitRatio: (r: number) => void;
 }
 
 /** Read toolsSplitRatios, with migration from the old single-ratio key */
@@ -182,10 +210,12 @@ function readToolsSplitRatios(pid: string): number[] {
 
 /** Ensure toolOrder contains all known panel tools (filling in any missing ones) */
 function readToolOrder(pid: string): ToolId[] {
-  const stored = readJson<ToolId[]>(`harnss-${pid}-tool-order`, []).filter((id) => VALID_TOOL_IDS.has(id));
+  const stored: ToolId[] = readJson<ToolId[]>(`harnss-${pid}-tool-order`, [])
+    .filter((id) => VALID_TOOL_IDS.has(id))
+    .filter((id) => id !== "files");
   if (stored.length === 0) return [...DEFAULT_TOOL_ORDER];
   // Ensure all default tools appear (append any missing ones)
-  const set = new Set(stored);
+  const set = new Set<ToolId>(stored);
   const result = [...stored];
   for (const id of DEFAULT_TOOL_ORDER) {
     if (!set.has(id)) result.push(id);
@@ -230,6 +260,9 @@ function readEngineModels(pid: string): Record<EngineId, string> {
     claude: readModelForEngine(pid, "claude"),
     acp: readModelForEngine(pid, "acp"),
     codex: readModelForEngine(pid, "codex"),
+    openclaw: readModelForEngine(pid, "openclaw"),
+    ollama: readModelForEngine(pid, "ollama"),
+    group: "",
   };
 }
 
@@ -277,6 +310,15 @@ function writeProjectLayoutState(pid: string, next: ProjectLayoutState): void {
 
 export function useSettings(projectId: string | null, engine: EngineId = "claude"): Settings {
   const pid = projectId ?? "__none__";
+
+  const normalizeToolIds = useCallback((items: ToolId[]) => {
+    const next = new Set<ToolId>();
+    for (const item of items) {
+      if (!VALID_TOOL_IDS.has(item)) continue;
+      next.add(item === "files" ? "project-files" : item);
+    }
+    return [...next];
+  }, []);
 
   // ── Global settings ──
 
@@ -451,8 +493,8 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
   );
 
   const [activeTools, setActiveToolsRaw] = useState<Set<ToolId>>(() => {
-    const arr = readJson<ToolId[]>(`harnss-${pid}-active-tools`, []).filter((id) => VALID_TOOL_IDS.has(id));
-    return new Set(arr);
+    const arr = normalizeToolIds(readJson<ToolId[]>(`harnss-${pid}-active-tools`, []));
+    return new Set<ToolId>(arr);
   });
   const setActiveTools = useCallback(
     (updater: Set<ToolId> | ((prev: Set<ToolId>) => Set<ToolId>)) => {
@@ -610,8 +652,8 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
   // ── Bottom tools placement ──
 
   const [bottomTools, setBottomToolsRaw] = useState<Set<ToolId>>(() => {
-    const arr = readJson<ToolId[]>(`harnss-${pid}-bottom-tools`, []).filter((id) => VALID_TOOL_IDS.has(id));
-    return new Set(arr);
+    const arr = normalizeToolIds(readJson<ToolId[]>(`harnss-${pid}-bottom-tools`, []));
+    return new Set<ToolId>(arr);
   });
   const moveToolToBottom = useCallback(
     (id: ToolId) => {
@@ -669,14 +711,86 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     localStorage.setItem(`harnss-${pid}-bottom-tools-split-ratios`, JSON.stringify(bottomToolsSplitRatiosRef.current));
   }, [pid]);
 
+  // ── Split chat settings ──
+
+  const [splitMode, setSplitModeRaw] = useState(() =>
+    readBool(`harnss-${pid}-split-mode`, false),
+  );
+  const setSplitMode = useCallback(
+    (on: boolean) => {
+      setSplitModeRaw(on);
+      localStorage.setItem(`harnss-${pid}-split-mode`, String(on));
+    },
+    [pid],
+  );
+
+  const [chatSplitRatio, setChatSplitRatioRaw] = useState(() =>
+    readNumber(`harnss-${pid}-chat-split-ratio`, DEFAULT_SPLIT, MIN_SPLIT, MAX_SPLIT),
+  );
+  const setChatSplitRatio = useCallback(
+    (r: number) => {
+      const clamped = Math.max(MIN_SPLIT, Math.min(MAX_SPLIT, r));
+      setChatSplitRatioRaw(clamped);
+    },
+    [],
+  );
+  const chatSplitRatioRef = useRef(chatSplitRatio);
+  chatSplitRatioRef.current = chatSplitRatio;
+  const saveChatSplitRatio = useCallback(() => {
+    localStorage.setItem(`harnss-${pid}-chat-split-ratio`, String(chatSplitRatioRef.current));
+  }, [pid]);
+
+  const [pane1GitCwd, setPane1GitCwdRaw] = useState<string | null>(() =>
+    localStorage.getItem(`harnss-${pid}-pane1-git-cwd`),
+  );
+  const setPane1GitCwd = useCallback(
+    (nextPath: string | null) => {
+      setPane1GitCwdRaw(nextPath);
+      const key = `harnss-${pid}-pane1-git-cwd`;
+      if (nextPath && nextPath.trim()) localStorage.setItem(key, nextPath.trim());
+      else localStorage.removeItem(key);
+    },
+    [pid],
+  );
+
+  const [workspaceMode, setWorkspaceModeRaw] = useState<WorkspaceMode>(() => {
+    const stored = localStorage.getItem(`harnss-${pid}-workspace-mode`);
+    if (stored === "chat" || stored === "code" || stored === "both") return stored;
+    return DEFAULT_WORKSPACE_MODE;
+  });
+  const setWorkspaceMode = useCallback(
+    (mode: WorkspaceMode) => {
+      setWorkspaceModeRaw(mode);
+      localStorage.setItem(`harnss-${pid}-workspace-mode`, mode);
+    },
+    [pid],
+  );
+
+  const [workspaceSplitRatio, setWorkspaceSplitRatioRaw] = useState(() =>
+    readNumber(
+      `harnss-${pid}-workspace-split-ratio`,
+      DEFAULT_WORKSPACE_SPLIT,
+      MIN_WORKSPACE_SPLIT,
+      MAX_WORKSPACE_SPLIT,
+    ),
+  );
+  const setWorkspaceSplitRatio = useCallback(
+    (r: number) => {
+      const clamped = Math.max(MIN_WORKSPACE_SPLIT, Math.min(MAX_WORKSPACE_SPLIT, r));
+      setWorkspaceSplitRatioRaw(clamped);
+      localStorage.setItem(`harnss-${pid}-workspace-split-ratio`, String(clamped));
+    },
+    [pid],
+  );
+
   // ── Re-read per-project values when projectId changes ──
 
   useEffect(() => {
     setModelsByEngineRaw(readEngineModels(pid));
     setGitCwdRaw(localStorage.getItem(`harnss-${pid}-git-cwd`));
 
-    const tools = readJson<ToolId[]>(`harnss-${pid}-active-tools`, []);
-    setActiveToolsRaw(new Set(tools));
+    const tools = normalizeToolIds(readJson<ToolId[]>(`harnss-${pid}-active-tools`, []));
+    setActiveToolsRaw(new Set<ToolId>(tools));
     setToolOrderRaw(readToolOrder(pid));
 
     const repos = readJson<string[]>(`harnss-${pid}-collapsed-repos`, []);
@@ -685,9 +799,27 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     const suppressed = readJson<ToolId[]>(`harnss-${pid}-suppressed-panels`, []);
     setSuppressedPanels(new Set(suppressed));
 
-    const bottom = readJson<ToolId[]>(`harnss-${pid}-bottom-tools`, []).filter((id) => VALID_TOOL_IDS.has(id as ToolId));
-    setBottomToolsRaw(new Set(bottom));
-  }, [pid]);
+    const bottom = normalizeToolIds(readJson<ToolId[]>(`harnss-${pid}-bottom-tools`, []));
+    setBottomToolsRaw(new Set<ToolId>(bottom));
+
+    setSplitModeRaw(readBool(`harnss-${pid}-split-mode`, false));
+    setChatSplitRatioRaw(readNumber(`harnss-${pid}-chat-split-ratio`, DEFAULT_SPLIT, MIN_SPLIT, MAX_SPLIT));
+    setPane1GitCwdRaw(localStorage.getItem(`harnss-${pid}-pane1-git-cwd`));
+    const nextWorkspaceMode = localStorage.getItem(`harnss-${pid}-workspace-mode`);
+    if (nextWorkspaceMode === "chat" || nextWorkspaceMode === "code" || nextWorkspaceMode === "both") {
+      setWorkspaceModeRaw(nextWorkspaceMode);
+    } else {
+      setWorkspaceModeRaw(DEFAULT_WORKSPACE_MODE);
+    }
+    setWorkspaceSplitRatioRaw(
+      readNumber(
+        `harnss-${pid}-workspace-split-ratio`,
+        DEFAULT_WORKSPACE_SPLIT,
+        MIN_WORKSPACE_SPLIT,
+        MAX_WORKSPACE_SPLIT,
+      ),
+    );
+  }, [normalizeToolIds, pid]);
 
   return {
     theme,
@@ -752,5 +884,16 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     bottomToolsSplitRatios,
     setBottomToolsSplitRatios,
     saveBottomToolsSplitRatios,
+    splitMode,
+    setSplitMode,
+    chatSplitRatio,
+    setChatSplitRatio,
+    saveChatSplitRatio,
+    pane1GitCwd,
+    setPane1GitCwd,
+    workspaceMode,
+    setWorkspaceMode,
+    workspaceSplitRatio,
+    setWorkspaceSplitRatio,
   };
 }

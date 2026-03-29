@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { Terminal, Globe, GitBranch, FileText, FolderTree, ListTodo, Bot, Plug, SquareArrowOutUpRight, ArrowDown, ArrowRight } from "lucide-react";
+import { Terminal, Globe, GitBranch, FolderTree, ListTodo, Bot, Plug, Users, SquareArrowOutUpRight, ArrowDown, ArrowRight, Play, Search, Sparkles } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export type ToolId = "terminal" | "browser" | "git" | "files" | "project-files" | "tasks" | "agents" | "mcp";
+export type ToolId = "terminal" | "browser" | "git" | "files" | "project-files" | "tasks" | "agents" | "mcp" | "groups" | "executions" | "search" | "skills";
 
 /** SVG circular progress ring that wraps the tool icon button. */
 function ToolProgressRing({ progress, isComplete, size }: { progress: number; isComplete: boolean; size: number }) {
@@ -58,11 +58,14 @@ const TOOL_TINTS: Record<string, { idle: string; hover: string; active: string }
   terminal:        { idle: "text-emerald-600/70 dark:text-emerald-200/50",  hover: "hover:text-emerald-600/90 dark:hover:text-emerald-200/70",  active: "text-emerald-600 dark:text-emerald-200/90" },
   browser:         { idle: "text-sky-600/70 dark:text-sky-200/50",          hover: "hover:text-sky-600/90 dark:hover:text-sky-200/70",          active: "text-sky-600 dark:text-sky-200/90" },
   git:             { idle: "text-orange-600/70 dark:text-orange-200/50",    hover: "hover:text-orange-600/90 dark:hover:text-orange-200/70",    active: "text-orange-600 dark:text-orange-200/90" },
-  files:           { idle: "text-amber-600/70 dark:text-amber-200/50",      hover: "hover:text-amber-600/90 dark:hover:text-amber-200/70",     active: "text-amber-600 dark:text-amber-200/90" },
   "project-files": { idle: "text-teal-600/70 dark:text-teal-200/50",       hover: "hover:text-teal-600/90 dark:hover:text-teal-200/70",       active: "text-teal-600 dark:text-teal-200/90" },
   mcp:             { idle: "text-violet-600/70 dark:text-violet-200/50",    hover: "hover:text-violet-600/90 dark:hover:text-violet-200/70",   active: "text-violet-600 dark:text-violet-200/90" },
   tasks:           { idle: "text-blue-600/70 dark:text-blue-200/50",        hover: "hover:text-blue-600/90 dark:hover:text-blue-200/70",       active: "text-blue-600 dark:text-blue-200/90" },
   agents:          { idle: "text-indigo-600/70 dark:text-indigo-200/50",    hover: "hover:text-indigo-600/90 dark:hover:text-indigo-200/70",   active: "text-indigo-600 dark:text-indigo-200/90" },
+  groups:          { idle: "text-pink-600/70 dark:text-pink-200/50",      hover: "hover:text-pink-600/90 dark:hover:text-pink-200/70",      active: "text-pink-600 dark:text-pink-200/90" },
+  executions:      { idle: "text-amber-600/70 dark:text-amber-200/50",    hover: "hover:text-amber-600/90 dark:hover:text-amber-200/70",   active: "text-amber-600 dark:text-amber-200/90" },
+  search:          { idle: "text-cyan-600/70 dark:text-cyan-200/50",      hover: "hover:text-cyan-600/90 dark:hover:text-cyan-200/70",     active: "text-cyan-600 dark:text-cyan-200/90" },
+  skills:          { idle: "text-yellow-600/70 dark:text-yellow-200/50",  hover: "hover:text-yellow-600/90 dark:hover:text-yellow-200/70", active: "text-yellow-600 dark:text-yellow-200/90" },
 };
 
 interface ToolDef {
@@ -71,13 +74,16 @@ interface ToolDef {
   icon: typeof Terminal;
 }
 
-const PANEL_TOOLS_MAP: Record<string, ToolDef> = {
+export const PANEL_TOOLS_MAP: Record<string, ToolDef> = {
   terminal: { id: "terminal", label: "Terminal", icon: Terminal },
   browser: { id: "browser", label: "Browser", icon: Globe },
   git: { id: "git", label: "Source Control", icon: GitBranch },
-  files: { id: "files", label: "Open Files", icon: FileText },
-  "project-files": { id: "project-files", label: "Project Files", icon: FolderTree },
+  "project-files": { id: "project-files", label: "Files", icon: FolderTree },
   mcp: { id: "mcp", label: "MCP Servers", icon: Plug },
+  groups: { id: "groups", label: "Agent Groups", icon: Users },
+  executions: { id: "executions", label: "Executions", icon: Play },
+  search: { id: "search", label: "Search", icon: Search },
+  skills: { id: "skills", label: "Skills", icon: Sparkles },
 };
 
 /** Tool IDs that render in the tools column (not contextual right-panel tools). */

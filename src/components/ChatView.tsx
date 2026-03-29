@@ -138,6 +138,7 @@ interface ChatMessageRowProps {
   onFullRevert?: (checkpointId: string) => void;
   onSendQueuedNow?: (messageId: string) => void;
   onUnqueueQueuedMessage?: (messageId: string) => void;
+  activeSlots?: Map<string, { label: string; color: string; activity: "typing" | "thinking" | "tool" }>;
 }
 
 const ChatMessageRow = memo(function ChatMessageRow({
@@ -151,8 +152,28 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onFullRevert,
   onSendQueuedNow,
   onUnqueueQueuedMessage,
+  activeSlots,
 }: ChatMessageRowProps) {
   if (row.kind === "processing") {
+    if (activeSlots && activeSlots.size > 0) {
+      return (
+        <div className="flex flex-col gap-1 px-4 py-1.5">
+          {[...activeSlots.entries()].map(([slotId, slot]) => (
+            <div key={slotId} className="flex items-center gap-1.5">
+              <div
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                style={{ backgroundColor: slot.color }}
+              >
+                {slot.label[0].toUpperCase()}
+              </div>
+              <TextShimmer as="span" className="text-xs italic opacity-60" duration={1.8} spread={1.5}>
+                {slot.activity === "thinking" ? `${slot.label} is thinking...` : `${slot.label} is typing...`}
+              </TextShimmer>
+            </div>
+          ))}
+        </div>
+      );
+    }
     return (
       <div className="flex justify-start px-4 py-1.5">
         <div className="flex items-center gap-1.5 text-xs">
@@ -234,7 +255,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   prev.onRevert === next.onRevert &&
   prev.onFullRevert === next.onFullRevert &&
   prev.onSendQueuedNow === next.onSendQueuedNow &&
-  prev.onUnqueueQueuedMessage === next.onUnqueueQueuedMessage,
+  prev.onUnqueueQueuedMessage === next.onUnqueueQueuedMessage &&
+  prev.activeSlots === next.activeSlots,
 );
 
 // ── ChatViewProps ──
@@ -259,6 +281,8 @@ interface ChatViewProps {
   agents?: InstalledAgent[];
   selectedAgent?: InstalledAgent | null;
   onAgentChange?: (agent: InstalledAgent | null) => void;
+  onScrolledFromTop?: (scrolled: boolean) => void;
+  activeSlots?: Map<string, { label: string; color: string; activity: "typing" | "thinking" | "tool" }>;
   /** Current space ID — included in remount key so space switches show spinner immediately */
   spaceId?: string;
 }
@@ -344,12 +368,13 @@ function ChatViewContent({
   messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits,
   autoExpandTools, extraBottomPadding, scrollToMessageId, onScrolledToMessage,
   sessionId, onRevert, onFullRevert, onTopScrollProgress,
-  onSendQueuedNow, onUnqueueQueuedMessage, sendNextId,
+  onSendQueuedNow, onUnqueueQueuedMessage, sendNextId, activeSlots,
 }: ChatViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // ── Scroll state (refs, not state — rerender-use-ref-transient-values) ──
   const bottomLockedRef = useRef(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // ── Deferred mount: show spinner for one frame, then render content ──
   // Prevents UI freeze on session/space switch by deferring heavy work.
@@ -696,14 +721,12 @@ function ChatViewContent({
       const hasRecentUserIntent = Date.now() <= userScrollIntentRef.current;
       if (shouldUnlockBottomLock({ scrollTop, scrollHeight, clientHeight, hasRecentUserIntent, threshold: BOTTOM_LOCK_THRESHOLD_PX })) {
         bottomLockedRef.current = false;
+        setShowScrollButton(true);
         return;
       }
-      // Only re-lock when the USER actively scrolls to the bottom (has recent intent).
-      // Without the intent check, programmatic scrollHeight changes during hydration
-      // can place the user within the threshold and re-lock, causing forced scroll-to-bottom
-      // that fights with the user trying to scroll up.
       if (hasRecentUserIntent && isWithinBottomLockThreshold({ scrollTop, scrollHeight, clientHeight }, BOTTOM_LOCK_THRESHOLD_PX)) {
         bottomLockedRef.current = true;
+        setShowScrollButton(false);
       }
     });
   }, [publishTopProgress]);
@@ -761,6 +784,7 @@ function ChatViewContent({
     userScrollIntentRef.current = 0;
     lastTopProgressRef.current = -1;
     lastRowCountRef.current = 0;
+    setShowScrollButton(false);
     // Scroll immediately — useLayoutEffect fires before browser paints,
     // so setting scrollTop here prevents any visible flicker at scrollTop=0.
     const el = scrollContainerRef.current;
@@ -834,7 +858,7 @@ function ChatViewContent({
     <ChatUiStateProvider>
       <div
         ref={scrollContainerRef}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="relative min-h-0 flex-1 overflow-y-auto"
         style={{ overscrollBehaviorY: "contain" }}
         onScroll={handleScroll}
         onPointerDown={markUserIntent}
@@ -858,10 +882,30 @@ function ChatViewContent({
                 onFullRevert={onFullRevert}
                 onSendQueuedNow={onSendQueuedNow}
                 onUnqueueQueuedMessage={onUnqueueQueuedMessage}
+                activeSlots={activeSlots}
               />
             </div>
           ))}
         </div>
+        {showScrollButton && (
+          <button
+            onClick={() => {
+              const el = scrollContainerRef.current;
+              if (el) {
+                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                bottomLockedRef.current = true;
+                userScrollIntentRef.current = 0;
+                setShowScrollButton(false);
+              }
+            }}
+            className="sticky bottom-4 left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-foreground/10 bg-background/80 text-foreground/60 shadow-lg backdrop-blur-sm transition-all hover:bg-background hover:text-foreground"
+            aria-label="Scroll to bottom"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 2v10M3 8l4 4 4-4" />
+            </svg>
+          </button>
+        )}
       </div>
     </ChatUiStateProvider>
   );
