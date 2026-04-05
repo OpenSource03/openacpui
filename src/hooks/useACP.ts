@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { ImageAttachment, AcpPermissionBehavior, AppPermissionBehavior, SessionMeta, SlashCommand } from "@/types";
 import type {
+  ImageAttachment,
+  AcpPermissionBehavior,
+  AppPermissionBehavior,
+  BackgroundSessionSnapshot,
+  SlashCommand,
   ACPSessionEvent,
   ACPPermissionEvent,
   ACPTurnCompleteEvent,
   ACPConfigOption,
   ACPAvailableCommandsUpdate,
   ACPAuthMethod,
-} from "@/types/acp";
-import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, mergeToolInput, pickAutoResponseOption } from "@/lib/acp-adapter";
-import { extractTaskSubagentSteps, getTaskStatus, isTaskToolName } from "@/lib/acp-task-adapter";
+} from "@/types";
+import { ACPStreamingBuffer, normalizeToolInput, normalizeToolResult, deriveToolName, mergeToolInput, pickAutoResponseOption } from "@/lib/engine/acp-adapter";
+import { extractTaskSubagentSteps, getTaskStatus, isTaskToolName } from "@/lib/engine/acp-task-adapter";
 import { suppressNextSessionCompletion } from "@/lib/notification-utils";
-import { captureException } from "@/lib/analytics";
+import { captureException } from "@/lib/analytics/analytics";
+import { createSystemMessage, createUserMessage, nextId } from "@/lib/message-factory";
 import { useEngineBase } from "./useEngineBase";
 
 interface UseACPOptions {
@@ -20,7 +25,7 @@ interface UseACPOptions {
   initialMessages?: import("@/types").UIMessage[];
   initialConfigOptions?: ACPConfigOption[];
   initialSlashCommands?: SlashCommand[];
-  initialMeta?: SessionMeta | null;
+  initialMeta?: BackgroundSessionSnapshot | null;
   /** Restore a pending permission when switching back to this session */
   initialPermission?: import("@/types").PermissionRequest | null;
   /** Restore the raw ACP permission event (needed for optionId lookup) */
@@ -32,10 +37,6 @@ interface UseACPOptions {
 /** Renderer-side ACP log — forwarded to main process log file as [ACP_UI:TAG] */
 function acpLog(label: string, data: unknown): void {
   window.claude.acp.log(label, data);
-}
-
-function nextAcpId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 export function useACP({ sessionId, initialMessages, initialConfigOptions, initialSlashCommands, initialMeta, initialPermission, initialRawAcpPermission, acpPermissionBehavior }: UseACPOptions) {
@@ -115,19 +116,13 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   const pushSystemError = useCallback((content: string) => {
     setMessages((prev) => [
       ...prev,
-      {
-        id: nextAcpId("system-acp-error"),
-        role: "system",
-        content,
-        isError: true,
-        timestamp: Date.now(),
-      },
+      createSystemMessage(content, true),
     ]);
   }, [setMessages]);
 
   const ensureStreamingMessage = useCallback(() => {
     if (buffer.current.messageId) return;
-    const id = nextAcpId("stream");
+    const id = nextId("stream");
     buffer.current.messageId = id;
     acpLog("MSG_START", { id });
     setMessages(prev => [...prev, {
@@ -495,13 +490,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
         const errorDetail = data.error || `Agent process exited with code ${data.code}`;
         setMessages((prev) => [
           ...prev,
-          {
-            id: nextAcpId("system-exit"),
-            role: "system",
-            content: errorDetail,
-            isError: true,
-            timestamp: Date.now(),
-          },
+          createSystemMessage(errorDetail, true),
         ]);
       }
     });
@@ -515,14 +504,7 @@ export function useACP({ sessionId, initialMessages, initialConfigOptions, initi
   const send = useCallback(async (text: string, images?: ImageAttachment[], displayText?: string) => {
     if (!sessionId) return;
     acpLog("SEND", { session: sessionId.slice(0, 8), textLen: text.length, images: images?.length ?? 0 });
-    setMessages(prev => [...prev, {
-      id: nextAcpId("user"),
-      role: "user" as const,
-      content: text,
-      images,
-      timestamp: Date.now(),
-      ...(displayText ? { displayContent: displayText } : {}),
-    }]);
+    setMessages(prev => [...prev, createUserMessage(text, images, displayText)]);
     setIsProcessing(true);
     try {
       const result = await window.claude.acp.prompt(sessionId, text, images);

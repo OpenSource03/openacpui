@@ -7,10 +7,11 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { PANEL_TOOLS_MAP, type ToolId } from "@/components/ToolPicker";
-import type { ToolDragState, ToolIsland, ToolIslandDock, TopRowItem } from "@/types/tool-islands";
+import { PANEL_TOOLS_MAP } from "@/components/ToolPicker";
+import type { ToolId } from "@/types/tools";
+import type { ToolDragState, ToolIsland, ToolIslandDock, TopRowItem } from "@/types";
 
-export type { ToolDragState } from "@/types/tool-islands";
+export type { ToolDragState } from "@/types";
 
 // ── Workspace interface that both splitView and mainToolWorkspace satisfy ──
 

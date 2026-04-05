@@ -16,7 +16,7 @@ import {
   computeFilePanelData,
   getCachedFilePanelData,
   type FilePanelData,
-} from "@/lib/session-derived-data";
+} from "@/lib/session/derived-data";
 import type { EngineId, UIMessage } from "@/types";
 
 interface FilesPanelProps {

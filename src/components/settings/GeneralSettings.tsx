@@ -2,8 +2,8 @@ import { memo, useState, useCallback, useEffect } from "react";
 import { Download, MessageSquare, Code, Mic } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingRow, SettingsSelect } from "@/components/settings/shared";
-import type { AppSettings, PreferredEditor, VoiceDictationMode } from "@/types/ui";
+import { SettingRow, SettingsSelect, SettingsHeader, SettingsSection } from "@/components/settings/shared";
+import type { AppSettings, PreferredEditor, VoiceDictationMode } from "@/types";
 
 interface GeneralSettingsProps {
   appSettings: AppSettings | null;
@@ -66,25 +66,12 @@ export const GeneralSettings = memo(function GeneralSettings({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-foreground/[0.06] px-6 py-4">
-        <h2 className="text-base font-semibold text-foreground">General</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Application-wide preferences
-        </p>
-      </div>
+      <SettingsHeader title="General" description="Application-wide preferences" />
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-6 py-2">
           {/* ── Updates section ── */}
-          <div className="py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Download className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Updates
-              </span>
-            </div>
-
+          <SettingsSection icon={Download} label="Updates" first>
             <SettingRow
               label="Include pre-release updates"
               description="Receive beta versions with the latest features. Disable to only get stable releases."
@@ -94,17 +81,10 @@ export const GeneralSettings = memo(function GeneralSettings({
                 onCheckedChange={handleTogglePrerelease}
               />
             </SettingRow>
-          </div>
+          </SettingsSection>
 
           {/* ── Sidebar section ── */}
-          <div className="border-t border-foreground/[0.04] py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Sidebar
-              </span>
-            </div>
-
+          <SettingsSection icon={MessageSquare} label="Sidebar">
             <SettingRow
               label="Recent chats per project"
               description="Number of chats shown by default in each project. Click 'Show more' in the sidebar to load additional chats."
@@ -115,24 +95,17 @@ export const GeneralSettings = memo(function GeneralSettings({
                 options={[5, 10, 15, 20, 25, 30, 50, 100].map((n) => ({ value: String(n), label: String(n) }))}
               />
             </SettingRow>
-          </div>
+          </SettingsSection>
 
           {/* ── Editor section ── */}
-          <div className="border-t border-foreground/[0.04] py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Code className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Editor
-              </span>
-            </div>
-
+          <SettingsSection icon={Code} label="Editor">
             <SettingRow
               label="Default editor"
               description="Choose which editor opens when you click 'Open in Editor'. Auto tries Cursor, VS Code, then Zed."
             >
               <SettingsSelect
                 value={preferredEditor}
-                onValueChange={(v) => handleEditorChange(v as PreferredEditor)}
+                onValueChange={handleEditorChange}
                 options={[
                   { value: "auto", label: "Auto" },
                   { value: "cursor", label: "Cursor" },
@@ -141,31 +114,24 @@ export const GeneralSettings = memo(function GeneralSettings({
                 ]}
               />
             </SettingRow>
-          </div>
+          </SettingsSection>
 
           {/* ── Voice Dictation section ── */}
-          <div className="border-t border-foreground/[0.04] py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Mic className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Voice Dictation
-              </span>
-            </div>
-
+          <SettingsSection icon={Mic} label="Voice Dictation">
             <SettingRow
               label="Dictation mode"
               description="Native uses your OS dictation (macOS only). Whisper runs a local AI model for speech-to-text on all platforms (~40 MB download on first use)."
             >
               <SettingsSelect
                 value={voiceDictation}
-                onValueChange={(v) => handleVoiceDictationChange(v as VoiceDictationMode)}
+                onValueChange={handleVoiceDictationChange}
                 options={[
                   { value: "native", label: "Native (OS)" },
                   { value: "whisper", label: "Whisper (Local AI)" },
                 ]}
               />
             </SettingRow>
-          </div>
+          </SettingsSection>
         </div>
       </ScrollArea>
     </div>

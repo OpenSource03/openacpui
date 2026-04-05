@@ -15,11 +15,7 @@ interface GitPanelProps {
   cwd?: string;
   collapsedRepos?: Set<string>;
   onToggleRepoCollapsed?: (path: string) => void;
-  selectedWorktreePath?: string | null;
-  onSelectWorktreePath?: (path: string | null) => void;
-  /** Active session engine — used to route commit message generation */
   activeEngine?: EngineId;
-  /** Active session ID — used for ACP utility prompts */
   activeSessionId?: string | null;
   headerControls?: React.ReactNode;
 }

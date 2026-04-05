@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearSidebarDragPayload, getSidebarDragPayload } from "@/lib/sidebar-dnd";
+import { clearSidebarDragPayload, getSidebarDragPayload } from "@/lib/sidebar/dnd";
 
 export interface SplitDragState {
   /** Whether a valid session is being dragged over the chat area. */

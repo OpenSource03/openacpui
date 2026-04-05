@@ -1,7 +1,6 @@
-import type { ChatSession, UIMessage, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, ModelInfo, AcpPermissionBehavior, EngineId, Project, SlashCommand, ClaudeEffort, ContextUsage } from "../../types";
-import type { ACPConfigOption, ACPPermissionEvent } from "../../types/acp";
-import type { BackgroundSessionStore } from "../../lib/background-session-store";
-import { permissionModeToCodexPolicy, permissionModeToCodexSandbox } from "../../lib/codex-adapter";
+import type { ChatSession, UIMessage, SessionInfo, PermissionRequest, ImageAttachment, McpServerStatus, ModelInfo, AcpPermissionBehavior, EngineId, Project, SlashCommand, ClaudeEffort, ContextUsage, ACPConfigOption, ACPPermissionEvent } from "@/types";
+import type { BackgroundSessionStore } from "../../lib/background/session-store";
+import { permissionModeToCodexPolicy, permissionModeToCodexSandbox } from "../../lib/engine/codex-adapter";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 
 export const DRAFT_ID = "__draft__";

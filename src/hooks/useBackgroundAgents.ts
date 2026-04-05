@@ -1,5 +1,5 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import { bgAgentStore } from "@/lib/background-agent-store";
+import { bgAgentStore } from "@/lib/background/agent-store";
 import type { BackgroundAgent } from "@/types";
 
 const EMPTY: BackgroundAgent[] = [];

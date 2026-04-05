@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GitRepoInfo } from "@/types";
+import { discoverReposCached } from "@/lib/git/discover-repos-cache";
 
 export interface WorktreeChip {
   path: string;
@@ -33,7 +33,7 @@ export function useWorktreeChips(projectPath: string | undefined) {
 
     try {
       const [repos, setupResult] = await Promise.all([
-        window.claude.git.discoverRepos(scopePath) as Promise<GitRepoInfo[]>,
+        discoverReposCached(scopePath),
         window.claude.readFile(`${scopePath}/${WORKTREE_SETUP_PATH}`),
       ]);
 
@@ -63,11 +63,8 @@ export function useWorktreeChips(projectPath: string | undefined) {
       const chips = await Promise.all(
         reposToShow.map(async (repo) => {
           try {
-            const status = await window.claude.git.status(repo.path);
-            const branch =
-              status && "branch" in status && typeof status.branch === "string"
-                ? status.branch
-                : "HEAD";
+            const result = await window.claude.git.status(repo.path);
+            const branch = "error" in result ? "HEAD" : result.branch;
             return {
               path: repo.path,
               name: repo.name,

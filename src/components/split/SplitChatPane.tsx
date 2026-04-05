@@ -15,7 +15,8 @@ import { motion } from "motion/react";
 import type { ChatSession, EngineId, InstalledAgent, TodoItem, BackgroundAgent } from "@/types";
 import type { SessionPaneState } from "@/hooks/session/useSessionPane";
 import { usePaneController, type PaneControllerContext } from "@/hooks/usePaneController";
-import type { ToolId } from "@/components/ToolPicker";
+import { useSettingsStore } from "@/stores/settings-store";
+import type { ToolId } from "@/types/tools";
 import { ChatHeader } from "@/components/ChatHeader";
 import { ChatView } from "@/components/ChatView";
 import { BottomComposer } from "@/components/BottomComposer";
@@ -23,8 +24,8 @@ import { TodoPanel } from "@/components/TodoPanel";
 import { BackgroundAgentsPanel } from "@/components/BackgroundAgentsPanel";
 import { SplitPaneToolStrip } from "@/components/split/SplitPaneToolStrip";
 import type { CodexModelSummary } from "@/hooks/session/types";
-import type { GrabbedElement } from "@/types/ui";
-import { MIN_CHAT_WIDTH_SPLIT } from "@/lib/layout-constants";
+import type { GrabbedElement } from "@/types";
+import { MIN_CHAT_WIDTH_SPLIT } from "@/lib/layout/constants";
 import type { SplitViewState } from "@/hooks/useSplitView";
 
 export interface SplitChatPaneProps {
@@ -53,12 +54,6 @@ export interface SplitChatPaneProps {
 
   // Chat settings
   showThinking: boolean;
-  autoGroupTools: boolean;
-  avoidGroupingEdits: boolean;
-  autoExpandTools: boolean;
-  expandEditToolCallsByDefault: boolean;
-  showToolIcons: boolean;
-  coloredToolIcons: boolean;
   acpPermissionBehavior: "ask" | "auto_accept" | "allow_all";
   onAcpPermissionBehaviorChange: (behavior: "ask" | "auto_accept" | "allow_all") => void;
 
@@ -141,12 +136,6 @@ function SplitChatPaneInner({
   sidebarOpen,
   onToggleSidebar,
   showThinking,
-  autoGroupTools,
-  avoidGroupingEdits,
-  autoExpandTools,
-  expandEditToolCallsByDefault,
-  showToolIcons,
-  coloredToolIcons,
   acpPermissionBehavior,
   onAcpPermissionBehaviorChange,
   agents,
@@ -179,6 +168,9 @@ function SplitChatPaneInner({
   onChatPaneDrop,
   paneRef,
 }: SplitChatPaneProps) {
+  // ── Display preferences from Zustand store ──
+  const expandEditToolCallsByDefault = useSettingsStore((s) => s.expandEditToolCallsByDefault);
+
   // Build the pane controller inside the component (uses usePaneController hook)
   const paneController = usePaneController(
     sessionId,
@@ -252,20 +244,11 @@ function SplitChatPaneInner({
             messages={paneState.messages}
             isProcessing={paneState.isProcessing}
             showThinking={showThinking}
-            autoGroupTools={autoGroupTools}
-            avoidGroupingEdits={avoidGroupingEdits}
-            autoExpandTools={autoExpandTools}
-            expandEditToolCallsByDefault={expandEditToolCallsByDefault}
-            showToolIcons={showToolIcons}
-            coloredToolIcons={coloredToolIcons}
             extraBottomPadding={!!paneState.pendingPermission}
             sessionId={sessionId}
             onRevert={onRevert}
             onFullRevert={onFullRevert}
             onTopScrollProgress={onTopScrollProgress}
-            agents={agents}
-            selectedAgent={paneController.selectedPaneAgent}
-            onAgentChange={paneController.handlePaneAgentChange}
           />
           <div
             className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
@@ -313,7 +296,6 @@ function SplitChatPaneInner({
               selectedWorktreePath={selectedWorktreePath}
               onSelectWorktree={isActiveSessionPane ? onSelectWorktree : undefined}
               isEmptySession={paneState.messages.length === 0}
-              isIslandLayout={isIsland}
             />
           </div>
         </div>

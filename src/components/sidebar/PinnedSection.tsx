@@ -1,7 +1,8 @@
 import type { ChatFolder, ChatSession, InstalledAgent } from "@/types";
-import type { SidebarItem } from "@/lib/sidebar-grouping";
+import type { FolderSidebarItem } from "@/lib/sidebar/grouping";
 import { SessionItem } from "./SessionItem";
 import { FolderSection } from "./FolderSection";
+import { useSidebarActions } from "./SidebarActionsContext";
 
 export function PinnedSection({
   sessions,
@@ -9,74 +10,62 @@ export function PinnedSection({
   activeSessionId,
   islandLayout,
   folders,
-  onSelectSession,
-  onDeleteSession,
-  onRenameSession,
-  onPinSession,
-  onMoveSessionToFolder,
-  onPinFolder,
-  onRenameFolder,
-  onDeleteFolder,
   agents,
-  onOpenInSplitView,
-  canOpenSessionInSplitView,
 }: {
   sessions: ChatSession[];
-  pinnedFolders?: SidebarItem[];
+  pinnedFolders?: FolderSidebarItem[];
   activeSessionId: string | null;
   islandLayout: boolean;
   folders: ChatFolder[];
-  onSelectSession: (id: string) => void;
-  onDeleteSession: (id: string) => void;
-  onRenameSession: (id: string, title: string) => void;
-  onPinSession: (id: string, pinned: boolean) => void;
-  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
-  onPinFolder: (projectId: string, folderId: string, pinned: boolean) => void;
-  onRenameFolder: (projectId: string, folderId: string, name: string) => void;
-  onDeleteFolder: (projectId: string, folderId: string) => void;
   agents?: InstalledAgent[];
-  onOpenInSplitView?: (sessionId: string) => void;
-  canOpenSessionInSplitView?: (sessionId: string) => boolean;
 }) {
+  const {
+    selectSession,
+    deleteSession,
+    renameSession,
+    pinSession,
+    moveSessionToFolder,
+    pinFolder,
+    renameFolder,
+    deleteFolder,
+    openInSplitView,
+    canOpenSessionInSplitView,
+  } = useSidebarActions();
   if (sessions.length === 0 && (!pinnedFolders || pinnedFolders.length === 0)) return null;
 
   return (
     <div className="mb-2">
-      {pinnedFolders?.map((item) => item.folder && (
-        <FolderSection
-          key={`folder-${item.folder.id}`}
-          folder={item.folder}
-          sessions={item.sessions}
-          activeSessionId={activeSessionId}
-          islandLayout={islandLayout}
-          allFolders={folders}
-          onSelectSession={onSelectSession}
-          onDeleteSession={onDeleteSession}
-          onRenameSession={onRenameSession}
-          onPinSession={onPinSession}
-          onMoveSessionToFolder={onMoveSessionToFolder}
-          onPinFolder={(pinned) => onPinFolder(item.folder!.projectId, item.folder!.id, pinned)}
-          onRenameFolder={(name) => onRenameFolder(item.folder!.projectId, item.folder!.id, name)}
-          onDeleteFolder={() => onDeleteFolder(item.folder!.projectId, item.folder!.id)}
-          agents={agents}
-          onOpenInSplitView={onOpenInSplitView}
-          canOpenSessionInSplitView={canOpenSessionInSplitView}
-        />
-      ))}
+      {pinnedFolders?.map((item) => {
+        const { folder } = item;
+        return (
+          <FolderSection
+            key={`folder-${folder.id}`}
+            folder={folder}
+            sessions={item.sessions}
+            activeSessionId={activeSessionId}
+            islandLayout={islandLayout}
+            allFolders={folders}
+            onPinFolder={(pinned) => pinFolder(folder.projectId, folder.id, pinned)}
+            onRenameFolder={(name) => renameFolder(folder.projectId, folder.id, name)}
+            onDeleteFolder={() => deleteFolder(folder.projectId, folder.id)}
+            agents={agents}
+          />
+        );
+      })}
       {sessions.map((session) => (
         <SessionItem
           key={session.id}
           islandLayout={islandLayout}
           session={session}
           isActive={session.id === activeSessionId}
-          onSelect={() => onSelectSession(session.id)}
-          onDelete={() => onDeleteSession(session.id)}
-          onRename={(title) => onRenameSession(session.id, title)}
-          onPinToggle={() => onPinSession(session.id, false)}
+          onSelect={() => selectSession(session.id)}
+          onDelete={() => deleteSession(session.id)}
+          onRename={(title) => renameSession(session.id, title)}
+          onPinToggle={() => pinSession(session.id, false)}
           folders={folders}
-          onMoveToFolder={(folderId) => onMoveSessionToFolder(session.id, folderId)}
+          onMoveToFolder={(folderId) => moveSessionToFolder(session.id, folderId)}
           agents={agents}
-          onOpenInSplitView={onOpenInSplitView ? () => onOpenInSplitView(session.id) : undefined}
+          onOpenInSplitView={openInSplitView ? () => openInSplitView(session.id) : undefined}
           canOpenInSplitView={canOpenSessionInSplitView?.(session.id) ?? true}
         />
       ))}

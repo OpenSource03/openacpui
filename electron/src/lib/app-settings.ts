@@ -11,62 +11,10 @@
 import path from "path";
 import fs from "fs";
 import { getDataDir } from "./data-dir";
+import type { AppSettings, NotificationSettings } from "@shared/types/settings";
 
-// ── Schema ──
-
-export type PreferredEditor = "auto" | "cursor" | "code" | "zed";
-export type VoiceDictationMode = "native" | "whisper";
-export type NotificationTrigger = "always" | "unfocused" | "never";
-export type CodexBinarySource = "auto" | "managed" | "custom";
-export type ClaudeBinarySource = "auto" | "managed" | "custom";
-export type MacBackgroundEffect = "liquid-glass" | "vibrancy" | "off";
-
-export interface NotificationEventSettings {
-  osNotification: NotificationTrigger;
-  sound: NotificationTrigger;
-}
-
-export interface NotificationSettings {
-  exitPlanMode: NotificationEventSettings;
-  permissions: NotificationEventSettings;
-  askUserQuestion: NotificationEventSettings;
-  sessionComplete: NotificationEventSettings;
-}
-
-export interface AppSettings {
-  /** Include pre-release versions when checking for updates (default: false) */
-  allowPrereleaseUpdates: boolean;
-  /** Number of recent chats to show per project in the sidebar (default: 10) */
-  defaultChatLimit: number;
-  /** Preferred code editor for "Open in Editor" actions (default: "auto" = try cursor → code → zed) */
-  preferredEditor: PreferredEditor;
-  /** Voice dictation mode: "native" uses OS dictation, "whisper" uses local AI model (default: "native") */
-  voiceDictation: VoiceDictationMode;
-  /** Per-event notification and sound configuration */
-  notifications: NotificationSettings;
-  /** Custom client name sent to Codex servers during handshake (default: "Harnss") */
-  codexClientName: string;
-  /** Which Codex binary source to use: auto-detect, managed download, or custom path */
-  codexBinarySource: CodexBinarySource;
-  /** Absolute path used when codexBinarySource is "custom" */
-  codexCustomBinaryPath: string;
-  /** Which Claude binary source to use: auto-detect, managed native install, or custom path */
-  claudeBinarySource: ClaudeBinarySource;
-  /** Absolute path used when claudeBinarySource is "custom" */
-  claudeCustomBinaryPath: string;
-  /** Show developer-only "Dev Fill" button in chat title bar (local dev builds only) */
-  showDevFillInChatTitleBar: boolean;
-  /** Show the Jira board UI in the sidebar and main panel (developer preview, default: false) */
-  showJiraBoard: boolean;
-  /** Preferred native macOS background material when window transparency is enabled */
-  macBackgroundEffect: MacBackgroundEffect;
-  /** Enable anonymous analytics to help improve the app (default: true) */
-  analyticsEnabled: boolean;
-  /** Anonymous user ID for analytics (auto-generated) */
-  analyticsUserId?: string;
-  /** Last date (YYYY-MM-DD) when daily_active_user was sent, to deduplicate across restarts */
-  analyticsLastDailyActiveDate?: string;
-}
+// Re-export shared types so existing `import from "./app-settings"` consumers still work
+export type { AppSettings, MacBackgroundEffect, PreferredEditor, VoiceDictationMode, NotificationTrigger, NotificationEventSettings, NotificationSettings, CodexBinarySource, ClaudeBinarySource } from "@shared/types/settings";
 
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
   exitPlanMode: { osNotification: "unfocused", sound: "always" },

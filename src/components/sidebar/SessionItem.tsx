@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from "react";
+import { useCallback } from "react";
+import { useInlineRename } from "@/hooks/useInlineRename";
 import {
   Columns2,
   Pencil,
@@ -27,7 +28,8 @@ import { getSessionEngineIcon } from "@/lib/engine-icons";
 import {
   writeSidebarDragPayload,
   clearSidebarDragPayload,
-} from "@/lib/sidebar-dnd";
+} from "@/lib/sidebar/dnd";
+import { useContextMenuPosition } from "@/hooks/useContextMenuPosition";
 
 export function SessionItem({
   session,
@@ -59,20 +61,15 @@ export function SessionItem({
   onOpenInSplitView?: () => void;
   canOpenInSplitView?: boolean;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(session.title);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuAlign, setMenuAlign] = useState<"start" | "end">("end");
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
-  const rowRef = useRef<HTMLDivElement>(null);
-
-  const handleRename = () => {
-    const trimmed = editTitle.trim();
-    if (trimmed && trimmed !== session.title) {
-      onRename(trimmed);
-    }
-    setIsEditing(false);
-  };
+  const { isEditing, startEditing, inputProps: renameInputProps } = useInlineRename({
+    initialName: session.title,
+    onRename,
+  });
+  const {
+    menuOpen, menuAlign, setMenuOpen,
+    handleContextMenu, handleMenuButtonClick,
+    triggerStyle, containerRef,
+  } = useContextMenuPosition();
 
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
@@ -89,41 +86,11 @@ export function SessionItem({
     clearSidebarDragPayload();
   }, []);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const rowRect = rowRef.current?.getBoundingClientRect();
-    setMenuPos({
-      x: rowRect ? e.clientX - rowRect.left : 0,
-      y: rowRect ? e.clientY - rowRect.top : 0,
-    });
-    setMenuAlign("start");
-    setMenuOpen(true);
-  }, []);
-
-  const handleMenuButtonClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    const rowRect = rowRef.current?.getBoundingClientRect();
-    const buttonRect = e.currentTarget.getBoundingClientRect();
-    setMenuPos({
-      x: rowRect ? buttonRect.right - rowRect.left : 0,
-      y: rowRect ? buttonRect.bottom - rowRect.top : 0,
-    });
-    setMenuAlign("end");
-    setMenuOpen(true);
-  }, []);
-
   if (isEditing) {
     return (
       <div className="flex items-center gap-1 px-1 ps-2">
         <input
-          autoFocus
-          value={editTitle}
-          onChange={(e) => setEditTitle(e.target.value)}
-          onBlur={handleRename}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleRename();
-            if (e.key === "Escape") setIsEditing(false);
-          }}
+          {...renameInputProps}
           className="flex-1 rounded-lg bg-black/5 px-2 py-1 text-[13px] text-sidebar-foreground outline-none ring-1 ring-sidebar-ring dark:bg-white/5"
         />
       </div>
@@ -134,7 +101,7 @@ export function SessionItem({
 
   return (
     <div
-      ref={rowRef}
+      ref={containerRef}
       className="group relative"
       draggable
       onDragStart={handleDragStart}
@@ -201,16 +168,7 @@ export function SessionItem({
 
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <span
-            style={{
-              position: "absolute",
-              left: menuPos.x,
-              top: menuPos.y,
-              width: 0,
-              height: 0,
-              pointerEvents: "none",
-            }}
-          />
+          <span style={triggerStyle} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align={menuAlign} side="bottom" sideOffset={6} className="w-44">
           {/* Pin / Unpin */}
@@ -268,12 +226,7 @@ export function SessionItem({
             </DropdownMenuItem>
           )}
 
-          <DropdownMenuItem
-            onClick={() => {
-              setEditTitle(session.title);
-              setIsEditing(true);
-            }}
-          >
+          <DropdownMenuItem onClick={startEditing}>
             <Pencil className="me-2 h-3.5 w-3.5" />
             Rename
           </DropdownMenuItem>

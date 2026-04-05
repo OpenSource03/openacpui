@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { UIMessage } from "@/types";
-import { parseUnifiedDiffFromUnknown } from "@/lib/unified-diff";
+import { parseUnifiedDiffFromUnknown } from "@/lib/diff/unified-diff";
 import { DiffViewer } from "@/components/DiffViewer";
 import { UnifiedPatchViewer } from "@/components/UnifiedPatchViewer";
 import { firstDefinedString } from "@/components/lib/tool-formatting";
@@ -10,7 +10,7 @@ import {
   filterValidPatches,
   isMultiFileStructuredPatch,
   type StructuredPatchEntry,
-} from "@/lib/patch-utils";
+} from "@/lib/diff/patch-utils";
 import { GenericContent } from "./GenericContent";
 
 // ── Multi-file rendering (Codex fileChange with N > 1 changes) ──

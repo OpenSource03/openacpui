@@ -1,18 +1,19 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useState, startTransition, memo, type PointerEvent as ReactPointerEvent } from "react";
 import { motion } from "motion/react";
 import { Loader2, Minus } from "lucide-react";
-import type { InstalledAgent, UIMessage } from "@/types";
+import type { UIMessage } from "@/types";
 import { AgentIcon } from "./AgentIcon";
 import { getAgentIcon } from "@/lib/engine-icons";
+import { useAgentContext } from "./AgentContext";
 import { MessageBubble } from "./MessageBubble";
 import { SummaryBlock } from "./SummaryBlock";
 import { ToolCall } from "./ToolCall";
 import { ToolGroupBlock } from "./ToolGroupBlock";
 import { TurnChangesSummary } from "./TurnChangesSummary";
-import { extractTurnSummaries } from "@/lib/turn-changes";
-import type { TurnSummary } from "@/lib/turn-changes";
-import { computeToolGroups, type ToolGroup, type ToolGroupInfo } from "@/lib/tool-groups";
-import { computeAssistantTurnDividerLabels } from "@/lib/assistant-turn-divider";
+import { extractTurnSummaries } from "@/lib/chat/turn-changes";
+import type { TurnSummary } from "@/lib/chat/turn-changes";
+import { computeToolGroups, type ToolGroup, type ToolGroupInfo } from "@/lib/workspace/tool-groups";
+import { computeAssistantTurnDividerLabels } from "@/lib/chat/assistant-turn-divider";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import { ChatUiStateProvider } from "@/components/chat-ui-state";
 import {
@@ -21,9 +22,10 @@ import {
   getTopScrollProgress,
   isWithinBottomLockThreshold,
   shouldUnlockBottomLock,
-} from "@/lib/chat-scroll";
-import { estimateRowHeight } from "@/lib/chat-virtualization";
+} from "@/lib/chat/scroll";
+import { estimateRowHeight } from "@/lib/chat/virtualization";
 import { CHAT_ROW_CLASS } from "@/components/lib/chat-layout";
+import { useSettingsStore } from "@/stores/settings-store";
 
 // ── Row model ──
 
@@ -132,10 +134,6 @@ function canReuseRowDescriptor(previous: RowDescriptor | undefined, next: RowDes
 interface ChatMessageRowProps {
   row: RowDescriptor;
   showThinking: boolean;
-  autoExpandTools: boolean;
-  expandEditToolCallsByDefault: boolean;
-  showToolIcons: boolean;
-  coloredToolIcons: boolean;
   animatingGroupKeys: Set<string>;
   assistantTurnDividerLabels: Map<string, string>;
   continuationIds: Set<string>;
@@ -149,10 +147,6 @@ interface ChatMessageRowProps {
 const ChatMessageRow = memo(function ChatMessageRow({
   row,
   showThinking,
-  autoExpandTools,
-  expandEditToolCallsByDefault,
-  showToolIcons,
-  coloredToolIcons,
   animatingGroupKeys,
   assistantTurnDividerLabels,
   continuationIds,
@@ -162,6 +156,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onSendQueuedNow,
   onUnqueueQueuedMessage,
 }: ChatMessageRowProps) {
+  // ── Display preferences from Zustand store ──
+  const autoExpandTools = useSettingsStore((s) => s.autoExpandTools);
+  const expandEditToolCallsByDefault = useSettingsStore((s) => s.expandEditToolCallsByDefault);
+  const showToolIcons = useSettingsStore((s) => s.showToolIcons);
+  const coloredToolIcons = useSettingsStore((s) => s.coloredToolIcons);
   if (row.kind === "processing") {
     return (
       <div className={`flex justify-start ${CHAT_ROW_CLASS}`}>
@@ -244,10 +243,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
 }, (prev, next) =>
   prev.row === next.row &&
   prev.showThinking === next.showThinking &&
-  prev.autoExpandTools === next.autoExpandTools &&
-  prev.expandEditToolCallsByDefault === next.expandEditToolCallsByDefault &&
-  prev.showToolIcons === next.showToolIcons &&
-  prev.coloredToolIcons === next.coloredToolIcons &&
   prev.animatingGroupKeys === next.animatingGroupKeys &&
   prev.assistantTurnDividerLabels === next.assistantTurnDividerLabels &&
   prev.continuationIds === next.continuationIds &&
@@ -264,12 +259,6 @@ interface ChatViewProps {
   messages: UIMessage[];
   isProcessing: boolean;
   showThinking: boolean;
-  autoGroupTools: boolean;
-  avoidGroupingEdits: boolean;
-  autoExpandTools: boolean;
-  expandEditToolCallsByDefault: boolean;
-  showToolIcons: boolean;
-  coloredToolIcons: boolean;
   extraBottomPadding?: boolean;
   scrollToMessageId?: string;
   onScrolledToMessage?: () => void;
@@ -280,9 +269,6 @@ interface ChatViewProps {
   onSendQueuedNow?: (messageId: string) => void;
   onUnqueueQueuedMessage?: (messageId: string) => void;
   sendNextId?: string | null;
-  agents?: InstalledAgent[];
-  selectedAgent?: InstalledAgent | null;
-  onAgentChange?: (agent: InstalledAgent | null) => void;
   /** Current space ID — included in remount key so space switches show spinner immediately */
   spaceId?: string;
 }
@@ -290,10 +276,11 @@ interface ChatViewProps {
 // ── ChatView (outer, handles empty state) ──
 
 export const ChatView = memo(function ChatView(props: ChatViewProps) {
-  const { messages, agents, selectedAgent, onAgentChange } = props;
+  const { messages } = props;
+  const { agents, selectedAgent, handleAgentChange } = useAgentContext();
 
   if (messages.length === 0) {
-    const showAgentPicker = agents && agents.length > 1 && onAgentChange;
+    const showAgentPicker = agents.length > 1;
 
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -334,7 +321,7 @@ export const ChatView = memo(function ChatView(props: ChatViewProps) {
                   <button
                     key={agent.id}
                     title={agent.name}
-                    onClick={() => onAgentChange(agent.engine === "claude" ? null : agent)}
+                    onClick={() => handleAgentChange(agent.engine === "claude" ? null : agent)}
                     className={`rounded-full p-2 transition-all ${
                       isSelected
                         ? "bg-foreground/[0.06] ring-1 ring-foreground/[0.08] scale-110"
@@ -365,11 +352,13 @@ export const ChatView = memo(function ChatView(props: ChatViewProps) {
 // ── ChatViewContent (inner, module-level) ──
 
 function ChatViewContent({
-  messages, isProcessing, showThinking, autoGroupTools, avoidGroupingEdits,
-  autoExpandTools, expandEditToolCallsByDefault, showToolIcons, coloredToolIcons, extraBottomPadding, scrollToMessageId, onScrolledToMessage,
+  messages, isProcessing, showThinking, extraBottomPadding, scrollToMessageId, onScrolledToMessage,
   sessionId, onRevert, onFullRevert, onTopScrollProgress,
   onSendQueuedNow, onUnqueueQueuedMessage, sendNextId,
 }: ChatViewProps) {
+  // ── Display preferences from Zustand store (only those used directly in ChatViewContent) ──
+  const autoGroupTools = useSettingsStore((s) => s.autoGroupTools);
+  const avoidGroupingEdits = useSettingsStore((s) => s.avoidGroupingEdits);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // ── Scroll state (refs, not state — rerender-use-ref-transient-values) ──
@@ -389,9 +378,11 @@ function ChatViewContent({
   const userScrollIntentRef = useRef(0);
   const scrollRafPending = useRef(false);
   const cachedRowsByKeyRef = useRef<Map<string, RowDescriptor>>(new Map());
-  // Store callback in ref to avoid effect re-subscriptions (advanced-event-handler-refs)
+  // Store callbacks in refs to avoid effect re-subscriptions (advanced-event-handler-refs)
   const onTopScrollProgressRef = useRef(onTopScrollProgress);
   onTopScrollProgressRef.current = onTopScrollProgress;
+  const onScrolledToMessageRef = useRef(onScrolledToMessage);
+  onScrolledToMessageRef.current = onScrolledToMessage;
   const lastTopProgressRef = useRef(-1);
   const bottomPadding = useMemo(() => {
     const fallbackPadding = extraBottomPadding ? CHAT_EXTRA_BOTTOM_PADDING_PX : CHAT_BOTTOM_PADDING_PX;
@@ -445,71 +436,41 @@ function ChatViewContent({
     return ids;
   }, [nonQueuedMessages, queuedMessages]);
 
-  // ── Structural identity caching for expensive derived data ──
-  const prevMsgStructureRef = useRef<{ length: number; lastId: string | undefined; lastToolResultCount: number }>({ length: 0, lastId: undefined, lastToolResultCount: 0 });
-  const cachedTurnSummaryRef = useRef<Map<number, TurnSummary>>(new Map());
-  const cachedToolGroupsRef = useRef<ToolGroupInfo>(EMPTY_TOOL_GROUP_INFO);
-  const cachedAssistantTurnDividersRef = useRef<Map<string, string>>(new Map());
-  const prevIsProcessingRef = useRef(isProcessing);
-  const prevAutoGroupRef = useRef(autoGroupTools);
-  const prevAvoidEditRef = useRef(avoidGroupingEdits);
-
-  const msgStructure = useMemo(() => {
+  // ── Structural identity key for expensive derived data ──
+  // Primitive string key so useMemo can do stable dependency comparison.
+  // Recomputes turn summaries, divider labels, and tool groups only when
+  // message structure actually changes (new message, tool result arrives, processing toggles).
+  const structKey = useMemo(() => {
     let toolResultCount = 0;
     for (let i = nonQueuedMessages.length - 1; i >= Math.max(0, nonQueuedMessages.length - 10); i--) {
       if (nonQueuedMessages[i].role === "tool_call" && nonQueuedMessages[i].toolResult) toolResultCount++;
     }
-    return {
-      length: nonQueuedMessages.length,
-      lastId: nonQueuedMessages[nonQueuedMessages.length - 1]?.id,
-      lastToolResultCount: toolResultCount,
-    };
-  }, [nonQueuedMessages]);
-
-  const structureChanged =
-    msgStructure.length !== prevMsgStructureRef.current.length ||
-    msgStructure.lastId !== prevMsgStructureRef.current.lastId ||
-    msgStructure.lastToolResultCount !== prevMsgStructureRef.current.lastToolResultCount ||
-    isProcessing !== prevIsProcessingRef.current;
+    const lastId = nonQueuedMessages[nonQueuedMessages.length - 1]?.id ?? "";
+    return `${nonQueuedMessages.length}:${lastId}:${toolResultCount}:${isProcessing}`;
+  }, [nonQueuedMessages, isProcessing]);
 
   // ── Turn summaries (rerender-derived-state-no-effect) ──
   const turnSummaryByEndIndex = useMemo(() => {
-    if (!structureChanged && cachedTurnSummaryRef.current.size >= 0) {
-      if (prevMsgStructureRef.current.length > 0) return cachedTurnSummaryRef.current;
-    }
-    prevMsgStructureRef.current = msgStructure;
-    prevIsProcessingRef.current = isProcessing;
     const summaries = extractTurnSummaries(nonQueuedMessages, isProcessing);
     const map = new Map<number, TurnSummary>();
     for (const s of summaries) {
       map.set(s.endMessageIndex, s);
     }
-    cachedTurnSummaryRef.current = map;
     return map;
-  }, [nonQueuedMessages, isProcessing, structureChanged, msgStructure]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structKey]);
 
   const assistantTurnDividerLabels = useMemo(() => {
-    if (!structureChanged && cachedAssistantTurnDividersRef.current.size >= 0) {
-      return cachedAssistantTurnDividersRef.current;
-    }
-    const map = computeAssistantTurnDividerLabels(nonQueuedMessages, isProcessing);
-    cachedAssistantTurnDividersRef.current = map;
-    return map;
-  }, [nonQueuedMessages, isProcessing, structureChanged]);
+    return computeAssistantTurnDividerLabels(nonQueuedMessages, isProcessing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structKey]);
 
   // ── Tool groups (js-index-maps, js-set-map-lookups) ──
   const { groups: toolGroups, groupedIndices } = useMemo(() => {
     if (!autoGroupTools) return EMPTY_TOOL_GROUP_INFO;
-    const settingsChanged = autoGroupTools !== prevAutoGroupRef.current || avoidGroupingEdits !== prevAvoidEditRef.current;
-    prevAutoGroupRef.current = autoGroupTools;
-    prevAvoidEditRef.current = avoidGroupingEdits;
-    if (!structureChanged && !settingsChanged && cachedToolGroupsRef.current !== EMPTY_TOOL_GROUP_INFO) {
-      return cachedToolGroupsRef.current;
-    }
-    const result = computeToolGroups(nonQueuedMessages, isProcessing, avoidGroupingEdits);
-    cachedToolGroupsRef.current = result;
-    return result;
-  }, [autoGroupTools, avoidGroupingEdits, nonQueuedMessages, isProcessing, structureChanged]);
+    return computeToolGroups(nonQueuedMessages, isProcessing, avoidGroupingEdits);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structKey, autoGroupTools, avoidGroupingEdits]);
 
   // ── Tool group animation tracking ──
   const finalizedGroupKeys = useMemo(() => {
@@ -832,11 +793,11 @@ function ChatViewContent({
           el.classList.add("search-highlight");
           setTimeout(() => {
             el.classList.remove("search-highlight");
-            onScrolledToMessage?.();
+            onScrolledToMessageRef.current?.();
           }, 1500);
         }, 100);
       } else {
-        onScrolledToMessage?.();
+        onScrolledToMessageRef.current?.();
       }
     });
   }, [scrollToMessageId, effectiveHydratedFrom, rows]);
@@ -871,10 +832,6 @@ function ChatViewContent({
               <ChatMessageRow
                 row={row}
                 showThinking={showThinking}
-                autoExpandTools={autoExpandTools}
-                expandEditToolCallsByDefault={expandEditToolCallsByDefault}
-                showToolIcons={showToolIcons}
-                coloredToolIcons={coloredToolIcons}
                 animatingGroupKeys={animatingGroupKeys}
                 assistantTurnDividerLabels={assistantTurnDividerLabels}
                 continuationIds={continuationIds}

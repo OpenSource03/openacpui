@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { ArrowRight } from "lucide-react";
+import { useSettingsStore } from "@/stores/settings-store";
 import { PERMISSION_MODES, type ReadyStepProps } from "./shared";
 
 function themeLabel(theme: string): string {
@@ -16,10 +17,10 @@ function themeLabel(theme: string): string {
 }
 
 export function ReadyStep({
-  theme,
   permissionMode,
   onComplete,
 }: ReadyStepProps) {
+  const theme = useSettingsStore((s) => s.theme);
   const modeLabel =
     PERMISSION_MODES.find((m) => m.id === permissionMode)?.label ??
     permissionMode;

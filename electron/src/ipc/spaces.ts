@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import { getDataDir } from "../lib/data-dir";
-import { log } from "../lib/logger";
+import { reportError } from "../lib/error-utils";
 
 interface Space {
   id: string;
@@ -52,7 +52,7 @@ export function register(): void {
       }
       return spaces;
     } catch (err) {
-      log("SPACES:LIST_ERR", (err as Error).message);
+      reportError("SPACES:LIST_ERR", err);
       return [DEFAULT_SPACE];
     }
   });
@@ -62,8 +62,7 @@ export function register(): void {
       writeSpaces(spaces);
       return { ok: true };
     } catch (err) {
-      log("SPACES:SAVE_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      return { error: reportError("SPACES:SAVE_ERR", err) };
     }
   });
 }

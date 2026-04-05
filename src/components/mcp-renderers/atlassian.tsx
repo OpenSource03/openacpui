@@ -1,7 +1,9 @@
 import { BookOpen, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { isRecord } from "@/lib/utils";
 import { JiraIssueDetail, unwrapJiraIssues } from "./jira";
 import { stripHtml } from "./helpers";
+import { McpListHeader, McpEmptyState, MCP_ROW_CLASS } from "./shared";
 
 // ── Rovo Search results ──
 
@@ -21,18 +23,16 @@ interface RovoSearchData {
 function RovoSearchResultsView({ data }: { data: RovoSearchData }) {
   const results = data.results;
   if (!results || !Array.isArray(results) || results.length === 0) {
-    return <p className="text-foreground/40 py-2">No results found</p>;
+    return <McpEmptyState message="No results found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {results.length} result{results.length !== 1 ? "s" : ""}
-      </span>
+      <McpListHeader count={results.length} noun="result" />
       {results.map((r, i) => (
         <div
           key={r.id ?? i}
-          className="rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+          className={MCP_ROW_CLASS}
         >
           <div className="flex items-center gap-1.5">
             {r.type?.includes("issue") ? (
@@ -59,6 +59,7 @@ function RovoSearchResultsView({ data }: { data: RovoSearchData }) {
 }
 
 export function RovoSearchResults({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <RovoSearchResultsView data={data as RovoSearchData} />;
 }
 
@@ -109,6 +110,7 @@ function RovoFetchResultView({ data }: { data: RovoFetchData }) {
 }
 
 export function RovoFetchResult({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <RovoFetchResultView data={data as RovoFetchData} />;
 }
 
@@ -124,7 +126,7 @@ interface AtlassianResource {
 
 function AtlassianResourcesListView({ data }: { data: AtlassianResource[] }) {
   if (data.length === 0) {
-    return <p className="text-foreground/40 py-2">No accessible resources</p>;
+    return <McpEmptyState message="No accessible resources" />;
   }
 
   // Deduplicate by id (same site can appear twice with different scopes)
@@ -141,13 +143,11 @@ function AtlassianResourcesListView({ data }: { data: AtlassianResource[] }) {
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {byId.size} site{byId.size !== 1 ? "s" : ""}
-      </span>
+      <McpListHeader count={byId.size} noun="site" />
       {[...byId.values()].map(({ resource, allScopes }) => (
         <div
           key={resource.id ?? resource.name}
-          className="rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+          className={MCP_ROW_CLASS}
         >
           <div className="flex items-center gap-2">
             {resource.avatarUrl && (
@@ -174,5 +174,6 @@ function AtlassianResourcesListView({ data }: { data: AtlassianResource[] }) {
 }
 
 export function AtlassianResourcesList({ data }: { data: unknown }) {
+  if (!data || typeof data !== "object") return null;
   return <AtlassianResourcesListView data={Array.isArray(data) ? data as AtlassianResource[] : []} />;
 }

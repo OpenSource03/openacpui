@@ -5,7 +5,7 @@ import {
   getAvailableSlashCommands,
   getSlashCommandReplacement,
   isClearCommandText,
-} from "./InputBar";
+} from "./input-bar";
 
 describe("InputBar slash command helpers", () => {
   it("always includes the local clear command first", () => {

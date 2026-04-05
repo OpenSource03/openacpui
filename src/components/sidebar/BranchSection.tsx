@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { GitBranch, ChevronRight } from "lucide-react";
-import type { ChatFolder, ChatSession, InstalledAgent } from "@/types";
-import type { SidebarItem } from "@/lib/sidebar-grouping";
+import type { ChatFolder, InstalledAgent } from "@/types";
+import type { FolderSidebarItem, SessionSidebarItem } from "@/lib/sidebar/grouping";
 import { FolderSection } from "./FolderSection";
 import { SessionItem } from "./SessionItem";
+import { useSidebarActions } from "./SidebarActionsContext";
 
 export function BranchSection({
   branchName,
@@ -11,35 +12,27 @@ export function BranchSection({
   activeSessionId,
   islandLayout,
   allFolders,
-  onSelectSession,
-  onDeleteSession,
-  onRenameSession,
-  onPinSession,
-  onMoveSessionToFolder,
-  onPinFolder,
-  onRenameFolder,
-  onDeleteFolder,
   agents,
-  onOpenInSplitView,
-  canOpenSessionInSplitView,
 }: {
   branchName: string;
-  children: SidebarItem[];
+  children: Array<FolderSidebarItem | SessionSidebarItem>;
   activeSessionId: string | null;
   islandLayout: boolean;
   allFolders: ChatFolder[];
-  onSelectSession: (id: string) => void;
-  onDeleteSession: (id: string) => void;
-  onRenameSession: (id: string, title: string) => void;
-  onPinSession: (id: string, pinned: boolean) => void;
-  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
-  onPinFolder: (projectId: string, folderId: string, pinned: boolean) => void;
-  onRenameFolder: (projectId: string, folderId: string, name: string) => void;
-  onDeleteFolder: (projectId: string, folderId: string) => void;
   agents?: InstalledAgent[];
-  onOpenInSplitView?: (sessionId: string) => void;
-  canOpenSessionInSplitView?: (sessionId: string) => boolean;
 }) {
+  const {
+    selectSession,
+    deleteSession,
+    renameSession,
+    pinSession,
+    moveSessionToFolder,
+    pinFolder,
+    renameFolder,
+    deleteFolder,
+    openInSplitView,
+    canOpenSessionInSplitView,
+  } = useSidebarActions();
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -62,49 +55,41 @@ export function BranchSection({
       {expanded && (
         <div className="ms-2">
           {children.map((item) => {
-            if (item.type === "folder" && item.folder) {
+            if (item.type === "folder") {
+              const { folder } = item;
               return (
                 <FolderSection
-                  key={`folder-${item.folder.id}`}
-                  folder={item.folder}
+                  key={`folder-${folder.id}`}
+                  folder={folder}
                   sessions={item.sessions}
                   activeSessionId={activeSessionId}
                   islandLayout={islandLayout}
                   allFolders={allFolders}
-                  onSelectSession={onSelectSession}
-                  onDeleteSession={onDeleteSession}
-                  onRenameSession={onRenameSession}
-                  onPinSession={onPinSession}
-                  onMoveSessionToFolder={onMoveSessionToFolder}
-                  onPinFolder={(pinned) => onPinFolder(item.folder!.projectId, item.folder!.id, pinned)}
-                  onRenameFolder={(name) => onRenameFolder(item.folder!.projectId, item.folder!.id, name)}
-                  onDeleteFolder={() => onDeleteFolder(item.folder!.projectId, item.folder!.id)}
+                  onPinFolder={(pinned) => pinFolder(folder.projectId, folder.id, pinned)}
+                  onRenameFolder={(name) => renameFolder(folder.projectId, folder.id, name)}
+                  onDeleteFolder={() => deleteFolder(folder.projectId, folder.id)}
                   agents={agents}
-                  onOpenInSplitView={onOpenInSplitView}
-                  canOpenSessionInSplitView={canOpenSessionInSplitView}
                 />
               );
             }
-            if (item.type === "session" && item.session) {
-              return (
-                <SessionItem
-                  key={item.session.id}
-                  islandLayout={islandLayout}
-                  session={item.session}
-                  isActive={item.session.id === activeSessionId}
-                  onSelect={() => onSelectSession(item.session!.id)}
-                  onDelete={() => onDeleteSession(item.session!.id)}
-                  onRename={(title) => onRenameSession(item.session!.id, title)}
-                  onPinToggle={() => onPinSession(item.session!.id, !item.session!.pinned)}
-                  folders={allFolders}
-                  onMoveToFolder={(folderId) => onMoveSessionToFolder(item.session!.id, folderId)}
-                  agents={agents}
-                  onOpenInSplitView={onOpenInSplitView ? () => onOpenInSplitView(item.session!.id) : undefined}
-                  canOpenInSplitView={canOpenSessionInSplitView?.(item.session!.id) ?? true}
-                />
-              );
-            }
-            return null;
+            const { session } = item;
+            return (
+              <SessionItem
+                key={session.id}
+                islandLayout={islandLayout}
+                session={session}
+                isActive={session.id === activeSessionId}
+                onSelect={() => selectSession(session.id)}
+                onDelete={() => deleteSession(session.id)}
+                onRename={(title) => renameSession(session.id, title)}
+                onPinToggle={() => pinSession(session.id, !session.pinned)}
+                folders={allFolders}
+                onMoveToFolder={(folderId) => moveSessionToFolder(session.id, folderId)}
+                agents={agents}
+                onOpenInSplitView={openInSplitView ? () => openInSplitView(session.id) : undefined}
+                canOpenInSplitView={canOpenSessionInSplitView?.(session.id) ?? true}
+              />
+            );
           })}
         </div>
       )}

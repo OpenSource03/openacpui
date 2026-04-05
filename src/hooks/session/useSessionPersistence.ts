@@ -1,10 +1,9 @@
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import type { PersistedSession, ClaudeEvent, SystemInitEvent, EngineId } from "../../types";
+import type { PersistedSession, ClaudeEvent, SystemInitEvent, EngineId, ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent } from "@/types";
 import { toMcpStatusState } from "../../lib/mcp-utils";
-import { buildPersistedSession } from "../../lib/session-records";
-import type { ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent } from "../../types/acp";
-import { normalizeToolInput as acpNormalizeToolInput, pickAutoResponseOption } from "../../lib/acp-adapter";
+import { buildPersistedSession } from "../../lib/session/records";
+import { normalizeToolInput as acpNormalizeToolInput, pickAutoResponseOption } from "../../lib/engine/acp-adapter";
 import { DRAFT_ID } from "./types";
 import type { SharedSessionRefs, SharedSessionSetters, EngineHooks } from "./types";
 
@@ -284,6 +283,7 @@ export function useSessionPersistence({
             })),
           },
           toolUseId: data.itemId,
+          codexRpcId: data.rpcId,
         });
         return;
       }
@@ -294,6 +294,7 @@ export function useSessionPersistence({
         toolName: data.method.includes("commandExecution") ? "Bash" : "Edit",
         toolInput: {},
         toolUseId: data.itemId,
+        codexRpcId: data.rpcId,
       });
     });
 

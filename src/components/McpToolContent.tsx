@@ -1,6 +1,5 @@
 import { memo } from "react";
-import type { UIMessage } from "@/types";
-import type { ToolUseResult } from "@/types/protocol";
+import type { UIMessage, ToolUseResult } from "@/types";
 
 // ── MCP renderers (extracted) ──
 import { JiraIssueList, JiraIssueDetail, JiraProjectList, JiraTransitions } from "./mcp-renderers/jira";

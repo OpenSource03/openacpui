@@ -10,6 +10,8 @@ import type { QueryHandle } from "../lib/sdk";
 import { getMcpAuthHeaders } from "../lib/mcp-oauth-flow";
 import { getClaudeModelsCache, setClaudeModelsCache } from "../lib/claude-model-cache";
 import { reportError } from "../lib/error-utils";
+import { buildSdkMcpConfig } from "@shared/lib/mcp-config";
+import type { McpServerInput } from "@shared/lib/mcp-config";
 import { getClaudeBinaryMetadata, getClaudeBinaryPath, getClaudeBinaryStatus, getClaudeVersion } from "../lib/claude-binary";
 import { captureEvent } from "../lib/posthog";
 
@@ -335,16 +337,6 @@ function parseStopRequest(
   };
 }
 
-interface McpServerInput {
-  name: string;
-  transport: "stdio" | "sse" | "http";
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-}
-
 interface StartOptions {
   cwd?: string;
   model?: string;
@@ -481,27 +473,11 @@ async function revalidateClaudeModelsCache(cwd?: string): Promise<{ models: Arra
   return modelsRevalidationPromise;
 }
 
-// ── Build SDK-compatible MCP config from server inputs (with fresh auth headers) ──
-
-async function buildSdkMcpConfig(servers: McpServerInput[]): Promise<Record<string, unknown>> {
-  const sdkMcp: Record<string, unknown> = {};
-  for (const s of servers) {
-    if (s.transport === "stdio") {
-      sdkMcp[s.name] = { command: s.command, args: s.args, env: s.env };
-    } else if (s.url) {
-      const authHeaders = await getMcpAuthHeaders(s.name, s.url);
-      const mergedHeaders = { ...s.headers, ...authHeaders };
-      sdkMcp[s.name] = {
-        type: s.transport,
-        url: s.url,
-        headers: Object.keys(mergedHeaders).length > 0 ? mergedHeaders : undefined,
-      };
-    } else {
-      log("MCP_CONFIG_WARN", `Server "${s.name}" has transport "${s.transport}" but no URL — skipping`);
-    }
-  }
-  return sdkMcp;
-}
+/** Shared MCP config options — injects auth header resolution and diagnostic logging. */
+const mcpConfigOptions = {
+  getAuthHeaders: async (name: string, url: string) => (await getMcpAuthHeaders(name, url)) ?? {},
+  onWarn: (label: string, message: string) => log(label, message),
+};
 
 // ── Restart a running session with fresh config (resume = same conversation) ──
 
@@ -594,7 +570,7 @@ async function restartSession(
   }
 
   if (mcpServers?.length) {
-    queryOptions.mcpServers = await buildSdkMcpConfig(mcpServers);
+    queryOptions.mcpServers = await buildSdkMcpConfig(mcpServers, mcpConfigOptions);
   }
 
   log("SESSION_RESTART_SPAWN", { sessionId, options: summarizeSpawnOptions(queryOptions) });
@@ -708,7 +684,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
 
       if (options.mcpServers?.length) {
-        queryOptions.mcpServers = await buildSdkMcpConfig(options.mcpServers);
+        queryOptions.mcpServers = await buildSdkMcpConfig(options.mcpServers, mcpConfigOptions);
       }
 
       log("SPAWN", { sessionId, resume: options.resume || null, options: summarizeSpawnOptions(queryOptions) });
@@ -1082,4 +1058,20 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
   }) => {
     return restartSession(sessionId, getMainWindow, mcpServers, cwd, effort, model);
   });
+}
+
+/** Stop all Claude sessions (called on app quit). Idempotent. */
+export function stopAll(): void {
+  for (const [sessionId, session] of sessions) {
+    log("CLEANUP", `Closing Claude session ${sessionId.slice(0, 8)}`);
+    session.stopping = true;
+    session.stopReason = "app-quit";
+    for (const [, pending] of session.pendingPermissions) {
+      pending.resolve({ behavior: "deny", message: "App closing" });
+    }
+    session.pendingPermissions.clear();
+    session.channel.close();
+    session.queryHandle?.close();
+  }
+  sessions.clear();
 }

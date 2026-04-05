@@ -5,7 +5,7 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { UIMessage } from "@/types";
 import { INLINE_HIGHLIGHT_STYLE, INLINE_CODE_TAG_STYLE } from "@/lib/languages";
-import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
+import { useResolvedTheme } from "@/hooks/useTheme";
 import { formatBashResult } from "@/components/lib/tool-formatting";
 import { useChatPersistedState } from "@/components/chat-ui-state";
 import { renderAnsi } from "@/lib/ansi";
@@ -15,7 +15,7 @@ const MAX_OUTPUT_LINES = 200;
 export function BashContent({ message }: { message: UIMessage }) {
   const command = message.toolInput?.command;
   const result = message.toolResult;
-  const resolvedTheme = useResolvedThemeClass();
+  const resolvedTheme = useResolvedTheme();
   const syntaxStyle = resolvedTheme === "dark" ? oneDark : oneLight;
   const [expanded, setExpanded] = useChatPersistedState(`bash:${message.id}`, false);
 

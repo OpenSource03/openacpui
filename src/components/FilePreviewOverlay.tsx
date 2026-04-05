@@ -3,10 +3,10 @@ import { motion, AnimatePresence } from "motion/react";
 import { X, File, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OpenInEditorButton } from "./OpenInEditorButton";
-import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
+import { useResolvedTheme } from "@/hooks/useTheme";
 import { getLanguageFromPath } from "@/lib/languages";
 import { getMonacoLanguageFromPath, disableMonacoDiagnostics } from "@/lib/monaco";
-import { captureException } from "@/lib/analytics";
+import { captureException } from "@/lib/analytics/analytics";
 
 const MonacoEditor = lazy(() =>
   import("@monaco-editor/react").then((mod) => ({ default: mod.default })),
@@ -68,7 +68,7 @@ const OverlayContent = memo(function OverlayContent({
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const resolvedTheme = useResolvedThemeClass();
+  const resolvedTheme = useResolvedTheme();
 
   // Load file content
   useEffect(() => {

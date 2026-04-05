@@ -1,8 +1,8 @@
 import { lazy, memo, Suspense } from "react";
 import type { UIMessage } from "@/types";
-import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
+import { useResolvedTheme } from "@/hooks/useTheme";
 import { getMonacoLanguageFromPath, disableMonacoDiagnostics } from "@/lib/monaco";
-import { parseUnifiedDiff } from "@/lib/unified-diff";
+import { parseUnifiedDiff } from "@/lib/diff/unified-diff";
 import { UnifiedPatchViewer } from "@/components/UnifiedPatchViewer";
 import { OpenInEditorButton } from "@/components/OpenInEditorButton";
 import {
@@ -11,7 +11,7 @@ import {
   filterValidPatches,
   isMultiFileStructuredPatch,
   type StructuredPatchEntry,
-} from "@/lib/patch-utils";
+} from "@/lib/diff/patch-utils";
 import { GenericContent } from "./GenericContent";
 
 const MonacoEditor = lazy(() =>
@@ -79,7 +79,7 @@ const PatchEntryWrite = memo(function PatchEntryWrite({ patch }: { patch: Struct
 // ── Main component ──
 
 export function WriteContent({ message }: { message: UIMessage }) {
-  const resolvedTheme = useResolvedThemeClass();
+  const resolvedTheme = useResolvedTheme();
   const structuredPatch = getStructuredPatches(message.toolResult);
 
   // Multi-file Codex fileChange: render each new file separately

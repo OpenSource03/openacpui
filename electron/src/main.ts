@@ -3,7 +3,7 @@ import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeThe
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
-import { getBootstrapMinWindowWidth } from "../../src/lib/layout-constants";
+import { getBootstrapMinWindowWidth } from "../../src/lib/layout/constants";
 
 // Packaged .app bundles launched from Finder get a minimal PATH (/usr/bin:/bin).
 // Inherit the user's shell PATH so child processes (SDK's `node`, git, etc.) resolve.
@@ -26,8 +26,7 @@ import { glassEnabled, applyGlass, setGlassTint } from "./lib/glass";
 import { getAppSettings } from "./lib/app-settings";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
 import { initPostHog, shutdownPostHog, reinitPostHog, captureEvent } from "./lib/posthog";
-import { sessions } from "./ipc/claude-sessions";
-import { acpSessions, getAcpAnalyticsPropertiesForSession } from "./ipc/acp-sessions";
+import { getAcpAnalyticsPropertiesForSession } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
 
 // IPC module registrations
@@ -63,12 +62,14 @@ if (glassEnabled) {
 
 let mainWindow: BrowserWindow | null = null;
 
-type NativeThemeSource = "system" | "light" | "dark";
-type MacBackgroundEffect = "liquid-glass" | "vibrancy";
+import type { ThemeOption, MacBackgroundEffect as SharedMacBackgroundEffect } from "@shared/types/settings";
+
+/** In main process, "off" is never applied — it resolves to vibrancy or liquid-glass before use. */
+type MacBackgroundEffect = Exclude<SharedMacBackgroundEffect, "off">;
 
 let pendingMacBackgroundEffect: MacBackgroundEffect = "liquid-glass";
 
-function normalizeThemeSource(value: unknown): NativeThemeSource {
+function normalizeThemeSource(value: unknown): ThemeOption {
   return value === "light" || value === "dark" || value === "system"
     ? value
     : "system";
@@ -334,7 +335,7 @@ agentRegistryIpc.register();
 acpSessionsIpc.register(getMainWindow);
 codexSessionsIpc.register(getMainWindow);
 mcpIpc.register();
-settingsIpc.register();
+settingsIpc.register(getMainWindow);
 jiraIpc.register();
 
 // Listen for analytics settings changes and reinitialize PostHog
@@ -523,22 +524,8 @@ app.on("will-quit", (event) => {
 });
 
 app.on("window-all-closed", () => {
-  for (const [sessionId, session] of sessions) {
-    log("CLEANUP", `Closing session ${sessionId.slice(0, 8)}`);
-    // Mark as stopping so event loops suppress expected teardown errors
-    session.stopping = true;
-    session.channel.close();
-    session.queryHandle?.close();
-  }
-  sessions.clear();
-
-  for (const [sessionId, entry] of acpSessions) {
-    log("CLEANUP", `Stopping ACP session ${sessionId.slice(0, 8)}`);
-    entry.process?.kill();
-  }
-  acpSessions.clear();
-
-  log("CLEANUP", "Stopping all Codex sessions");
+  claudeSessionsIpc.stopAll();
+  acpSessionsIpc.stopAll();
   codexSessionsIpc.stopAll();
 
   for (const [terminalId, term] of terminals) {

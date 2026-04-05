@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ImageAttachment, UIMessage } from "../../types";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
-import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
+import { imageAttachmentsToCodexInputs } from "../../lib/engine/codex-adapter";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
-import { buildSdkContent } from "../../lib/protocol";
+import { buildSdkContent } from "../../lib/engine/protocol";
+import { createSystemMessage } from "../../lib/message-factory";
 import { buildCodexCollabMode, DRAFT_ID } from "./types";
 import type { SharedSessionRefs, SharedSessionSetters, EngineHooks, QueuedMessage } from "./types";
 
@@ -177,13 +178,7 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
     const handleSendError = () => {
       targetSetMessages((prev) => [
         ...prev,
-        {
-          id: `system-send-error-${Date.now()}`,
-          role: "system" as const,
-          content: "Failed to send queued message.",
-          isError: true,
-          timestamp: Date.now(),
-        },
+        createSystemMessage("Failed to send queued message.", true),
       ]);
       targetSetIsProcessing(false);
       clearQueue();
@@ -203,13 +198,7 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
         } catch (err) {
           targetSetMessages((prev) => [
             ...prev,
-            {
-              id: `system-send-error-${Date.now()}`,
-              role: "system" as const,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-              timestamp: Date.now(),
-            },
+            createSystemMessage(err instanceof Error ? err.message : String(err), true),
           ]);
           targetSetIsProcessing(false);
           clearQueue();

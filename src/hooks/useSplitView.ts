@@ -9,40 +9,40 @@
  */
 
 import { useCallback, useState } from "react";
-import type { ToolId } from "@/components/ToolPicker";
+import type { ToolId } from "@/types/tools";
 import {
   DEFAULT_BOTTOM_TOOLS_HEIGHT,
   equalWidthFractions,
-} from "@/lib/layout-constants";
+} from "@/lib/layout/constants";
 import {
   type SplitAddRejectionReason,
   getSplitAddRejectionReason,
-} from "@/lib/split-layout";
-import { replaceVisibleSessionId } from "@/lib/split-view-state";
+} from "@/lib/layout/split-layout";
+import { replaceVisibleSessionId } from "@/lib/layout/split-view-state";
 import {
   findTopInsertIndexAfterSource,
+  isPanelTool,
   makeChatItemId,
   makeToolMemoryKey,
   normalizeInsertIndex,
   stripToolColumnItemId,
-} from "@/lib/tool-island-utils";
+} from "@/lib/workspace/tool-island-utils";
 import type {
   ToolColumn,
   ToolIsland,
   ToolIslandDock,
   ToolIslandMemory,
   TopRowItem,
-} from "@/types/tool-islands";
-import { isPanelTool } from "@/types/tool-islands";
+} from "@/types";
 import {
   type UseToolIslandsConfig,
   emptyToolIslandsState,
   useToolIslands,
 } from "./useToolIslands";
 
-// ── Re-exports for backward compatibility ──
+// ── Re-exports ──
 
-export type { ToolIsland as SplitToolIsland, ToolColumn as SplitToolColumn, ToolIslandDock as SplitToolIslandDock, TopRowItem as SplitTopRowItem } from "@/types/tool-islands";
+export type { TopRowItem as SplitTopRowItem } from "@/types";
 
 // ── Types ──
 

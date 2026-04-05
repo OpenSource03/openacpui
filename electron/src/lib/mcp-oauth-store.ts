@@ -1,6 +1,4 @@
-import fs from "fs";
-import path from "path";
-import { getDataDir } from "./data-dir";
+import { JsonFileStore } from "./json-file-store";
 
 export interface StoredOAuthData {
   tokens?: {
@@ -21,36 +19,21 @@ export interface StoredOAuthData {
   storedAt: number;
 }
 
-function getOAuthDir(): string {
-  const dir = path.join(getDataDir(), "mcp-oauth");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function getOAuthPath(serverName: string): string {
-  // Sanitize server name for use as filename
-  const safe = serverName.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return path.join(getOAuthDir(), `${safe}.json`);
-}
+const store = new JsonFileStore<StoredOAuthData>({
+  subDir: "mcp-oauth",
+  sanitizeKey: (key) => key.replace(/[^a-zA-Z0-9_-]/g, "_"),
+  encrypt: true,
+  label: "MCP_OAUTH",
+});
 
 export function loadOAuthData(serverName: string): StoredOAuthData | null {
-  try {
-    const raw = fs.readFileSync(getOAuthPath(serverName), "utf-8");
-    return JSON.parse(raw) as StoredOAuthData;
-  } catch {
-    return null;
-  }
+  return store.load(serverName);
 }
 
 export function saveOAuthData(serverName: string, data: StoredOAuthData): void {
-  const filePath = getOAuthPath(serverName);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
+  store.save(serverName, data);
 }
 
 export function deleteOAuthData(serverName: string): void {
-  try {
-    fs.unlinkSync(getOAuthPath(serverName));
-  } catch {
-    // Ignore if file doesn't exist
-  }
+  store.delete(serverName);
 }

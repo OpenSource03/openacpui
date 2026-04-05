@@ -7,9 +7,7 @@
  */
 
 import { useMemo } from "react";
-import type { ToolIslandContextProps } from "@/types/pane-controller";
-import type { GrabbedElement } from "@/types/ui";
-import type { McpServerStatus, McpServerConfig } from "@/types";
+import type { ToolIslandContextProps, GrabbedElement, McpServerStatus, McpServerConfig } from "@/types";
 import type { TerminalTab } from "@/lib/terminal-tabs";
 import type { ResolvedTheme } from "@/hooks/useTheme";
 

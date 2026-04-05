@@ -11,9 +11,7 @@
 import { useClaude } from "../useClaude";
 import { useACP } from "../useACP";
 import { useCodex } from "../useCodex";
-import type { UIMessage, PermissionRequest, EngineId, AcpPermissionBehavior, ContextUsage, SessionInfo } from "../../types";
-import type { ACPConfigOption, ACPPermissionEvent } from "../../types/acp";
-import type { SlashCommand } from "../../types";
+import type { UIMessage, PermissionRequest, EngineId, AcpPermissionBehavior, ContextUsage, SessionInfo, ACPConfigOption, ACPPermissionEvent, SlashCommand } from "@/types";
 import type { InitialMeta } from "./types";
 
 export interface UseSessionPaneOptions {

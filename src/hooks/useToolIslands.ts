@@ -14,14 +14,15 @@ import {
   MIN_BOTTOM_TOOLS_HEIGHT,
   clampWidthFractions,
   equalWidthFractions,
-} from "@/lib/layout-constants";
+} from "@/lib/layout/constants";
 import {
   findBottomToolIndex,
   findTopColumnLocation,
+  isPanelTool,
   makeToolColumnItemId,
   normalizeInsertIndex,
   removeIslandFromTopColumns,
-} from "@/lib/tool-island-utils";
+} from "@/lib/workspace/tool-island-utils";
 import type {
   PanelToolId,
   ToolColumn,
@@ -29,8 +30,7 @@ import type {
   ToolIslandDock,
   ToolIslandMemory,
   TopRowItem,
-} from "@/types/tool-islands";
-import { isPanelTool } from "@/types/tool-islands";
+} from "@/types";
 
 // ── State shape ──
 
@@ -38,6 +38,7 @@ export interface ToolIslandsState {
   topRowItemIds: string[];
   topToolColumnsById: Record<string, ToolColumn>;
   widthFractions: number[];
+  preferredTopAreaWidthPx: number | null;
   toolIslandsById: Record<string, ToolIsland>;
   toolMemories: Record<string, ToolIslandMemory>;
   bottomToolIslandIds: string[];
@@ -50,6 +51,7 @@ export function emptyToolIslandsState(): ToolIslandsState {
     topRowItemIds: [],
     topToolColumnsById: {},
     widthFractions: [1],
+    preferredTopAreaWidthPx: null,
     toolIslandsById: {},
     toolMemories: {},
     bottomToolIslandIds: [],
@@ -75,7 +77,7 @@ export interface TopRowChange {
 
 export interface UseToolIslandsConfig {
   /** Compute new width fractions when the top row changes. */
-  computeWidthFractions: (change: TopRowChange) => number[];
+  computeWidthFractions: (change: TopRowChange, current: ToolIslandsState) => number[];
 
   /** Generate a unique island ID for a tool+session combo. */
   makeIslandId: (toolId: PanelToolId, sourceSessionId: string, existingId: string | null) => string;
@@ -96,7 +98,7 @@ export interface UseToolIslandsConfig {
   findExistingIsland: (islands: Record<string, ToolIsland>, sourceSessionId: string, toolId: PanelToolId) => ToolIsland | null;
 
   /** Extract the width fraction for a tool column at the given top-row index. */
-  getColumnWidthFraction?: (widthFractions: number[], topRowIndex: number) => number | undefined;
+  getColumnWidthFraction?: (state: ToolIslandsState, topRowIndex: number) => number | undefined;
 
   /** Called synchronously after every state update (for persistence). */
   onStateChange?: (state: ToolIslandsState) => void;
@@ -117,6 +119,7 @@ export interface UseToolIslandsReturn {
   // Width fractions
   setWidthFractions: (fractions: number[]) => void;
   setWidthFractionsDirect: (fractions: number[]) => void;
+  setPreferredTopAreaWidthPx: (width: number | null) => void;
 
   // Column split ratios
   setTopToolColumnSplitRatios: (columnId: string, ratios: number[]) => void;
@@ -205,6 +208,13 @@ export function useToolIslands(
     update((current) => ({ ...current, widthFractions: fractions }));
   }, [update]);
 
+  const setPreferredTopAreaWidthPx = useCallback((width: number | null) => {
+    update((current) => ({
+      ...current,
+      preferredTopAreaWidthPx: width == null ? null : Math.max(0, width),
+    }));
+  }, [update]);
+
   // ── Column split ratios ──
 
   const setTopToolColumnSplitRatios = useCallback((columnId: string, ratios: number[]) => {
@@ -280,7 +290,7 @@ export function useToolIslands(
       nextItemCount,
       changeIndex,
       toolHint,
-    });
+    }, current);
   };
 
   // ── CRUD: openToolIsland ──
@@ -494,7 +504,7 @@ export function useToolIslands(
 
         // Save the closing tool's width fraction before removal
         const closingFraction = topLocation
-          ? cfg.getColumnWidthFraction?.(current.widthFractions, topLocation.topRowIndex)
+          ? cfg.getColumnWidthFraction?.(current, topLocation.topRowIndex)
           : undefined;
 
         // Compute width fractions
@@ -538,6 +548,7 @@ export function useToolIslands(
     resetState,
     setWidthFractions,
     setWidthFractionsDirect,
+    setPreferredTopAreaWidthPx,
     setTopToolColumnSplitRatios,
     setBottomHeight,
     setBottomWidthFractions,

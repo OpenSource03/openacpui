@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import type { CCSessionInfo } from "@/types";
-import { captureException } from "@/lib/analytics";
+import { captureException } from "@/lib/analytics/analytics";
 
 function formatRelativeDate(isoString: string): string {
   const date = new Date(isoString);

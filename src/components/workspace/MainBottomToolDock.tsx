@@ -1,63 +1,62 @@
 import React, { type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
-import type { MainToolIsland, MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
-import { equalWidthFractions } from "@/lib/layout-constants";
-import { getHorizontalInsertSide } from "@/lib/workspace-drag";
+import type { MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
+import { equalWidthFractions } from "@/lib/layout/constants";
+import { getHorizontalInsertSide } from "@/lib/workspace/drag";
 import { PanelDockControls } from "@/components/PanelDockControls";
 import { PanelDockPreview } from "@/components/PanelDockPreview";
 import { SplitHandle } from "@/components/split/SplitHandle";
-import type { ToolId } from "@/components/ToolPicker";
+import type { PanelToolId } from "@/types/tools";
+import type { PaneResizeController, ToolDragState, ToolIsland } from "@/types";
 
-type PanelToolId = Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">;
-
-interface MainToolDragState {
-  toolId: ToolId;
-  islandId: string | null;
-  targetArea: "top" | "top-stack" | "bottom" | null;
-  targetIndex: number | null;
-  targetColumnId: string | null;
-}
-
-interface PaneResizeController {
-  isResizing: boolean;
-  handleSplitResizeStart: (handleIndex: number, event: React.MouseEvent) => void;
-  handleSplitDoubleClick: () => void;
-}
-
-interface MainBottomToolDockProps {
+interface MainBottomToolDockLayoutProps {
   isIsland: boolean;
-  workspace: MainToolWorkspaceState;
-  mainToolDrag: MainToolDragState | null;
-  setMainToolDrag: Dispatch<SetStateAction<MainToolDragState | null>>;
-  mainDraggedIsland: MainToolIsland | null;
-  mainToolLabel: string | null;
   isResizeActive: boolean;
   isBottomHeightResizing: boolean;
   bottomRowRef: RefObject<HTMLDivElement | null>;
   bottomPaneResize: PaneResizeController;
   onBottomResizeStart: (event: React.MouseEvent) => void;
-  onCommitDrop: () => void;
-  onResetDrag: () => void;
-  renderToolContent: (toolId: PanelToolId, controls: ReactNode) => ReactNode;
   onMoveBottomToolToTop: (islandId: string) => void;
 }
 
+interface MainBottomToolDockDragProps {
+  mainToolDrag: ToolDragState | null;
+  setMainToolDrag: Dispatch<SetStateAction<ToolDragState | null>>;
+  mainDraggedIsland: ToolIsland | null;
+  mainToolLabel: string | null;
+  onCommitDrop: () => void;
+  onResetDrag: () => void;
+}
+
+interface MainBottomToolDockProps {
+  layout: MainBottomToolDockLayoutProps;
+  workspace: MainToolWorkspaceState;
+  drag: MainBottomToolDockDragProps;
+  renderToolContent: (toolId: PanelToolId, controls: ReactNode) => ReactNode;
+}
+
 export function MainBottomToolDock({
-  isIsland,
+  layout,
   workspace,
-  mainToolDrag,
-  setMainToolDrag,
-  mainDraggedIsland,
-  mainToolLabel,
-  isResizeActive,
-  isBottomHeightResizing,
-  bottomRowRef,
-  bottomPaneResize,
-  onBottomResizeStart,
-  onCommitDrop,
-  onResetDrag,
+  drag,
   renderToolContent,
-  onMoveBottomToolToTop,
 }: MainBottomToolDockProps) {
+  const {
+    isIsland,
+    isResizeActive,
+    isBottomHeightResizing,
+    bottomRowRef,
+    bottomPaneResize,
+    onBottomResizeStart,
+    onMoveBottomToolToTop,
+  } = layout;
+  const {
+    mainToolDrag,
+    setMainToolDrag,
+    mainDraggedIsland,
+    mainToolLabel,
+    onCommitDrop,
+    onResetDrag,
+  } = drag;
   const bottomRowRenderEntries: Array<
     | { kind: "item"; island: (typeof workspace.bottomToolIslands)[number] }
     | { kind: "preview" }
@@ -196,6 +195,7 @@ export function MainBottomToolDock({
                         event.dataTransfer.effectAllowed = "move";
                         setMainToolDrag({
                           toolId: entry.island.toolId,
+                          sourceSessionId: null,
                           islandId: entry.island.id,
                           targetArea: null,
                           targetIndex: null,

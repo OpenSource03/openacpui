@@ -17,8 +17,7 @@ interface PreloadGlobals {
   localStorage?: PreloadStorage;
 }
 
-type ThemeSource = "system" | "light" | "dark";
-type MacBackgroundEffect = "liquid-glass" | "vibrancy" | "off";
+import type { ThemeOption as ThemeSource, MacBackgroundEffect } from "@shared/types/settings";
 
 function readStoredThemeSource(storage: PreloadStorage | undefined): ThemeSource {
   const stored = storage?.getItem("harnss-theme");
@@ -331,6 +330,11 @@ contextBridge.exposeInMainWorld("claude", {
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),
     set: (patch: Record<string, unknown>) => ipcRenderer.invoke("settings:set", patch),
+    onChanged: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("settings:changed", listener);
+      return () => ipcRenderer.removeListener("settings:changed", listener);
+    },
   },
   jira: {
     getConfig: (projectId: string) => ipcRenderer.invoke("jira:get-config", projectId),

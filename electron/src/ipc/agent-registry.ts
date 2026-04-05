@@ -9,6 +9,7 @@ import {
   getRegistryPlatformKeys,
 } from "../lib/agent-registry";
 import type { InstalledAgent } from "../lib/agent-registry";
+import type { ACPConfigOption } from "@shared/types/acp";
 
 export function register(): void {
   loadUserAgents();
@@ -22,7 +23,7 @@ export function register(): void {
     deleteAgent(id);
     return { ok: true };
   });
-  ipcMain.handle("agents:update-cached-config", (_e, agentId: string, configOptions: unknown[]) => {
+  ipcMain.handle("agents:update-cached-config", (_e, agentId: string, configOptions: ACPConfigOption[]) => {
     updateCachedConfig(agentId, configOptions);
     return { ok: true };
   });

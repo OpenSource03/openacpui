@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { Sun, Moon, Monitor, Blend, Layers, ChevronsUpDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { useSettingsStore } from "@/stores/settings-store";
 import type { AppearanceStepProps } from "./shared";
 import type { ThemeOption } from "@/types";
 
@@ -136,20 +137,20 @@ function FlatMockup() {
 }
 
 export function AppearanceStep({
-  theme,
-  onThemeChange,
-  islandLayout,
-  onIslandLayoutChange,
-  autoGroupTools,
-  onAutoGroupToolsChange,
-  autoExpandTools,
-  onAutoExpandToolsChange,
-  expandEditToolCallsByDefault,
-  onExpandEditToolCallsByDefaultChange,
-  transparency,
-  onTransparencyChange,
   glassSupported,
 }: AppearanceStepProps) {
+  const theme = useSettingsStore((s) => s.theme);
+  const onThemeChange = useSettingsStore((s) => s.setTheme);
+  const islandLayout = useSettingsStore((s) => s.islandLayout);
+  const onIslandLayoutChange = useSettingsStore((s) => s.setIslandLayout);
+  const autoGroupTools = useSettingsStore((s) => s.autoGroupTools);
+  const onAutoGroupToolsChange = useSettingsStore((s) => s.setAutoGroupTools);
+  const autoExpandTools = useSettingsStore((s) => s.autoExpandTools);
+  const onAutoExpandToolsChange = useSettingsStore((s) => s.setAutoExpandTools);
+  const expandEditToolCallsByDefault = useSettingsStore((s) => s.expandEditToolCallsByDefault);
+  const onExpandEditToolCallsByDefaultChange = useSettingsStore((s) => s.setExpandEditToolCallsByDefault);
+  const transparency = useSettingsStore((s) => s.transparency);
+  const onTransparencyChange = useSettingsStore((s) => s.setTransparency);
   return (
     <div className="flex flex-1 flex-col overflow-y-auto px-8">
       <div className="m-auto flex w-full max-w-lg flex-col py-10">

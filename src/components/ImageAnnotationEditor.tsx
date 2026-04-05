@@ -12,9 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { ImageAnnotationToolbar } from "@/components/ImageAnnotationToolbar";
 import { useAnnotationHistory } from "@/hooks/useAnnotationHistory";
-import type { ImageAttachment } from "@/types/ui";
-import type { Annotation, AnnotationTool, FreehandAnnotation, RectAnnotation, CircleAnnotation, ArrowAnnotation, TextAnnotation } from "@/lib/annotation-types";
-import { DEFAULT_STROKE_COLOR, DEFAULT_STROKE_WIDTH, DEFAULT_FONT_SIZE, HIGHLIGHT_COLOR } from "@/lib/annotation-types";
+import type { ImageAttachment } from "@/types";
+import type { Annotation, AnnotationTool, FreehandAnnotation, RectAnnotation, CircleAnnotation, ArrowAnnotation, TextAnnotation } from "@/lib/chat/annotation-types";
+import { DEFAULT_STROKE_COLOR, DEFAULT_STROKE_WIDTH, DEFAULT_FONT_SIZE, HIGHLIGHT_COLOR } from "@/lib/chat/annotation-types";
 
 interface ImageAnnotationEditorProps {
   image: ImageAttachment;

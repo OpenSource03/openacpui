@@ -20,15 +20,15 @@ import {
 } from "@/components/ui/tooltip";
 import { AgentIcon } from "@/components/AgentIcon";
 import { useAgentStore } from "@/hooks/useAgentStore";
-import type { BinaryCheckResult } from "@/lib/acp-agent-registry";
-import { mergeRegistryAgentUpdate } from "@/lib/acp-agent-updates";
+import type { BinaryCheckResult } from "@/lib/engine/acp-agent-registry";
+import { mergeRegistryAgentUpdate } from "@/lib/engine/acp-agent-updates";
 import {
   registryAgentToDefinition,
   hasUpdate,
   isInstallable,
   getRegistryAgentSetupUrl,
   getPreferredRegistryBinaryTarget,
-} from "@/lib/agent-store-utils";
+} from "@/lib/background/agent-store-utils";
 import type { InstalledAgent, RegistryAgent } from "@/types";
 
 // ── Types ──

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type { InstalledAgent } from "@/types";
-import { reportError } from "@/lib/analytics";
-import { fetchAgentRegistry, resolveRegistryBinaryPaths } from "@/lib/acp-agent-registry";
-import { planAcpAgentUpdates } from "@/lib/acp-agent-updates";
+import { reportError } from "@/lib/analytics/analytics";
+import { fetchAgentRegistry, resolveRegistryBinaryPaths } from "@/lib/engine/acp-agent-registry";
+import { planAcpAgentUpdates } from "@/lib/engine/acp-agent-updates";
 
 const PERIODIC_ACP_AGENT_UPDATE_CHECK_MS = 4 * 60 * 60 * 1000; // 4 hours
 const ACTIVE_ACP_AGENT_UPDATE_MIN_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes

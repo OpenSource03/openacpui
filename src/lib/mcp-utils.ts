@@ -1,4 +1,4 @@
-import type { McpServerStatusState } from "../types/ui";
+import type { McpServerStatusState } from "@/types";
 
 /** Validate a raw status string into a safe McpServerStatusState, defaulting to "failed". */
 export function toMcpStatusState(raw: string): McpServerStatusState {

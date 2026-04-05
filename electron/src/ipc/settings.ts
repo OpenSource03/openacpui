@@ -1,6 +1,8 @@
+import type { BrowserWindow } from "electron";
 import { ipcMain } from "electron";
 import { getAppSettings, setAppSettings, type AppSettings } from "../lib/app-settings";
 import { reportError } from "../lib/error-utils";
+import { safeSend } from "../lib/safe-send";
 
 // Listeners notified when any setting changes (used by updater, etc.)
 type SettingsListener = (settings: AppSettings) => void;
@@ -10,7 +12,7 @@ export function onSettingsChanged(cb: SettingsListener): void {
   listeners.push(cb);
 }
 
-export function register(): void {
+export function register(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("settings:get", () => {
     try {
       return getAppSettings();
@@ -25,6 +27,8 @@ export function register(): void {
       const next = setAppSettings(patch);
       // Notify in-process listeners (e.g. autoUpdater)
       for (const cb of listeners) cb(next);
+      // Notify renderer so reactive subscribers update without polling
+      safeSend(getMainWindow, "settings:changed", next);
       return { ok: true };
     } catch (err) {
       const errMsg = reportError("SETTINGS:SET_ERR", err);

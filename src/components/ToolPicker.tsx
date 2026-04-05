@@ -8,8 +8,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useSettingsStore } from "@/stores/settings-store";
+import type { ToolId, ToolDef } from "@/types/tools";
 
-export type ToolId = "terminal" | "browser" | "git" | "files" | "project-files" | "tasks" | "agents" | "mcp";
+// Re-export for backward compatibility — consumers importing from ToolPicker continue to work
+export type { ToolId, ToolDef } from "@/types/tools";
 
 /** SVG circular progress ring that wraps the tool icon button. */
 function ToolProgressRing({ progress, isComplete, size }: { progress: number; isComplete: boolean; size: number }) {
@@ -65,12 +68,6 @@ const TOOL_TINTS: Record<string, { idle: string; hover: string; active: string }
   agents:          { idle: "text-indigo-600/70 dark:text-indigo-200/50",    hover: "hover:text-indigo-600/90 dark:hover:text-indigo-200/70",   active: "text-indigo-600 dark:text-indigo-200/90" },
 };
 
-export interface ToolDef {
-  id: ToolId;
-  label: string;
-  icon: typeof Terminal;
-}
-
 export const PANEL_TOOLS_MAP: Record<string, ToolDef> = {
   terminal: { id: "terminal", label: "Terminal", icon: Terminal },
   browser: { id: "browser", label: "Browser", icon: Globe },
@@ -80,18 +77,12 @@ export const PANEL_TOOLS_MAP: Record<string, ToolDef> = {
   mcp: { id: "mcp", label: "MCP Servers", icon: Plug },
 };
 
-/** Tool IDs that render in the tools column (not contextual right-panel tools). */
-export const COLUMN_TOOL_IDS = new Set<ToolId>(Object.keys(PANEL_TOOLS_MAP) as ToolId[]);
-
 const CONTEXTUAL_TOOLS: ToolDef[] = [
   { id: "tasks", label: "Tasks", icon: ListTodo },
   { id: "agents", label: "Background Agents", icon: Bot },
 ];
 
 interface ToolPickerProps {
-  islandLayout: boolean;
-  transparentBackground: boolean;
-  coloredIcons: boolean;
   activeTools: Set<ToolId>;
   onToggle: (toolId: ToolId) => void;
   /** Which contextual tools have data and should be shown */
@@ -121,7 +112,6 @@ function ToolButton({
   tool,
   isActive,
   coloredIcons = true,
-  islandLayout,
   isDragTarget,
   isBottom,
   badge,
@@ -131,7 +121,6 @@ function ToolButton({
   tool: ToolDef;
   isActive: boolean;
   coloredIcons?: boolean;
-  islandLayout: boolean;
   isDragTarget?: boolean;
   isBottom?: boolean;
   badge?: React.ReactNode;
@@ -139,9 +128,9 @@ function ToolButton({
   onClick: () => void;
 }) {
   const Icon = tool.icon;
-  const buttonSize = islandLayout ? "h-8 w-8" : "h-8 w-8";
-  const iconSize = islandLayout ? "h-4 w-4" : "h-4 w-4";
-  const radius = islandLayout ? "rounded-lg" : "rounded-lg";
+  const buttonSize = "h-8 w-8";
+  const iconSize = "h-4 w-4";
+  const radius = "rounded-lg";
   const tint = coloredIcons ? TOOL_TINTS[tool.id] : undefined;
 
   return (
@@ -181,7 +170,6 @@ function PanelToolWithMenu({
   tool,
   isActive,
   coloredIcons,
-  islandLayout,
   isDragTarget,
   isBottom,
   badge,
@@ -200,7 +188,6 @@ function PanelToolWithMenu({
   tool: ToolDef;
   isActive: boolean;
   coloredIcons: boolean;
-  islandLayout: boolean;
   isDragTarget: boolean;
   isBottom: boolean;
   badge?: React.ReactNode;
@@ -244,7 +231,6 @@ function PanelToolWithMenu({
         tool={tool}
         isActive={isActive}
         coloredIcons={coloredIcons}
-        islandLayout={islandLayout}
         isDragTarget={isDragTarget}
         isBottom={isBottom}
         badge={badge}
@@ -277,9 +263,6 @@ function PanelToolWithMenu({
 }
 
 export const ToolPicker = memo(function ToolPicker({
-  islandLayout,
-  transparentBackground,
-  coloredIcons,
   activeTools,
   onToggle,
   availableContextual,
@@ -296,6 +279,10 @@ export const ToolPicker = memo(function ToolPicker({
   onMoveToSide,
   taskProgress,
 }: ToolPickerProps) {
+  // ── Layout & appearance settings from Zustand store ──
+  const islandLayout = useSettingsStore((s) => s.islandLayout);
+  const transparentBackground = useSettingsStore((s) => s.transparentToolPicker);
+  const coloredIcons = useSettingsStore((s) => s.coloredSidebarIcons);
   const visibleContextual = useMemo(
     () => CONTEXTUAL_TOOLS.filter((t) => availableContextual?.has(t.id)),
     [availableContextual],
@@ -384,9 +371,9 @@ export const ToolPicker = memo(function ToolPicker({
     : `tool-picker ${transparentBackground ? "" : "island "}relative flex h-full w-11 shrink-0 flex-col items-center gap-0.5${transparentBackground ? "" : " rounded-lg bg-background"} pt-2 pb-2`;
   const pickerStyle = islandLayout ? { width: "var(--tool-picker-strip-width)" } : undefined;
 
-  const editorButtonSize = islandLayout ? "h-8 w-8" : "h-8 w-8";
-  const editorIconSize = islandLayout ? "h-4 w-4" : "h-4 w-4";
-  const editorRadius = islandLayout ? "rounded-lg" : "rounded-lg";
+  const editorButtonSize = "h-8 w-8";
+  const editorIconSize = "h-4 w-4";
+  const editorRadius = "rounded-lg";
 
   return (
     <div className={pickerClassName} style={pickerStyle}>
@@ -410,7 +397,6 @@ export const ToolPicker = memo(function ToolPicker({
                   tool={tool}
                   isActive={activeTools.has(tool.id)}
                   coloredIcons={coloredIcons}
-                  islandLayout={islandLayout}
                   onClick={() => onToggle(tool.id)}
                   tooltipExtra={hasTaskProgress ? (
                     <p className="text-[10px] text-background/50 tabular-nums">
@@ -435,7 +421,6 @@ export const ToolPicker = memo(function ToolPicker({
           tool={tool}
           isActive={activeTools.has(tool.id)}
           coloredIcons={coloredIcons}
-          islandLayout={islandLayout}
           isDragTarget={dragOverId === tool.id && draggingId !== tool.id}
           isBottom={false}
           onToggle={() => onToggle(tool.id)}
@@ -463,7 +448,6 @@ export const ToolPicker = memo(function ToolPicker({
                   tool={tool}
                   isActive={activeTools.has(tool.id)}
                   coloredIcons={coloredIcons}
-                  islandLayout={islandLayout}
                   isDragTarget={dragOverId === tool.id && draggingId !== tool.id}
                   isBottom={true}
                   onToggle={() => onToggle(tool.id)}

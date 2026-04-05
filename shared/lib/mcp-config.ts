@@ -17,6 +17,8 @@ export interface McpServerInput {
 
 export interface BuildMcpConfigOptions {
   getAuthHeaders?: (serverName: string, url: string) => Promise<Record<string, string>>;
+  /** Optional logger for diagnostic warnings (e.g. servers with missing URLs). */
+  onWarn?: (label: string, message: string) => void;
 }
 
 /**
@@ -51,6 +53,8 @@ export async function buildSdkMcpConfig(
         url: s.url,
         headers: headers && Object.keys(headers).length > 0 ? headers : undefined,
       };
+    } else {
+      options?.onWarn?.("MCP_CONFIG_WARN", `Server "${s.name}" has transport "${s.transport}" but no URL — skipping`);
     }
   }
   return sdkMcp;

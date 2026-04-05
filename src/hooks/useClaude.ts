@@ -18,13 +18,13 @@ import type {
   ModelInfo,
   McpServerStatus,
   McpServerConfig,
-  PermissionBehavior,
+  AppPermissionBehavior,
   PermissionRequest,
-  SessionMeta,
+  BackgroundSessionSnapshot,
   SlashCommand,
 } from "../types";
 import { toMcpStatusState } from "../lib/mcp-utils";
-import { StreamingBuffer } from "../lib/streaming-buffer";
+import { StreamingBuffer } from "../lib/engine/streaming-buffer";
 import {
   getParentId,
   extractTextContent,
@@ -32,21 +32,17 @@ import {
   extractAssistantContextUsage,
   normalizeToolResult,
   buildSdkContent,
-} from "../lib/protocol";
-import { formatResultError } from "../lib/message-factory";
-import { bgAgentStore } from "../lib/background-agent-store";
+} from "../lib/engine/protocol";
+import { createSystemMessage, createUserMessage, formatResultError, nextId } from "../lib/message-factory";
+import { bgAgentStore } from "../lib/background/agent-store";
 import { suppressNextSessionCompletion } from "../lib/notification-utils";
-import { advancePermissionQueue, enqueuePermissionRequest } from "../lib/permission-queue";
-import { normalizeTodoToolInput } from "../lib/todo-utils";
-import { capture } from "../lib/analytics";
+import { advancePermissionQueue, enqueuePermissionRequest } from "../lib/engine/permission-queue";
+import { normalizeTodoToolInput } from "../lib/chat/todo-utils";
+import { capture } from "../lib/analytics/analytics";
 import { useEngineBase } from "./useEngineBase";
 
 function uiLog(label: string, data: unknown) {
   window.claude.log(label, typeof data === "string" ? data : JSON.stringify(data));
-}
-
-function nextId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 // Maps a parent_tool_use_id (Task tool_use_id) → the tool_call message id
@@ -55,7 +51,7 @@ type ParentToolMap = Map<string, string>;
 interface UseClaudeOptions {
   sessionId: string | null;
   initialMessages?: import("../types").UIMessage[];
-  initialMeta?: SessionMeta | null;
+  initialMeta?: BackgroundSessionSnapshot | null;
   /** Restore a pending permission when switching back to this session */
   initialPermission?: import("../types").PermissionRequest | null;
 }
@@ -704,13 +700,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
               || "An error occurred";
             setMessages((prev) => [
               ...prev,
-              {
-                id: nextId("system-result-error"),
-                role: "system",
-                content: formatResultError(resultEvent.subtype, errorMsg),
-                isError: true,
-                timestamp: Date.now(),
-              },
+              createSystemMessage(formatResultError(resultEvent.subtype, errorMsg), true),
             ]);
           }
 
@@ -752,13 +742,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           if (authEvt.error) {
             setMessages((prev) => [
               ...prev,
-              {
-                id: nextId("system-auth-error"),
-                role: "system",
-                content: `Authentication error: ${authEvt.error}`,
-                isError: true,
-                timestamp: Date.now(),
-              },
+              createSystemMessage(`Authentication error: ${authEvt.error}`, true),
             ]);
           }
           // After auth completes, refresh MCP server statuses
@@ -795,14 +779,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
       setIsProcessing(true);
       setMessages((prev) => [
         ...prev,
-        {
-          id: nextId("user"),
-          role: "user",
-          content: text,
-          timestamp: Date.now(),
-          ...(images?.length ? { images } : {}),
-          ...(displayText ? { displayContent: displayText } : {}),
-        },
+        createUserMessage(text, images, displayText),
       ]);
       return true;
     },
@@ -874,7 +851,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   }, [flushNow, resetStreaming]);
 
   const respondPermission = useCallback(
-    async (behavior: PermissionBehavior, updatedInput?: Record<string, unknown>, newPermissionMode?: string, updatedPermissions?: unknown[]) => {
+    async (behavior: AppPermissionBehavior, updatedInput?: Record<string, unknown>, newPermissionMode?: string, updatedPermissions?: unknown[]) => {
       const currentPermission = pendingPermission;
       const sid = sessionIdRef.current;
       if (!currentPermission || !sid || permissionResponseInFlight.current) return;
@@ -976,13 +953,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
         const errorDetail = data.error || `Process exited with code ${data.code}`;
         setMessages((prev) => [
           ...prev,
-          {
-            id: nextId("system-exit"),
-            role: "system",
-            content: errorDetail,
-            isError: true,
-            timestamp: Date.now(),
-          },
+          createSystemMessage(errorDetail, true),
         ]);
       }
     });
@@ -1063,15 +1034,12 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     // Show feedback as a system message so the user knows the revert happened (or failed)
     setMessages((prev) => [
       ...prev,
-      {
-        id: nextId("system-revert"),
-        role: "system" as const,
-        content: result.error
+      createSystemMessage(
+        result.error
           ? `File revert failed: ${result.error}`
           : "Files reverted to checkpoint successfully.",
-        isError: !!result.error,
-        timestamp: Date.now(),
-      },
+        !!result.error,
+      ),
     ]);
     return result;
   }, []);

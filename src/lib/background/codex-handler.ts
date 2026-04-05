@@ -1,0 +1,253 @@
+import type { CodexSessionEvent } from "@/types";
+import type { InternalState } from "./session-store";
+import { codexItemToToolName, codexItemToToolInput, codexItemToToolResult, codexPlanToTodos } from "@/lib/engine/codex-adapter";
+import { ensureACPStreamingMsg, finalizeACPStreamingMsg } from "./acp-handler";
+import type { PermissionRequest } from "@/types";
+import type { ItemStartedNotification } from "../../types/codex-protocol/v2/ItemStartedNotification";
+import type { ItemCompletedNotification } from "../../types/codex-protocol/v2/ItemCompletedNotification";
+import type { AgentMessageDeltaNotification } from "../../types/codex-protocol/v2/AgentMessageDeltaNotification";
+import type { ReasoningTextDeltaNotification } from "../../types/codex-protocol/v2/ReasoningTextDeltaNotification";
+import type { CommandExecutionOutputDeltaNotification } from "../../types/codex-protocol/v2/CommandExecutionOutputDeltaNotification";
+import type { PlanDeltaNotification } from "../../types/codex-protocol/v2/PlanDeltaNotification";
+import type { TurnPlanUpdatedNotification } from "../../types/codex-protocol/v2/TurnPlanUpdatedNotification";
+import type { CodexTokenUsageNotification } from "@/types";
+
+/**
+ * Process a Codex notification for a background session, mutating `state` in place.
+ * Returns `{ processingChanged, isProcessing, permissionRequest? }` when the caller
+ * needs to fire callbacks.
+ */
+export function handleCodexEvent(
+  state: InternalState,
+  event: CodexSessionEvent,
+): {
+  processingChanged?: boolean;
+  isProcessing?: boolean;
+  permissionRequest?: PermissionRequest;
+} | undefined {
+  state.isConnected = true;
+  const { method, params } = event;
+
+  switch (method) {
+    case "turn/started":
+      state.isProcessing = true;
+      state.codexPlanText = "";
+      state.codexPlanTurnCounter += 1;
+      return { processingChanged: true, isProcessing: true };
+
+    case "turn/completed":
+      finalizeACPStreamingMsg(state); // reuse — same pattern
+      state.isProcessing = false;
+      return { processingChanged: true, isProcessing: false };
+
+    case "item/started": {
+      const { item } = params as ItemStartedNotification;
+      if (item.type === "agentMessage" || item.type === "reasoning") {
+        ensureACPStreamingMsg(state);
+      } else {
+        // Non-assistant item is a hard boundary — finalize streaming first
+        finalizeACPStreamingMsg(state);
+        const toolName = codexItemToToolName(item);
+        if (toolName) {
+          // Deterministic ID matches active hook so completions work after switch-back
+          const msgId = `codex-tool-${item.id}`;
+          state.parentToolMap.set(item.id, msgId);
+          state.messages.push({
+            id: msgId,
+            role: "tool_call",
+            content: "",
+            toolName,
+            toolInput: codexItemToToolInput(item),
+            timestamp: Date.now(),
+          });
+        }
+      }
+      break;
+    }
+
+    case "item/completed": {
+      const { item } = params as ItemCompletedNotification;
+      if (item.type === "agentMessage") {
+        const text = item.text || undefined;
+        const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
+        if (target && text) target.content = text;
+        finalizeACPStreamingMsg(state);
+      } else if (item.type === "reasoning") {
+        // Mark thinking as complete on the current streaming message
+        if (state.currentStreamingMsgId) {
+          const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
+          if (target?.thinking) target.thinkingComplete = true;
+        }
+      } else if (item.type === "plan") {
+        // Finalize plan: mark this turn's codex-plan-stream-* as completed,
+        // synthesize ExitPlanMode prompt
+        finalizeACPStreamingMsg(state);
+        const finalText = item.text || undefined;
+        const planContent = finalText ?? state.codexPlanText;
+        if (planContent) {
+          const planStreamMsgId = `codex-plan-stream-${state.codexPlanTurnCounter}`;
+          const existing = state.messages.find(m => m.id === planStreamMsgId);
+          if (existing) {
+            existing.toolInput = { plan: planContent };
+            existing.toolResult = { type: "plan" };
+          } else {
+            state.messages.push({
+              id: planStreamMsgId,
+              role: "tool_call",
+              content: "",
+              toolName: "ExitPlanMode",
+              toolInput: { plan: planContent },
+              toolResult: { type: "plan" },
+              timestamp: Date.now(),
+            });
+          }
+          // Set plan permission mode on sessionInfo
+          if (state.sessionInfo) {
+            state.sessionInfo = { ...state.sessionInfo, permissionMode: "plan" };
+          }
+          // Synthesize ExitPlanMode permission so it's restored on switch-back
+          const permission: PermissionRequest = {
+            requestId: `codex-plan-${Date.now()}`,
+            toolName: "ExitPlanMode",
+            toolInput: {},
+            toolUseId: "codex-plan",
+          };
+          state.pendingPermission = permission;
+          return { permissionRequest: permission };
+        }
+      } else {
+        // Generic tool completion — deterministic fallback for cross-session mapping
+        const msgId = state.parentToolMap.get(item.id) ?? `codex-tool-${item.id}`;
+        const msg = state.messages.find(m => m.id === msgId);
+        if (msg) {
+          msg.toolInput = codexItemToToolInput(item);
+          const result = codexItemToToolResult(item);
+          if (result) msg.toolResult = result;
+          const isError =
+            (item.type === "commandExecution" && (item.status === "failed" || item.status === "declined")) ||
+            (item.type === "fileChange" && (item.status === "failed" || item.status === "declined")) ||
+            (item.type === "mcpToolCall" && item.status === "failed");
+          if (isError) msg.toolError = true;
+        }
+        state.parentToolMap.delete(item.id);
+      }
+      break;
+    }
+
+    case "item/agentMessage/delta": {
+      const { delta } = params as AgentMessageDeltaNotification;
+      if (delta) {
+        ensureACPStreamingMsg(state);
+        const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
+        if (target) {
+          if (target.thinking && !target.thinkingComplete) target.thinkingComplete = true;
+          target.content += delta;
+        }
+      }
+      break;
+    }
+
+    case "item/reasoning/summaryTextDelta":
+    case "item/reasoning/textDelta": {
+      const { delta } = params as ReasoningTextDeltaNotification;
+      if (delta) {
+        ensureACPStreamingMsg(state);
+        const target = state.messages.find(m => m.id === state.currentStreamingMsgId);
+        if (target) target.thinking = (target.thinking ?? "") + delta;
+      }
+      break;
+    }
+
+    case "item/commandExecution/outputDelta": {
+      const { itemId, delta } = params as CommandExecutionOutputDeltaNotification;
+      if (!delta) break;
+
+      // Deterministic fallback for tools created by the active hook before switch-away
+      const msgId = state.parentToolMap.get(itemId) ?? `codex-tool-${itemId}`;
+      if (!msgId) break;
+
+      const msg = state.messages.find(m => m.id === msgId);
+      if (!msg) break;
+
+      const existingStdout =
+        typeof msg.toolResult?.stdout === "string"
+          ? msg.toolResult.stdout
+          : typeof msg.toolResult?.content === "string"
+            ? msg.toolResult.content
+            : "";
+
+      msg.toolResult = {
+        ...(msg.toolResult ?? {}),
+        type: "text",
+        stdout: existingStdout + delta,
+      };
+      break;
+    }
+
+    case "item/plan/delta": {
+      const { delta } = params as PlanDeltaNotification;
+      if (!delta) break;
+      state.codexPlanText += delta;
+      const planText = state.codexPlanText;
+      const planMsgId = `codex-plan-stream-${state.codexPlanTurnCounter}`;
+      const existing = state.messages.find(m => m.id === planMsgId);
+      if (existing) {
+        existing.toolInput = { plan: planText };
+      } else {
+        finalizeACPStreamingMsg(state);
+        state.messages.push({
+          id: planMsgId,
+          role: "tool_call",
+          content: "",
+          toolName: "ExitPlanMode",
+          toolInput: { plan: planText },
+          // No toolResult yet — renders as "Preparing plan" shimmer
+          timestamp: Date.now(),
+        });
+      }
+      break;
+    }
+
+    case "turn/plan/updated": {
+      const { plan, explanation } = params as TurnPlanUpdatedNotification;
+      const todos = codexPlanToTodos(plan);
+      const planMsgId = `codex-plan-update-${state.codexPlanTurnCounter}`;
+      const toolInput = { todos, ...(explanation ? { explanation } : {}) };
+      const toolResult = { content: `Plan: ${plan.length} step${plan.length !== 1 ? "s" : ""}` };
+      const existingMsg = state.messages.find(m => m.id === planMsgId);
+      if (existingMsg) {
+        existingMsg.toolInput = toolInput;
+        existingMsg.toolResult = toolResult;
+      } else {
+        state.messages.push({
+          id: planMsgId,
+          role: "tool_call",
+          content: "",
+          toolName: "TodoWrite",
+          toolInput,
+          toolResult,
+          timestamp: Date.now(),
+        });
+      }
+      break;
+    }
+
+    case "thread/tokenUsage/updated": {
+      const { tokenUsage } = params as CodexTokenUsageNotification;
+      state.contextUsage = {
+        inputTokens: tokenUsage.last.inputTokens,
+        outputTokens: tokenUsage.last.outputTokens,
+        cacheReadTokens: tokenUsage.last.cachedInputTokens,
+        cacheCreationTokens: 0,
+        contextWindow: tokenUsage.modelContextWindow ?? state.contextUsage?.contextWindow ?? 200_000,
+      };
+      break;
+    }
+
+    case "thread/compacted":
+      state.isCompacting = false;
+      break;
+  }
+
+  return undefined;
+}

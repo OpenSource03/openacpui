@@ -13,66 +13,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { getInitials, getStatusColor, jiraWikiToMarkdown } from "@/lib/jira-utils";
 import type { JiraIssue, JiraComment } from "@shared/types/jira";
 
 const REMARK_PLUGINS = [remarkGfm];
-
-// ── Status colors (reused from mcp-renderers/jira.tsx) ──
-
-const STATUS_COLORS: Record<string, string> = {
-  "to do": "bg-muted text-muted-foreground",
-  "open": "bg-muted text-muted-foreground",
-  "backlog": "bg-muted text-muted-foreground",
-  "in progress": "bg-blue-500/15 text-blue-400",
-  "in review": "bg-purple-500/15 text-purple-400",
-  "done": "bg-emerald-500/15 text-emerald-400",
-  "closed": "bg-emerald-500/15 text-emerald-400",
-  "resolved": "bg-emerald-500/15 text-emerald-400",
-};
-
-function getStatusColor(status: string): string {
-  return STATUS_COLORS[status.toLowerCase()] ?? "bg-muted text-muted-foreground";
-}
-
-// ── Jira wiki markup → markdown converter ──
-
-function jiraWikiToMarkdown(wiki: string): string {
-  return wiki
-    // Headings: h1. → #, h2. → ##, etc.
-    .replace(/^h([1-6])\.\s+(.*)$/gm, (_m, level: string, text: string) => `${"#".repeat(Number(level))} ${text}`)
-    // Bold: *text* → **text** (but not bullet lists)
-    .replace(/(?<!\S)\*(\S[^*]*\S|\S)\*(?!\S)/g, "**$1**")
-    // Italic: _text_ → *text*
-    .replace(/(?<!\S)_(\S[^_]*\S|\S)_(?!\S)/g, "*$1*")
-    // Strikethrough: -text- → ~~text~~ (careful not to match list items or hyphens in words)
-    .replace(/(?<=\s|^)-(\S[^-]*\S|\S)-(?=\s|$)/gm, "~~$1~~")
-    // Monospace: {{text}} → `text`
-    .replace(/\{\{([^}]+)\}\}/g, "`$1`")
-    // Ordered lists: # item → 1. item (single level)
-    .replace(/^#\s+/gm, "1. ")
-    // Nested ordered: ## item → indent
-    .replace(/^##\s+/gm, "   1. ")
-    // Bullet lists: * item already works in markdown, but ** is nested
-    .replace(/^\*\*\s+/gm, "  - ")
-    // Links: [text|url] → [text](url)
-    .replace(/\[([^|[\]]+)\|([^\]]+)\]/g, "[$1]($2)")
-    // Bare links: [url] → [url](url)
-    .replace(/\[((https?:\/\/)[^\]]+)\]/g, "[$1]($1)")
-    // {noformat} / {code} blocks
-    .replace(/\{noformat\}([\s\S]*?)\{noformat\}/g, "```\n$1\n```")
-    .replace(/\{code(?::([^}]*))?\}([\s\S]*?)\{code\}/g, (_m, lang: string | undefined, code: string) =>
-      `\`\`\`${lang ?? ""}\n${code}\n\`\`\``
-    );
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
 
 // ── Overlay dimensions (same as FilePreviewOverlay) ──
 
@@ -139,8 +83,8 @@ const OverlayContent = memo(function OverlayContent({
 
     window.claude.jira
       .getComments({ instanceUrl, issueKey: issue.key })
-      .then((loaded) => {
-        if (!cancelled) setComments(loaded);
+      .then((result) => {
+        if (!cancelled && !("error" in result)) setComments(result);
       })
       .catch(() => {
         // Silently fail — comments are optional

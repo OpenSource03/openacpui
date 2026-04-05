@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef } from "react";
-import type { ChatSession, UIMessage, PermissionRequest, McpServerStatus, McpServerConfig, ModelInfo, AcpPermissionBehavior, EngineId, Project } from "../types";
-import type { ACPAuthenticateResult, ACPConfigOption, ACPPermissionEvent } from "../types/acp";
+import type { ChatSession, UIMessage, PermissionRequest, McpServerStatus, McpServerConfig, ModelInfo, AcpPermissionBehavior, EngineId, Project, ACPAuthenticateResult, ACPConfigOption, ACPPermissionEvent } from "@/types";
 import { toMcpStatusState } from "../lib/mcp-utils";
-import { toChatSession } from "../lib/session-records";
-import { BackgroundSessionStore } from "../lib/background-session-store";
+import { toChatSession } from "../lib/session/records";
+import { BackgroundSessionStore } from "../lib/background/session-store";
+import { createSystemMessage } from "../lib/message-factory";
 import { suppressNextSessionCompletion } from "../lib/notification-utils";
 import {
   DRAFT_ID,
@@ -439,13 +439,7 @@ export function useSessionManager(
     if (promptResult?.error) {
       acp.setMessages((prev) => [
         ...prev,
-        {
-          id: `system-acp-error-${Date.now()}`,
-          role: "system" as const,
-          content: `ACP prompt error: ${promptResult.error}`,
-          timestamp: Date.now(),
-          isError: true,
-        },
+        createSystemMessage(`ACP prompt error: ${promptResult.error}`, true),
       ]);
       acp.setIsProcessing(false);
     }

@@ -1,6 +1,6 @@
 import { Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import { posthog } from "@/lib/posthog";
+import { posthog } from "@/lib/analytics/posthog";
 
 interface Props {
   children: ReactNode;

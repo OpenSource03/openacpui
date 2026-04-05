@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, RefreshCw, X } from "lucide-react";
-import { captureException } from "@/lib/analytics";
+import { captureException } from "@/lib/analytics/analytics";
 
 type UpdateState =
   | { phase: "idle" }

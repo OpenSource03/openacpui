@@ -15,28 +15,27 @@ import type { MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
 export function useMainToolPaneResize(
   workspace: MainToolWorkspaceState,
   containerRef: React.RefObject<HTMLDivElement | null>,
+  toolAreaFraction: number,
 ) {
-  // Ref for stable chat fraction access during drag (avoids stale closure in mousemove handler)
-  const chatFractionRef = useRef(workspace.widthFractions[0] ?? 1);
-  chatFractionRef.current = workspace.widthFractions[0] ?? 1;
+  // Ref for stable tool-area access during drag (avoids stale closure in mousemove handler)
+  const toolAreaFractionRef = useRef(toolAreaFraction);
+  toolAreaFractionRef.current = toolAreaFraction;
 
   return usePaneResize({
     widthFractions: (() => {
-      const chatFraction = workspace.widthFractions[0] ?? 1;
       const toolFractions = workspace.widthFractions.slice(1);
-      const totalToolFraction = Math.max(1 - chatFraction, 0.0001);
+      const totalToolFraction = Math.max(toolAreaFraction, 0.0001);
       return toolFractions.length > 0
         ? toolFractions.map((fraction) => fraction / totalToolFraction)
         : [];
     })(),
     setWidthFractions: (fractions) => {
-      const chatFraction = chatFractionRef.current;
-      const totalToolFraction = Math.max(1 - chatFraction, 0);
+      const totalToolFraction = Math.max(toolAreaFractionRef.current, 0);
       // Scale tool fractions back to workspace space, preserving chat fraction exactly.
       // Use setWidthFractionsDirect to bypass double clamping — usePaneResize already
       // clamped in the tool-relative coordinate system.
       workspace.setWidthFractionsDirect([
-        chatFraction,
+        Math.max(0, 1 - totalToolFraction),
         ...fractions.map((fraction) => fraction * totalToolFraction),
       ]);
     },

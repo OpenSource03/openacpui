@@ -7,8 +7,7 @@
  */
 
 import { useEffect, useRef, useState, startTransition } from "react";
-import type { ChatSession, PermissionRequest, SlashCommand, UIMessage } from "../../types";
-import type { ACPConfigOption, ACPPermissionEvent } from "../../types/acp";
+import type { ChatSession, PermissionRequest, SlashCommand, UIMessage, ACPConfigOption, ACPPermissionEvent } from "@/types";
 import type { InitialMeta, SessionPaneBootstrap } from "./types";
 
 interface ExtraPaneLoaderResult {

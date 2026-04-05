@@ -9,7 +9,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   MIN_PANE_WIDTH_FRACTION,
   equalWidthFractions,
-} from "@/lib/layout-constants";
+} from "@/lib/layout/constants";
 
 interface UsePaneResizeOptions {
   /** Width fractions for all panes (length = pane count). */

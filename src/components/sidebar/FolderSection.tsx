@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
+import { useInlineRename } from "@/hooks/useInlineRename";
 import { Folder, ChevronRight, Pencil, Trash2, MoreHorizontal, Pin, PinOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,10 +10,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ChatFolder, ChatSession, InstalledAgent } from "@/types";
 import { SessionItem } from "./SessionItem";
+import { useSidebarActions } from "./SidebarActionsContext";
 import {
   isSidebarDragKind,
   handleSidebarFolderDrop,
-} from "@/lib/sidebar-dnd";
+} from "@/lib/sidebar/dnd";
+import { useContextMenuPosition } from "@/hooks/useContextMenuPosition";
 
 export function FolderSection({
   folder,
@@ -20,53 +23,46 @@ export function FolderSection({
   activeSessionId,
   islandLayout,
   allFolders,
-  onSelectSession,
-  onDeleteSession,
-  onRenameSession,
-  onPinSession,
-  onMoveSessionToFolder,
   onPinFolder,
   onRenameFolder,
   onDeleteFolder,
   agents,
   defaultCollapsed = false,
-  onOpenInSplitView,
-  canOpenSessionInSplitView,
 }: {
   folder: ChatFolder;
   sessions: ChatSession[];
   activeSessionId: string | null;
   islandLayout: boolean;
   allFolders: ChatFolder[];
-  onSelectSession: (id: string) => void;
-  onDeleteSession: (id: string) => void;
-  onRenameSession: (id: string, title: string) => void;
-  onPinSession: (id: string, pinned: boolean) => void;
-  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
+  /** Toggle pin on this specific folder. Pre-bound by the parent. */
   onPinFolder: (pinned: boolean) => void;
+  /** Rename this specific folder. Pre-bound by the parent. */
   onRenameFolder: (name: string) => void;
+  /** Delete this specific folder. Pre-bound by the parent. */
   onDeleteFolder: () => void;
   agents?: InstalledAgent[];
   defaultCollapsed?: boolean;
-  onOpenInSplitView?: (sessionId: string) => void;
-  canOpenSessionInSplitView?: (sessionId: string) => boolean;
 }) {
+  const {
+    selectSession,
+    deleteSession,
+    renameSession,
+    pinSession,
+    moveSessionToFolder,
+    openInSplitView,
+    canOpenSessionInSplitView,
+  } = useSidebarActions();
+  const { isEditing, startEditing, inputProps: renameInputProps } = useInlineRename({
+    initialName: folder.name,
+    onRename: onRenameFolder,
+  });
   const [expanded, setExpanded] = useState(!defaultCollapsed);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState(folder.name);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuAlign, setMenuAlign] = useState<"start" | "end">("end");
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
-  const rowRef = useRef<HTMLDivElement>(null);
-
-  const handleRename = useCallback(() => {
-    const trimmed = editName.trim();
-    if (trimmed && trimmed !== folder.name) {
-      onRenameFolder(trimmed);
-    }
-    setIsEditing(false);
-  }, [editName, folder.name, onRenameFolder]);
+  const {
+    menuOpen, menuAlign, setMenuOpen,
+    handleContextMenu, handleMenuButtonClick,
+    triggerStyle, containerRef,
+  } = useContextMenuPosition();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (isSidebarDragKind("session", e.dataTransfer)) {
@@ -85,51 +81,21 @@ export function FolderSection({
       setIsDragOver(false);
       handleSidebarFolderDrop(e, folder.id, {
         onMoveSessionToFolder: (sessionId, folderId) => {
-          onMoveSessionToFolder(sessionId, folderId);
+          moveSessionToFolder(sessionId, folderId);
         },
         onReorderFolder: () => {
           // folder reorder not implemented yet
         },
       });
     },
-    [folder.id, onMoveSessionToFolder],
+    [folder.id, moveSessionToFolder],
   );
-
-  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const rowRect = rowRef.current?.getBoundingClientRect();
-    setMenuPos({
-      x: rowRect ? e.clientX - rowRect.left : 0,
-      y: rowRect ? e.clientY - rowRect.top : 0,
-    });
-    setMenuAlign("start");
-    setMenuOpen(true);
-  }, []);
-
-  const handleMenuButtonClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    const rowRect = rowRef.current?.getBoundingClientRect();
-    const buttonRect = e.currentTarget.getBoundingClientRect();
-    setMenuPos({
-      x: rowRect ? buttonRect.right - rowRect.left : 0,
-      y: rowRect ? buttonRect.bottom - rowRect.top : 0,
-    });
-    setMenuAlign("end");
-    setMenuOpen(true);
-  }, []);
 
   if (isEditing) {
     return (
       <div className="flex items-center gap-1 px-1 ps-4">
         <input
-          autoFocus
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          onBlur={handleRename}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleRename();
-            if (e.key === "Escape") setIsEditing(false);
-          }}
+          {...renameInputProps}
           className="flex-1 rounded-lg bg-black/5 px-2 py-1 text-[13px] text-sidebar-foreground outline-none ring-1 ring-sidebar-ring dark:bg-white/5"
         />
       </div>
@@ -149,7 +115,7 @@ export function FolderSection({
     >
       {/* Folder header */}
       <div
-        ref={rowRef}
+        ref={containerRef}
         className="group relative flex items-center"
         onContextMenu={handleContextMenu}
       >
@@ -182,16 +148,7 @@ export function FolderSection({
 
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <span
-              style={{
-                position: "absolute",
-                left: menuPos.x,
-                top: menuPos.y,
-                width: 0,
-                height: 0,
-                pointerEvents: "none",
-              }}
-            />
+            <span style={triggerStyle} />
           </DropdownMenuTrigger>
           <DropdownMenuContent align={menuAlign} side="bottom" sideOffset={6} className="w-36">
             <DropdownMenuItem onClick={() => onPinFolder(!folder.pinned)}>
@@ -207,12 +164,7 @@ export function FolderSection({
                 </>
               )}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                setEditName(folder.name);
-                setIsEditing(true);
-              }}
-            >
+            <DropdownMenuItem onClick={startEditing}>
               <Pencil className="me-2 h-3.5 w-3.5" />
               Rename
             </DropdownMenuItem>
@@ -241,14 +193,14 @@ export function FolderSection({
                 islandLayout={islandLayout}
                 session={session}
                 isActive={session.id === activeSessionId}
-                onSelect={() => onSelectSession(session.id)}
-                onDelete={() => onDeleteSession(session.id)}
-                onRename={(title) => onRenameSession(session.id, title)}
-                onPinToggle={() => onPinSession(session.id, !session.pinned)}
+                onSelect={() => selectSession(session.id)}
+                onDelete={() => deleteSession(session.id)}
+                onRename={(title) => renameSession(session.id, title)}
+                onPinToggle={() => pinSession(session.id, !session.pinned)}
                 folders={allFolders}
-                onMoveToFolder={(folderId) => onMoveSessionToFolder(session.id, folderId)}
+                onMoveToFolder={(folderId) => moveSessionToFolder(session.id, folderId)}
                 agents={agents}
-                onOpenInSplitView={onOpenInSplitView ? () => onOpenInSplitView(session.id) : undefined}
+                onOpenInSplitView={openInSplitView ? () => openInSplitView(session.id) : undefined}
                 canOpenInSplitView={canOpenSessionInSplitView?.(session.id) ?? true}
               />
             ))

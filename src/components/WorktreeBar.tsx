@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useRef, useEffect } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import { motion, AnimatePresence } from "motion/react";
 import {
   GitBranch,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorktreeChips, WORKTREE_SETUP_PATH } from "@/hooks/useWorktreeChips";
-import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
+import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout/constants";
 
 const SETUP_PROMPT = `Analyze this project and generate a worktree setup configuration.
 
@@ -89,18 +90,12 @@ export const WorktreeBar = memo(function WorktreeBar({
   }, [showCreate]);
 
   // Click-outside to close create form
-  useEffect(() => {
-    if (!showCreate) return;
-    const handler = (e: MouseEvent) => {
-      if (formRef.current && !formRef.current.contains(e.target as Node)) {
-        setShowCreate(false);
-        setBranchName("");
-        setError(null);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showCreate]);
+  const closeCreateForm = useCallback(() => {
+    setShowCreate(false);
+    setBranchName("");
+    setError(null);
+  }, []);
+  useClickOutside(formRef, closeCreateForm, showCreate);
 
   const handleCreate = useCallback(async () => {
     const trimmed = branchName.trim();

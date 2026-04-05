@@ -3,7 +3,7 @@ import { TodoPanel } from "@/components/TodoPanel";
 import { BackgroundAgentsPanel } from "@/components/BackgroundAgentsPanel";
 import type { TodoItem, BackgroundAgent } from "@/types";
 
-interface RightPanelProps {
+interface RightPanelLayoutProps {
   isIsland: boolean;
   isResizing: boolean;
   rightPanelRef: React.RefObject<HTMLDivElement | null>;
@@ -12,6 +12,9 @@ interface RightPanelProps {
   splitGap: number;
   handleResizeStart: (e: React.MouseEvent) => void;
   handleRightSplitStart: (e: React.MouseEvent) => void;
+}
+
+interface RightPanelContentProps {
   hasTodos: boolean;
   hasAgents: boolean;
   activeTools: ReadonlySet<string>;
@@ -24,22 +27,33 @@ interface RightPanelProps {
   expandEditToolCallsByDefault: boolean;
 }
 
+interface RightPanelProps {
+  layout: RightPanelLayoutProps;
+  content: RightPanelContentProps;
+}
+
 export const RightPanel = React.memo(function RightPanel({
-  isIsland,
-  isResizing,
-  rightPanelRef,
-  rightPanelWidth,
-  rightSplitRatio,
-  splitGap,
-  handleResizeStart,
-  handleRightSplitStart,
-  hasTodos,
-  hasAgents,
-  activeTools,
-  activeTodos,
-  bgAgents,
-  expandEditToolCallsByDefault,
+  layout,
+  content,
 }: RightPanelProps) {
+  const {
+    isIsland,
+    isResizing,
+    rightPanelRef,
+    rightPanelWidth,
+    rightSplitRatio,
+    splitGap,
+    handleResizeStart,
+    handleRightSplitStart,
+  } = layout;
+  const {
+    hasTodos,
+    hasAgents,
+    activeTools,
+    activeTodos,
+    bgAgents,
+    expandEditToolCallsByDefault,
+  } = content;
   const showTodos = hasTodos && activeTools.has("tasks");
   const showAgents = hasAgents && activeTools.has("agents");
   const bothVisible = showTodos && showAgents;

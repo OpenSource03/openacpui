@@ -11,8 +11,8 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import type { VoiceDictationMode } from "@/types/ui";
-import { captureException } from "@/lib/analytics";
+import type { VoiceDictationMode } from "@/types";
+import { captureException } from "@/lib/analytics/analytics";
 
 // ── Types ──
 

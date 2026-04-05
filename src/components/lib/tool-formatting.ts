@@ -1,7 +1,7 @@
 import type { UIMessage, SubagentToolStep } from "@/types";
 import { getMcpCompactSummary } from "@/components/McpToolContent";
-import { getTodoItems } from "@/lib/todo-utils";
-import { getDistinctPatchPaths, getStructuredPatches } from "@/lib/patch-utils";
+import { getTodoItems } from "@/lib/chat/todo-utils";
+import { getDistinctPatchPaths, getStructuredPatches } from "@/lib/diff/patch-utils";
 
 // ── Compact summary for collapsed tool line ──
 

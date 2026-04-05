@@ -19,7 +19,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout-constants";
+import { BOTTOM_CHAT_MAX_WIDTH_CLASS } from "@/lib/layout/constants";
 import {
   buildAskUserQuestionResult,
   getAskUserQuestionKey,

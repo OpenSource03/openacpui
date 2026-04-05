@@ -18,7 +18,7 @@ import {
   CHAT_ROW_CLASS,
   CHAT_ROW_WIDTH_CLASS,
 } from "@/components/lib/chat-layout";
-import { getToolDiffStats } from "@/lib/diff-stats";
+import { getToolDiffStats } from "@/lib/diff/diff-stats";
 
 // ── Main entry ──
 
@@ -83,21 +83,23 @@ export const ToolCall = memo(function ToolCall({
 
 // ── Regular tool (Read, Write, Edit, Bash, Grep, Glob, etc.) ──
 
-function RegularTool({
-  message,
-  autoExpandTools,
-  expandEditToolCallsByDefault,
-  showToolIcons,
-  coloredToolIcons,
-  disableCollapseAnimation,
-}: {
+interface RegularToolProps {
   message: UIMessage;
   autoExpandTools: boolean;
   expandEditToolCallsByDefault: boolean;
   showToolIcons: boolean;
   coloredToolIcons: boolean;
   disableCollapseAnimation: boolean;
-}) {
+}
+
+const RegularTool = memo(function RegularTool({
+  message,
+  autoExpandTools,
+  expandEditToolCallsByDefault,
+  showToolIcons,
+  coloredToolIcons,
+  disableCollapseAnimation,
+}: RegularToolProps) {
   const isInteractive = message.toolName === "ExitPlanMode" || message.toolName === "AskUserQuestion";
   const isEditToolCall = message.toolName === "Edit" || message.toolName === "Write";
   const defaultExpanded = isEditToolCall && expandEditToolCallsByDefault;
@@ -213,4 +215,13 @@ function RegularTool({
       </CollapsibleContent>
     </Collapsible>
   );
-}
+}, (prev, next) =>
+  prev.autoExpandTools === next.autoExpandTools &&
+  prev.expandEditToolCallsByDefault === next.expandEditToolCallsByDefault &&
+  prev.showToolIcons === next.showToolIcons &&
+  prev.coloredToolIcons === next.coloredToolIcons &&
+  prev.disableCollapseAnimation === next.disableCollapseAnimation &&
+  prev.message.toolInput === next.message.toolInput &&
+  prev.message.toolResult === next.message.toolResult &&
+  prev.message.toolError === next.message.toolError,
+);

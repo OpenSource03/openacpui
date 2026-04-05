@@ -1,12 +1,12 @@
 import React, { useCallback, useMemo, useRef, useEffect, useLayoutEffect, useState } from "react";
 import { LayoutGroup, motion } from "motion/react";
-import { ArrowUp, PanelLeft } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { normalizeRatios } from "@/hooks/useSettings";
 import { useAppOrchestrator } from "@/hooks/useAppOrchestrator";
 import { useSpaceTheme } from "@/hooks/useSpaceTheme";
 import { useGlassTheme } from "@/hooks/useGlassTheme";
+import { ThemeProvider } from "@/hooks/useTheme";
 import { usePaneController, type PaneControllerContext } from "@/hooks/usePaneController";
 import { useToolIslandContext } from "@/hooks/useToolIslandContext";
 import { usePanelResize } from "@/hooks/usePanelResize";
@@ -15,24 +15,21 @@ import {
   ISLAND_GAP,
   ISLAND_PANEL_GAP,
   ISLAND_RADIUS,
-  MIN_TOOLS_PANEL_WIDTH,
   RESIZE_HANDLE_WIDTH_ISLAND,
   TOOL_PICKER_WIDTH_ISLAND,
   equalWidthFractions,
-  getMinChatWidth,
-} from "@/lib/layout-constants";
-import type { GrabbedElement } from "@/types/ui";
+} from "@/lib/layout/constants";
+import type { InstalledAgent } from "@/types";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
 import { ChatSearchBar } from "./ChatSearchBar";
 import { ChatView } from "./ChatView";
 import { BottomComposer } from "./BottomComposer";
 import { ToolPicker } from "./ToolPicker";
-import { PANEL_TOOLS_MAP, type ToolId } from "./ToolPicker";
+import { PANEL_TOOLS_MAP } from "./ToolPicker";
+import type { ToolId } from "@/types/tools";
 import { WelcomeScreen } from "./WelcomeScreen";
 import { WelcomeWizard } from "./welcome/WelcomeWizard";
-import { WELCOME_COMPLETED_KEY } from "./welcome/shared";
-import { PanelDockControls } from "./PanelDockControls";
 import { PanelDockPreview } from "./PanelDockPreview";
 import { FilePreviewOverlay } from "./FilePreviewOverlay";
 import { SettingsView } from "./SettingsView";
@@ -42,8 +39,8 @@ import { JiraBoardPanel } from "./JiraBoardPanel";
 import { isMac, isWindows } from "@/lib/utils";
 import { SplitHandle } from "./split/SplitHandle";
 import { SplitDropZone } from "./split/SplitDropZone";
-import { SplitPaneHost } from "./split/SplitPaneHost";
-import { SplitChatPane } from "./split/SplitChatPane";
+import { SplitTopRowItem } from "./split/SplitTopRowItem";
+import { SplitBottomToolIsland } from "./split/SplitBottomToolIsland";
 import { MainTopToolArea } from "./workspace/MainTopToolArea";
 import { MainBottomToolDock } from "./workspace/MainBottomToolDock";
 import { ToolIslandContent } from "./workspace/ToolIslandContent";
@@ -54,50 +51,57 @@ import { useToolColumnResize } from "@/hooks/useToolColumnResize";
 import { useBottomHeightResize } from "@/hooks/useBottomHeightResize";
 import { useSpaceSwitchCooldown } from "@/hooks/useSpaceSwitchCooldown";
 import { useMainToolPaneResize } from "@/hooks/useMainToolPaneResize";
+import { useMainToolAreaLayout } from "@/hooks/useMainToolAreaLayout";
+import { useMainToolAreaResize } from "@/hooks/useMainToolAreaResize";
 import { useJiraBoard } from "@/hooks/useJiraBoard";
 import { useSplitDragDrop } from "@/hooks/useSplitDragDrop";
-import { useMainToolWorkspace } from "@/hooks/useMainToolWorkspace";
+import { useToolDragDrop, findDraggedIsland, type ToolDragState } from "@/hooks/useToolDragDrop";
+import { useAppLayoutUIState } from "@/hooks/app-layout/useAppLayoutUIState";
 import {
-  DEFAULT_TOOL_PREFERRED_WIDTH,
+  useMainToolWorkspace,
+  togglePanelTool,
+  moveToolToSide,
+  moveToolToBottom,
+  moveBottomToolToTop,
+} from "@/hooks/useMainToolWorkspace";
+import type { PanelToolId } from "@/types";
+import {
   MIN_CHAT_WIDTH_SPLIT,
   SPLIT_HANDLE_WIDTH,
-  TOOL_PREFERRED_WIDTHS,
-} from "@/lib/layout-constants";
-import { getMaxVisibleSplitPaneCount } from "@/lib/split-layout";
-import { getStoredProjectGitCwd } from "@/lib/space-projects";
+} from "@/lib/layout/constants";
+import { getMaxVisibleSplitPaneCount } from "@/lib/layout/split-layout";
 import {
-  getHorizontalInsertSide,
-  getRequiredToolIslandsWidth,
-  getToolColumnDropIntent,
   isNearBottomDockZone,
-} from "@/lib/workspace-drag";
-import type { InstalledAgent } from "@/types";
+} from "@/lib/workspace/drag";
+import { AgentProvider, type AgentContextValue } from "./AgentContext";
 
 export function AppLayout() {
   const o = useAppOrchestrator();
+  const { managers, agentState, state, ui, actions } = o;
   const {
-    sidebar, projectManager, spaceManager, manager, settings, resolvedTheme,
-    agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange,
-    lockedEngine, lockedAgentId,
+    sidebar, projectManager, spaceManager, manager, settings, resolvedTheme, spaceTerminals, activeSpaceTerminals, splitView,
+  } = managers;
+  const {
+    agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange, lockedEngine, lockedAgentId,
+  } = agentState;
+  const {
     activeProjectId, activeProjectPath, activeSpaceProject, activeSpaceTerminalCwd, showThinking,
     hasProjects, isSpaceSwitching, showToolPicker, hasRightPanel,
     activeTodos, bgAgents, hasTodos, hasAgents, availableContextual,
     glassSupported, macLiquidGlassSupported, liveMacBackgroundEffect, devFillEnabled, jiraBoardEnabled,
-    showSettings, setShowSettings,
-    scrollToMessageId, setScrollToMessageId,
-    chatSearchOpen, setChatSearchOpen,
-    spaceTerminals, activeSpaceTerminals,
+    draftSpaceId,
+  } = state;
+  const {
+    showSettings, setShowSettings, scrollToMessageId, setScrollToMessageId, chatSearchOpen, setChatSearchOpen,
+  } = ui;
+  const {
     handleToggleTool, handleToolReorder, handleNewChat, handleSend,
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
     handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
-    handleSendQueuedNow, handleUnqueueMessage,
-    handleCreateProject, handleImportCCSession, handleNavigateToMessage,
-    handleStartCreateSpace, handleConfirmCreateSpace, handleCancelCreateSpace,
-    handleUpdateSpace, handleDeleteSpace, handleMoveProjectToSpace,
-    draftSpaceId,
-    handleSeedDevExampleSpaceData,
-    splitView,
-  } = o;
+    handleSendQueuedNow, handleUnqueueMessage, handleCreateProject, handleImportCCSession,
+    handleNavigateToMessage, handleStartCreateSpace, handleConfirmCreateSpace, handleCancelCreateSpace,
+    handleUpdateSpace, handleDeleteSpace, handleMoveProjectToSpace, handleSeedDevExampleSpaceData,
+  } = actions;
 
   // Draft is a real space — activeSpace already points to it, no synthetic needed
   const glassOverlayStyle = useSpaceTheme(
@@ -116,61 +120,23 @@ export function AppLayout() {
     spaceOpacity,
   });
   const { isLightGlass, isNativeGlass, chatFadeStrength, titlebarSurfaceColor, topFadeBackground, bottomFadeBackground } = glassTheme;
-
-  // ── Window focus tracking (subtle veil on macOS liquid glass when unfocused) ──
-  const [windowFocused, setWindowFocused] = useState(true);
-  useEffect(() => {
-    if (!isNativeGlass) return;
-    const onFocus = () => setWindowFocused(true);
-    const onBlur = () => setWindowFocused(false);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [isNativeGlass]);
-
-  // ── Welcome wizard (first-run onboarding) ──
-
-  const [welcomeCompleted, setWelcomeCompleted] = useState(
-    () => localStorage.getItem(WELCOME_COMPLETED_KEY) === "true",
-  );
-
-  const handleWelcomeComplete = useCallback(() => {
-    localStorage.setItem(WELCOME_COMPLETED_KEY, "true");
-    setWelcomeCompleted(true);
-  }, []);
-
-  const handleReplayWelcome = useCallback(() => {
-    localStorage.removeItem(WELCOME_COMPLETED_KEY);
-    setWelcomeCompleted(false);
-    setShowSettings(false);
-  }, [setShowSettings]);
-
-  // ── Element Grab state (browser inspector → chat context) ──
-
-  const [grabbedElements, setGrabbedElements] = useState<GrabbedElement[]>([]);
-
-  const handleElementGrab = useCallback((element: GrabbedElement) => {
-    setGrabbedElements((prev) => [...prev, element]);
-  }, []);
-
-  const handleRemoveGrabbedElement = useCallback((id: string) => {
-    setGrabbedElements((prev) => prev.filter((e) => e.id !== id));
-  }, []);
-
-  // ── File preview overlay state ──
-
-  const [previewFile, setPreviewFile] = useState<{ path: string; sourceRect: DOMRect } | null>(null);
-
-  const handlePreviewFile = useCallback((filePath: string, sourceRect: DOMRect) => {
-    setPreviewFile({ path: filePath, sourceRect });
-  }, []);
-
-  const handleClosePreview = useCallback(() => {
-    setPreviewFile(null);
-  }, []);
+  const layoutUI = useAppLayoutUIState({
+    isNativeGlass,
+    onHideSettings: () => setShowSettings(false),
+  });
+  const {
+    windowFocused,
+    welcomeCompleted,
+    handleWelcomeComplete,
+    handleReplayWelcome,
+    grabbedElements,
+    clearGrabbedElements,
+    handleElementGrab,
+    handleRemoveGrabbedElement,
+    previewFile,
+    handlePreviewFile,
+    handleClosePreview,
+  } = layoutUI;
 
   const jiraBoard = useJiraBoard({
     jiraBoardEnabled,
@@ -194,9 +160,9 @@ export function AppLayout() {
   const wrappedHandleSend = useCallback(
     async (...args: Parameters<typeof handleSend>) => {
       await handleSend(...args);
-      setGrabbedElements([]);
+      clearGrabbedElements();
     },
-    [handleSend],
+    [clearGrabbedElements, handleSend],
   );
 
   const handleOpenNewChat = useCallback(
@@ -215,10 +181,10 @@ export function AppLayout() {
     async () => {
       const projectId = activeProjectId ?? activeSpaceProject?.id;
       if (!projectId) return;
-      setGrabbedElements([]);
+      clearGrabbedElements();
       await handleOpenNewChat(projectId);
     },
-    [activeProjectId, activeSpaceProject, handleOpenNewChat, setGrabbedElements],
+    [activeProjectId, activeSpaceProject, clearGrabbedElements, handleOpenNewChat],
   );
 
   const handleSidebarSelectSession = useCallback(
@@ -248,7 +214,6 @@ export function AppLayout() {
   }, [manager.activeSessionId, manager.send, pendingSplitPaneSend]);
 
   const isIsland = settings.islandLayout;
-  const minChatWidth = getMinChatWidth(isIsland);
   const splitGap = isIsland ? RESIZE_HANDLE_WIDTH_ISLAND / 2 : 0.5;
   const islandRadius = isWindows ? 8 : ISLAND_RADIUS;
   const islandControlRadius = isWindows ? 7 : ISLAND_CONTROL_RADIUS;
@@ -319,7 +284,6 @@ export function AppLayout() {
   const mainToolAreaRef = useRef<HTMLDivElement>(null);
   const mainTopToolColumnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const mainBottomRowRef = useRef<HTMLDivElement>(null);
-  const mainToolPaneResize = useMainToolPaneResize(mainToolWorkspace, mainToolAreaRef);
   const mainBottomPaneResize = usePaneResize({
     widthFractions: mainToolWorkspace.bottomWidthFractions,
     setWidthFractions: mainToolWorkspace.setBottomWidthFractions,
@@ -476,108 +440,81 @@ export function AppLayout() {
     visibleSessionIds,
   });
   const previewDropPosition = splitDragDrop.dragState.isDragging ? splitDragDrop.dragState.dropPosition : null;
-  const [splitToolDrag, setSplitToolDrag] = useState<{
-    toolId: ToolId;
-    sourceSessionId: string;
-    islandId: string | null;
-    targetArea: "top" | "top-stack" | "bottom" | null;
-    targetIndex: number | null;
-    targetColumnId: string | null;
-  } | null>(null);
-  const [isMainToolAreaResizing, setIsMainToolAreaResizing] = useState(false);
-  const splitToolLabel = splitToolDrag ? PANEL_TOOLS_MAP[splitToolDrag.toolId]?.label ?? splitToolDrag.toolId : null;
-  const [mainToolDrag, setMainToolDrag] = useState<{
-    toolId: ToolId;
-    islandId: string | null;
-    targetArea: "top" | "top-stack" | "bottom" | null;
-    targetIndex: number | null;
-    targetColumnId: string | null;
-  } | null>(null);
-  const resetMainToolDrag = useCallback(() => {
-    setMainToolDrag(null);
-  }, []);
-  const resetSplitToolDrag = useCallback(() => {
-    setSplitToolDrag(null);
-  }, []);
-  const commitSplitToolDrop = useCallback(() => {
-    if (!splitToolDrag || splitToolDrag.targetArea === null || splitToolDrag.targetIndex === null) {
-      resetSplitToolDrag();
-      return;
-    }
 
-    if (splitToolDrag.targetArea === "top-stack" && splitToolDrag.targetColumnId) {
-      if (splitToolDrag.islandId) {
-        splitView.moveToolIslandToTopColumn(splitToolDrag.islandId, splitToolDrag.targetColumnId, splitToolDrag.targetIndex);
-      } else {
+  // ── Split view tool drag-and-drop ──
+
+  const handleCommitSplitToolDrop = useCallback((drag: ToolDragState) => {
+    if (drag.targetArea === "top-stack" && drag.targetColumnId) {
+      if (drag.islandId) {
+        splitView.moveToolIslandToTopColumn(drag.islandId, drag.targetColumnId, drag.targetIndex ?? undefined);
+      } else if (drag.sourceSessionId) {
         splitView.openToolIslandInTopColumn(
-          splitToolDrag.sourceSessionId,
-          splitToolDrag.toolId,
-          splitToolDrag.targetColumnId,
-          splitToolDrag.targetIndex,
+          drag.sourceSessionId,
+          drag.toolId,
+          drag.targetColumnId,
+          drag.targetIndex ?? undefined,
         );
       }
     } else {
-      const targetDock = splitToolDrag.targetArea;
+      const targetDock = drag.targetArea;
       if (targetDock === "top" || targetDock === "bottom") {
-        if (splitToolDrag.islandId) {
-          splitView.moveToolIsland(splitToolDrag.islandId, targetDock, splitToolDrag.targetIndex);
-        } else {
-          splitView.openToolIsland(splitToolDrag.sourceSessionId, splitToolDrag.toolId, targetDock, splitToolDrag.targetIndex);
+        if (drag.islandId) {
+          splitView.moveToolIsland(drag.islandId, targetDock, drag.targetIndex ?? undefined);
+        } else if (drag.sourceSessionId) {
+          splitView.openToolIsland(drag.sourceSessionId, drag.toolId, targetDock, drag.targetIndex ?? undefined);
         }
       }
     }
-    resetSplitToolDrag();
-  }, [resetSplitToolDrag, splitToolDrag, splitView]);
-  const mainToolLabel = mainToolDrag ? PANEL_TOOLS_MAP[mainToolDrag.toolId]?.label ?? mainToolDrag.toolId : null;
-  const commitMainToolDrop = useCallback(() => {
-    if (!mainToolDrag || mainToolDrag.targetArea === null || mainToolDrag.targetIndex === null) {
-      resetMainToolDrag();
-      return;
-    }
+  }, [splitView]);
 
-    if (mainToolDrag.targetArea === "top-stack" && mainToolDrag.targetColumnId) {
-      if (mainToolDrag.islandId) {
-        mainToolWorkspace.moveToolIslandToTopColumn(mainToolDrag.islandId, mainToolDrag.targetColumnId, mainToolDrag.targetIndex);
-      } else if (mainToolDrag.toolId in PANEL_TOOLS_MAP) {
-        mainToolWorkspace.openToolIslandInTopColumn(mainToolDrag.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">, mainToolDrag.targetColumnId, mainToolDrag.targetIndex);
+  const splitDrag = useToolDragDrop({ commitDrop: handleCommitSplitToolDrop });
+  const splitToolDrag = splitDrag.drag;
+  const setSplitToolDrag = splitDrag.setDrag;
+  const resetSplitToolDrag = splitDrag.resetDrag;
+  const commitSplitToolDrop = splitDrag.commitDrop;
+  const splitToolLabel = splitDrag.dragLabel;
+
+  const splitDraggedIsland = useMemo(
+    () => findDraggedIsland(splitToolDrag, splitTopRowItems, splitBottomToolIslands, splitView.getToolIslandForPane),
+    [splitToolDrag, splitTopRowItems, splitBottomToolIslands, splitView.getToolIslandForPane],
+  );
+
+  // ── Main workspace tool drag-and-drop ──
+
+  const handleCommitMainToolDrop = useCallback((drag: ToolDragState) => {
+    if (drag.targetArea === "top-stack" && drag.targetColumnId) {
+      if (drag.islandId) {
+        mainToolWorkspace.moveToolIslandToTopColumn(drag.islandId, drag.targetColumnId, drag.targetIndex ?? undefined);
+      } else if (drag.toolId in PANEL_TOOLS_MAP) {
+        mainToolWorkspace.openToolIslandInTopColumn(drag.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">, drag.targetColumnId, drag.targetIndex ?? undefined);
       }
     } else {
-      const targetDock = mainToolDrag.targetArea;
-      if ((targetDock === "top" || targetDock === "bottom") && mainToolDrag.toolId in PANEL_TOOLS_MAP) {
-        if (mainToolDrag.islandId) {
-          mainToolWorkspace.moveToolIsland(mainToolDrag.islandId, targetDock, mainToolDrag.targetIndex);
+      const targetDock = drag.targetArea;
+      if ((targetDock === "top" || targetDock === "bottom") && drag.toolId in PANEL_TOOLS_MAP) {
+        if (drag.islandId) {
+          mainToolWorkspace.moveToolIsland(drag.islandId, targetDock, drag.targetIndex ?? undefined);
         } else {
-          mainToolWorkspace.openToolIsland(mainToolDrag.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">, targetDock, mainToolDrag.targetIndex);
+          mainToolWorkspace.openToolIsland(drag.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">, targetDock, drag.targetIndex ?? undefined);
         }
       }
     }
-    resetMainToolDrag();
-  }, [mainToolDrag, mainToolWorkspace, resetMainToolDrag]);
-  const splitDraggedIsland = useMemo(() => {
-    if (!splitToolDrag) return null;
+  }, [mainToolWorkspace]);
 
-    if (splitToolDrag.islandId) {
-      for (const item of splitTopRowItems) {
-        if (item.kind !== "tool-column") continue;
-        const island = item.islands.find((entry) => entry.id === splitToolDrag.islandId);
-        if (island) return island;
-      }
-      return splitBottomToolIslands.find((island) => island.id === splitToolDrag.islandId) ?? null;
-    }
+  const mainDrag = useToolDragDrop({ commitDrop: handleCommitMainToolDrop });
+  const mainToolDrag = mainDrag.drag;
+  const setMainToolDrag = mainDrag.setDrag;
+  const resetMainToolDrag = mainDrag.resetDrag;
+  const commitMainToolDrop = mainDrag.commitDrop;
+  const mainToolLabel = mainDrag.dragLabel;
 
-    return splitView.getToolIslandForPane(splitToolDrag.sourceSessionId, splitToolDrag.toolId);
-  }, [splitBottomToolIslands, splitToolDrag, splitTopRowItems, splitView]);
   const mainDraggedIsland = useMemo(() => {
-    if (!mainToolDrag) return null;
-    if (mainToolDrag.islandId) {
-      for (const item of mainToolWorkspace.topRowItems) {
-        const island = item.islands.find((entry) => entry.id === mainToolDrag.islandId);
-        if (island) return island;
-      }
-      return mainToolWorkspace.bottomToolIslands.find((island) => island.id === mainToolDrag.islandId) ?? null;
+    const found = findDraggedIsland(mainToolDrag, mainToolWorkspace.topRowItems, mainToolWorkspace.bottomToolIslands);
+    if (found) return found;
+    // Fallback for picker-initiated drags (no islandId, no sourceSessionId)
+    if (mainToolDrag && !mainToolDrag.islandId && mainToolDrag.toolId in PANEL_TOOLS_MAP) {
+      return mainToolWorkspace.getToolIsland(mainToolDrag.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">);
     }
-    if (!(mainToolDrag.toolId in PANEL_TOOLS_MAP)) return null;
-    return mainToolWorkspace.getToolIsland(mainToolDrag.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">);
+    return null;
   }, [mainToolDrag, mainToolWorkspace]);
   const topRowRenderEntries = useMemo<Array<
     | { kind: "item"; item: (typeof splitTopRowItems)[number] }
@@ -712,8 +649,8 @@ export function AppLayout() {
 
   useEffect(() => {
     // Grabbed elements are session-specific context — discard on switch
-    setGrabbedElements([]);
-  }, [manager.activeSessionId]);
+    clearGrabbedElements();
+  }, [clearGrabbedElements, manager.activeSessionId]);
 
   useLayoutEffect(() => {
     lastTopScrollProgressRef.current = 0;
@@ -771,6 +708,52 @@ export function AppLayout() {
     const handleSharePx = totalHandleWidth / previewTopRowCount;
     return { widthPercent, handleSharePx };
   }, [previewTopRowCount, previewTopRowFractions]);
+  // ── Main workspace layout computation (extracted to hook) ──
+  const mainLayout = useMainToolAreaLayout({
+    mainToolWorkspace,
+    mainToolDrag,
+    mainDraggedIsland,
+    availableSplitWidth,
+    hasActiveSession: !!manager.activeSessionId,
+    isIsland,
+    showToolPicker,
+    hasRightPanel,
+    pickerW,
+    handleW,
+    rightPanelWidth: settings.rightPanelWidth,
+  });
+  const {
+    mainTopToolColumnCount,
+    mainWorkspaceChatMinWidth,
+    mainCombinedWorkspaceWidth,
+    mainToolAreaWidth,
+    mainToolRelativeFractions,
+    maxMainTopToolColumns,
+    canAddMainTopColumn,
+    effectiveMainChatFraction,
+    effectiveMainToolAreaFraction,
+    mainMinChatFraction,
+    canFitToolAsNewColumn,
+  } = mainLayout;
+  mainCombinedWorkspaceWidthRef.current = mainCombinedWorkspaceWidth;
+  const mainToolPaneResize = useMainToolPaneResize(
+    mainToolWorkspace,
+    mainToolAreaRef,
+    effectiveMainToolAreaFraction,
+  );
+
+  // ── Main workspace resize (extracted to hook) ──
+  const mainToolAreaResize = useMainToolAreaResize({
+    mainToolWorkspace,
+    mainTopToolColumnCount,
+    mainCombinedWorkspaceWidth,
+    mainMinChatFraction,
+    effectiveMainChatFraction,
+    effectiveMainToolAreaFraction,
+    mainToolRelativeFractions,
+  });
+  const isMainToolAreaResizing = mainToolAreaResize.isResizing;
+
   const shouldAnimateTopRowLayout = !paneResize.isResizing
     && !isResizing
     && !mainToolPaneResize.isResizing
@@ -837,474 +820,20 @@ export function AppLayout() {
     createSplitPaneDraftSession, queueSplitPaneSendAfterSwitch,
   ]);
 
-  const renderSplitTopRowItem = useCallback((
-    item: (typeof splitTopRowItems)[number],
-    displayIndex: number,
-    previewIndex: number,
-    insertBeforeIndex: number,
-  ) => {
-    const { widthPercent, handleSharePx } = getPreviewPaneMetrics(previewIndex);
+  // ── Agent context (eliminates agent prop drilling to 4+ children) ──
+  const agentContextValue = useMemo<AgentContextValue>(() => ({
+    agents,
+    selectedAgent,
+    saveAgent,
+    deleteAgent,
+    handleAgentChange,
+    lockedEngine,
+    lockedAgentId,
+  }), [agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange, lockedEngine, lockedAgentId]);
 
-    if (item.kind === "tool-column") {
-      const renderedIslands = splitToolDrag && splitToolDrag.islandId && splitToolDrag.targetArea !== null
-        ? item.islands.filter((island) => island.id !== splitToolDrag.islandId)
-        : item.islands;
-      const stackEntries: Array<{ kind: "item"; island: (typeof item.islands)[number] } | { kind: "preview" }> = (
-        splitToolDrag?.targetArea === "top-stack" && splitToolDrag.targetColumnId === item.column.id
-      )
-        ? (() => {
-          const next: Array<{ kind: "item"; island: (typeof item.islands)[number] } | { kind: "preview" }> = renderedIslands.map((island) => ({ kind: "item", island }));
-          const insertIndex = Math.max(0, Math.min(splitToolDrag.targetIndex ?? next.length, next.length));
-          next.splice(insertIndex, 0, { kind: "preview" });
-          return next;
-        })()
-        : renderedIslands.map((island) => ({ kind: "item", island }));
-      const stackRatios = stackEntries.some((entry) => entry.kind === "preview")
-        ? equalWidthFractions(Math.max(stackEntries.length, 1))
-        : normalizeRatios(item.column.splitRatios, Math.max(stackEntries.length, 1));
-
-      const renderToolIsland = (
-        island: (typeof item.islands)[number],
-        fraction: number,
-        stackInsertBeforeIndex: number,
-        session: typeof manager.activeSession,
-        paneState: typeof manager.primaryPane,
-        isActiveSessionPane: boolean,
-      ) => {
-        const paneProject = session
-          ? projectManager.projects.find((project) => project.id === session.projectId) ?? null
-          : null;
-        const paneProjectPath = paneProject
-          ? (getStoredProjectGitCwd(paneProject.id) ?? paneProject.path)
-          : activeProjectPath;
-        const paneProjectRoot = paneProject?.path;
-        const controls = (
-          <PanelDockControls
-            isBottom={false}
-            moveLabel="Move to bottom"
-            onMovePlacement={() => splitView.moveToolIsland(island.id, "bottom")}
-            onDragStart={(event) => {
-              event.dataTransfer.setData("text/plain", island.id);
-              event.dataTransfer.effectAllowed = "move";
-              setSplitToolDrag({
-                toolId: island.toolId,
-                sourceSessionId: island.sourceSessionId,
-                islandId: island.id,
-                targetArea: null,
-                targetIndex: null,
-                targetColumnId: null,
-              });
-            }}
-            onDragEnd={resetSplitToolDrag}
-          />
-        );
-        return (
-          <div
-            className="island flex min-h-0 flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
-            style={{ flex: `${fraction} 1 0%`, minHeight: 0 }}
-            onDragOver={(event) => {
-              if (!splitToolDrag || splitToolDrag.islandId === island.id) return;
-              event.preventDefault();
-              event.stopPropagation();
-              const rect = event.currentTarget.getBoundingClientRect();
-              const intent = getToolColumnDropIntent(rect, event.clientX, event.clientY);
-              setSplitToolDrag((current) => current ? {
-                ...current,
-                targetArea: intent.area,
-                targetIndex: intent.area === "top"
-                  ? (intent.side === "before" ? insertBeforeIndex : insertBeforeIndex + 1)
-                  : (intent.side === "before" ? stackInsertBeforeIndex : stackInsertBeforeIndex + 1),
-                targetColumnId: intent.area === "top-stack" ? item.column.id : null,
-              } : current);
-            }}
-            onDrop={(event) => {
-              if (!splitToolDrag) return;
-              event.preventDefault();
-              event.stopPropagation();
-              commitSplitToolDrop();
-            }}
-          >
-            <ToolIslandContent
-              toolId={island.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">}
-              persistKey={island.persistKey}
-              headerControls={controls}
-              projectPath={paneProjectPath}
-              projectRoot={paneProjectRoot}
-              projectId={paneProject?.id ?? null}
-              sessionId={island.sourceSessionId}
-              messages={paneState.messages}
-              activeEngine={session?.engine}
-              isActiveSessionPane={isActiveSessionPane}
-              hasLiveSession={paneState.isConnected}
-              spaceId={spaceManager.activeSpaceId}
-              terminalTabs={activeSpaceTerminals.tabs}
-              activeTerminalTabId={activeSpaceTerminals.activeTabId}
-              terminalsReady={spaceTerminals.isReady}
-              onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
-              onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
-              onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
-              onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
-              resolvedTheme={resolvedTheme}
-              onElementGrab={isActiveSessionPane ? handleElementGrab : undefined}
-              onScrollToToolCall={setScrollToMessageId}
-              onPreviewFile={handlePreviewFile}
-              collapsedRepos={settings.collapsedRepos}
-              onToggleRepoCollapsed={settings.toggleRepoCollapsed}
-              selectedWorktreePath={paneProjectPath}
-              onSelectWorktreePath={isActiveSessionPane ? handleAgentWorktreeChange : undefined}
-              mcpServerStatuses={manager.mcpServerStatuses}
-              mcpStatusPreliminary={manager.mcpStatusPreliminary}
-              onRefreshMcpStatus={manager.refreshMcpStatus}
-              onReconnectMcpServer={manager.reconnectMcpServer}
-              onRestartWithMcpServers={manager.restartWithMcpServers}
-            />
-          </div>
-        );
-      };
-
-      const renderColumn = (session: typeof manager.activeSession, paneState: typeof manager.primaryPane, isActiveSessionPane: boolean) => (
-        <motion.div
-          layout={shouldAnimateTopRowLayout}
-          transition={shouldAnimateTopRowLayout
-            ? { type: "spring", stiffness: 380, damping: 34, mass: 0.65 }
-            : { duration: 0 }}
-          ref={(element) => { splitToolColumnRefs.current[item.column.id] = element; }}
-          className="flex min-h-0 min-w-0 flex-col"
-          style={{
-            width: `calc(${widthPercent}% - ${handleSharePx}px)`,
-            minWidth: MIN_CHAT_WIDTH_SPLIT,
-            flexShrink: 0,
-          } as React.CSSProperties}
-        >
-          {stackEntries.map((entry, stackIndex) => {
-            const fraction = stackRatios[stackIndex] ?? (1 / Math.max(stackEntries.length, 1));
-            const stackInsertBeforeIndex = stackEntries
-              .slice(0, stackIndex)
-              .filter((candidate) => candidate.kind === "item")
-              .length;
-            const previousEntry = stackIndex > 0 ? stackEntries[stackIndex - 1] : null;
-            const stackHandleIndex = stackInsertBeforeIndex - 1;
-            const canResizeStackPair = previousEntry?.kind === "item" && entry.kind === "item" && stackHandleIndex >= 0;
-            const isStackPairResizing = splitToolColumnResize.activeResizeId === `${item.column.id}:${stackHandleIndex}`;
-
-            return (
-              <React.Fragment key={entry.kind === "item" ? entry.island.id : `top-stack-preview-${item.column.id}-${stackIndex}`}>
-                {stackIndex > 0 && (
-                  canResizeStackPair ? (
-                    <div
-                      className="resize-row group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
-                      style={isIsland ? { height: "var(--island-panel-gap)" } : undefined}
-                      onMouseDown={(event) => splitToolColumnResize.handleResizeStart(
-                        item.column.id,
-                        stackHandleIndex,
-                        item.column.splitRatios,
-                        event,
-                      )}
-                      onDoubleClick={() => splitView.setTopToolColumnSplitRatios(
-                        item.column.id,
-                        equalWidthFractions(item.islands.length),
-                      )}
-                    >
-                      <div
-                        className={`h-0.5 w-10 rounded-full transition-colors duration-150 ${
-                          isStackPairResizing
-                            ? "bg-foreground/40"
-                            : "bg-transparent group-hover:bg-foreground/25"
-                        }`}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className="h-2 shrink-0"
-                      style={isIsland ? { height: "var(--island-panel-gap)" } : undefined}
-                    />
-                  )
-                )}
-                {entry.kind === "preview" ? (
-                  <div
-                    className="flex min-h-0"
-                    style={{ flex: `${fraction} 1 0%`, minHeight: 0 }}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const intent = getToolColumnDropIntent(rect, event.clientX, event.clientY);
-                      setSplitToolDrag((current) => current ? {
-                        ...current,
-                        targetArea: intent.area,
-                        targetIndex: intent.area === "top"
-                          ? (intent.side === "before" ? insertBeforeIndex : insertBeforeIndex + 1)
-                          : (intent.side === "before" ? stackInsertBeforeIndex : stackInsertBeforeIndex + 1),
-                        targetColumnId: intent.area === "top-stack" ? item.column.id : null,
-                      } : current);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      commitSplitToolDrop();
-                    }}
-                  >
-                    <PanelDockPreview orientation="vertical" label={splitToolLabel ?? undefined} className="min-h-0 flex-1" />
-                  </div>
-                ) : (
-                  renderToolIsland(entry.island, fraction, stackInsertBeforeIndex, session, paneState, isActiveSessionPane)
-                )}
-              </React.Fragment>
-            );
-          })}
-        </motion.div>
-      );
-
-      const primaryIsland = item.islands[0] ?? null;
-      if (!primaryIsland) return null;
-      if (primaryIsland.sourceSessionId === manager.activeSessionId) {
-        return renderColumn(manager.activeSession, manager.primaryPane, true);
-      }
-
-      return (
-        <SplitPaneHost
-          key={item.column.id}
-          sessionId={primaryIsland.sourceSessionId}
-          acpPermissionBehavior={settings.acpPermissionBehavior}
-          loadBootstrap={manager.loadSplitPaneBootstrap}
-        >
-          {({ session, paneState }) => renderColumn(session, paneState, false)}
-        </SplitPaneHost>
-      );
-    }
-
-    const sessionId = item.sessionId;
-    const session = sessionId === manager.activeSessionId
-      ? manager.activeSession
-      : null;
-    const paneState = sessionId === manager.activeSessionId
-      ? manager.primaryPane
-      : null;
-
-    const buildChatPaneProps = (resolvedSession: typeof manager.activeSession, resolvedPaneState: typeof manager.primaryPane, isActiveSessionPane: boolean) => {
-      const paneProject = resolvedSession
-        ? projectManager.projects.find((project) => project.id === resolvedSession.projectId) ?? null
-        : null;
-      const paneProjectPath = paneProject
-        ? (getStoredProjectGitCwd(paneProject.id) ?? paneProject.path)
-        : activeProjectPath;
-      const activeContextualTool = splitView.getPaneContextualTool(sessionId);
-
-      return {
-        sessionId,
-        displayIndex,
-        session: resolvedSession,
-        paneState: resolvedPaneState,
-        paneControllerCtx,
-        isActiveSessionPane,
-        widthPercent,
-        handleSharePx,
-        isIsland,
-        shouldAnimate: shouldAnimateTopRowLayout,
-        chatFadeStrength,
-        topFadeBackground,
-        titlebarSurfaceColor,
-        bottomFadeBackground,
-        isFocused: splitView.focusedSessionId === sessionId,
-        sidebarOpen: sidebar.isOpen,
-        onToggleSidebar: sidebar.toggle,
-        showThinking,
-        autoGroupTools: settings.autoGroupTools,
-        avoidGroupingEdits: settings.avoidGroupingEdits,
-        autoExpandTools: settings.autoExpandTools,
-        expandEditToolCallsByDefault: settings.expandEditToolCallsByDefault,
-        showToolIcons: settings.showToolIcons,
-        coloredToolIcons: settings.coloredToolIcons,
-        acpPermissionBehavior: settings.acpPermissionBehavior,
-        onAcpPermissionBehaviorChange: settings.setAcpPermissionBehavior,
-        agents,
-        showDevFill: isActiveSessionPane ? devFillEnabled : false,
-        onSeedDevExampleConversation: isActiveSessionPane ? manager.seedDevExampleConversation : undefined,
-        onSeedDevExampleSpaceData: isActiveSessionPane ? handleSeedDevExampleSpaceData : undefined,
-        grabbedElements: isActiveSessionPane ? grabbedElements : [],
-        onRemoveGrabbedElement: handleRemoveGrabbedElement,
-        lockedEngine: isActiveSessionPane ? lockedEngine : (resolvedSession?.engine ?? null),
-        lockedAgentId: isActiveSessionPane ? lockedAgentId : (resolvedSession?.agentId ?? null),
-        projectPath: paneProjectPath,
-        selectedWorktreePath: paneProjectPath,
-        onSelectWorktree: isActiveSessionPane ? handleAgentWorktreeChange : undefined,
-        codexModelData: manager.codexRawModels,
-        spaceId: spaceManager.activeSpaceId,
-        onRevert: isActiveSessionPane && manager.isConnected && manager.revertFiles ? handleRevert : undefined,
-        onFullRevert: isActiveSessionPane && manager.isConnected && manager.fullRevert ? handleFullRevert : undefined,
-        onTopScrollProgress: makePaneScrollCallback(displayIndex),
-        onClosePane: () => { void handleCloseSplitPane(sessionId); },
-        onFocus: () => splitView.setFocusedSession(sessionId),
-        queuedCount: isActiveSessionPane ? manager.queuedCount : 0,
-        splitView,
-        availableContextual,
-        activeContextualTool,
-        activeTodos,
-        bgAgents,
-        onToolDragStart: (event: React.DragEvent<HTMLButtonElement>, toolId: ToolId) => {
-          event.dataTransfer.setData("text/plain", toolId);
-          event.dataTransfer.effectAllowed = "move";
-          setSplitToolDrag({
-            toolId,
-            sourceSessionId: sessionId,
-            islandId: null,
-            targetArea: null,
-            targetIndex: null,
-            targetColumnId: null,
-          });
-        },
-        onToolDragEnd: resetSplitToolDrag,
-        onChatPaneDragOver: splitToolDrag ? (event: React.DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          const rect = event.currentTarget.getBoundingClientRect();
-          const insertSide = getHorizontalInsertSide(rect, event.clientX);
-          if (!insertSide) return;
-          setSplitToolDrag((current) => current ? {
-            ...current,
-            targetArea: "top",
-            targetIndex: insertSide === "before" ? insertBeforeIndex : insertBeforeIndex + 1,
-          } : current);
-        } : undefined,
-        onChatPaneDrop: splitToolDrag ? (event: React.DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          commitSplitToolDrop();
-        } : undefined,
-        paneRef: (element: HTMLDivElement | null) => { paneRefs.current[displayIndex] = element; },
-      } as const;
-    };
-
-    if (session && paneState) {
-      return <SplitChatPane {...buildChatPaneProps(session, paneState, true)} />;
-    }
-
-    return (
-      <SplitPaneHost
-        key={sessionId}
-        sessionId={sessionId}
-        acpPermissionBehavior={settings.acpPermissionBehavior}
-        loadBootstrap={manager.loadSplitPaneBootstrap}
-      >
-        {({ session: hostedSession, paneState: hostedPaneState }) => (
-          <SplitChatPane {...buildChatPaneProps(hostedSession, hostedPaneState, false)} />
-        )}
-      </SplitPaneHost>
-    );
-  }, [activeProjectPath, activeTodos, availableContextual, bgAgents, bottomFadeBackground, chatFadeStrength, commitSplitToolDrop, devFillEnabled, getPreviewPaneMetrics, grabbedElements, handleAgentWorktreeChange, handleCloseSplitPane, handleFullRevert, handleRemoveGrabbedElement, handleRevert, handleSeedDevExampleSpaceData, isIsland, lockedAgentId, lockedEngine, makePaneScrollCallback, manager, paneControllerCtx, projectManager.projects, resetSplitToolDrag, settings.acpPermissionBehavior, settings.autoExpandTools, settings.autoGroupTools, settings.avoidGroupingEdits, settings.coloredToolIcons, settings.expandEditToolCallsByDefault, settings.setAcpPermissionBehavior, settings.showToolIcons, shouldAnimateTopRowLayout, showThinking, sidebar.isOpen, sidebar.toggle, spaceManager.activeSpaceId, splitBottomToolIslands.length, splitToolColumnResize.activeResizeId, splitToolColumnResize.handleResizeStart, splitToolDrag, splitTopRowItems.length, splitView, titlebarSurfaceColor, topFadeBackground, agents]);
-
-  const renderSplitBottomToolIsland = useCallback((
-    island: (typeof splitBottomToolIslands)[number],
-    fraction: number,
-    insertBeforeIndex: number,
-  ) => {
-    const renderToolIsland = (session: typeof manager.activeSession, paneState: typeof manager.primaryPane, isActiveSessionPane: boolean) => {
-      const paneProject = session
-        ? projectManager.projects.find((project) => project.id === session.projectId) ?? null
-        : null;
-      const paneProjectPath = paneProject
-        ? (getStoredProjectGitCwd(paneProject.id) ?? paneProject.path)
-        : activeProjectPath;
-      const paneProjectRoot = paneProject?.path;
-      const controls = (
-        <PanelDockControls
-          isBottom={true}
-          moveLabel="Move to top row"
-          moveIcon={ArrowUp}
-          onMovePlacement={() => splitView.moveToolIsland(island.id, "top")}
-          onDragStart={(event) => {
-            event.dataTransfer.setData("text/plain", island.id);
-            event.dataTransfer.effectAllowed = "move";
-            setSplitToolDrag({
-              toolId: island.toolId,
-              sourceSessionId: island.sourceSessionId,
-              islandId: island.id,
-              targetArea: null,
-              targetIndex: null,
-              targetColumnId: null,
-            });
-          }}
-          onDragEnd={resetSplitToolDrag}
-        />
-      );
-
-      return (
-        <motion.div
-          layout={shouldAnimateTopRowLayout}
-          transition={shouldAnimateTopRowLayout
-            ? { type: "spring", stiffness: 380, damping: 34, mass: 0.65 }
-            : { duration: 0 }}
-          className="island flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--island-radius)] bg-background"
-          style={{ flex: `${fraction} 1 0%`, minWidth: 0 }}
-          onDragOver={(event) => {
-            if (!splitToolDrag || splitToolDrag.islandId === island.id) return;
-            event.preventDefault();
-            const rect = event.currentTarget.getBoundingClientRect();
-            const insertSide = getHorizontalInsertSide(rect, event.clientX);
-            if (!insertSide) return;
-            setSplitToolDrag((current) => current ? {
-              ...current,
-              targetArea: "bottom",
-              targetIndex: insertSide === "before" ? insertBeforeIndex : insertBeforeIndex + 1,
-            } : current);
-          }}
-          onDrop={(event) => {
-            if (!splitToolDrag) return;
-            event.preventDefault();
-            commitSplitToolDrop();
-          }}
-        >
-          <ToolIslandContent
-            toolId={island.toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">}
-            persistKey={island.persistKey}
-            headerControls={controls}
-            projectPath={paneProjectPath}
-            projectRoot={paneProjectRoot}
-            projectId={paneProject?.id ?? null}
-            sessionId={island.sourceSessionId}
-            messages={paneState.messages}
-            activeEngine={session?.engine}
-            isActiveSessionPane={isActiveSessionPane}
-            hasLiveSession={paneState.isConnected}
-            spaceId={spaceManager.activeSpaceId}
-            terminalTabs={activeSpaceTerminals.tabs}
-            activeTerminalTabId={activeSpaceTerminals.activeTabId}
-            terminalsReady={spaceTerminals.isReady}
-            onSetActiveTab={(tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId)}
-            onCreateTerminal={() => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
-            onEnsureTerminal={() => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined)}
-            onCloseTerminal={(tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId)}
-            resolvedTheme={resolvedTheme}
-            onElementGrab={isActiveSessionPane ? handleElementGrab : undefined}
-            onScrollToToolCall={setScrollToMessageId}
-            onPreviewFile={handlePreviewFile}
-            collapsedRepos={settings.collapsedRepos}
-            onToggleRepoCollapsed={settings.toggleRepoCollapsed}
-            selectedWorktreePath={paneProjectPath}
-            onSelectWorktreePath={isActiveSessionPane ? handleAgentWorktreeChange : undefined}
-            mcpServerStatuses={manager.mcpServerStatuses}
-            mcpStatusPreliminary={manager.mcpStatusPreliminary}
-            onRefreshMcpStatus={manager.refreshMcpStatus}
-            onReconnectMcpServer={manager.reconnectMcpServer}
-            onRestartWithMcpServers={manager.restartWithMcpServers}
-          />
-        </motion.div>
-      );
-    };
-
-    if (island.sourceSessionId === manager.activeSessionId) {
-      return renderToolIsland(manager.activeSession, manager.primaryPane, true);
-    }
-
-    return (
-      <SplitPaneHost
-        key={island.id}
-        sessionId={island.sourceSessionId}
-        acpPermissionBehavior={settings.acpPermissionBehavior}
-        loadBootstrap={manager.loadSplitPaneBootstrap}
-      >
-        {({ session, paneState }) => renderToolIsland(session, paneState, false)}
-      </SplitPaneHost>
-    );
-  }, [activeProjectPath, activeSpaceTerminalCwd, activeSpaceTerminals.activeTabId, activeSpaceTerminals.tabs, commitSplitToolDrop, handleAgentWorktreeChange, handleElementGrab, handlePreviewFile, manager, projectManager.projects, resetSplitToolDrag, resolvedTheme, setScrollToMessageId, settings.acpPermissionBehavior, settings.collapsedRepos, settings.toggleRepoCollapsed, shouldAnimateTopRowLayout, spaceManager.activeSpaceId, spaceTerminals, splitToolDrag, splitTopRowItems.length, splitView]);
+  // Split top-row and bottom-dock props are now passed to <SplitTopRowItem> and
+  // <SplitBottomToolIsland> components — see their usage in the JSX below.
+  // The shared tool island context (toolIslandCtx) is passed to both.
 
   const activePaneController = usePaneController(
     manager.activeSessionId ?? "",
@@ -1340,112 +869,6 @@ export function AppLayout() {
     ]),
     [activeTools, mainOpenPanelToolIds],
   );
-  const mainTopToolColumnCount = mainToolWorkspace.topRowItems.length;
-  // Use the reduced split min-width whenever there's an active session, since tool islands
-  // can be added at any time. This avoids a 304px layout jump when the first tool column
-  // is opened or the last one is closed.
-  const mainWorkspaceChatMinWidth = manager.activeSessionId
-    ? MIN_CHAT_WIDTH_SPLIT
-    : minChatWidth;
-  const mainHasToolWorkspace = mainTopToolColumnCount > 0 || mainToolWorkspace.bottomToolIslands.length > 0 || !!mainToolDrag;
-  const mainWorkspaceReservedWidth = (showToolPicker ? pickerW : 0)
-    + (hasRightPanel ? settings.rightPanelWidth + handleW : 0)
-    + (mainHasToolWorkspace ? handleW : 0);
-  const mainCombinedWorkspaceWidth = Math.max(0, availableSplitWidth - mainWorkspaceReservedWidth);
-  mainCombinedWorkspaceWidthRef.current = mainCombinedWorkspaceWidth;
-  const mainMaxToolAreaWidth = Math.max(0, mainCombinedWorkspaceWidth - mainWorkspaceChatMinWidth);
-  const mainShowTopToolArea = mainTopToolColumnCount > 0 || mainToolDrag?.targetArea === "top" || mainToolDrag?.targetArea === "top-stack";
-  const mainTopPreviewColumnCount = mainTopToolColumnCount + (
-    mainToolDrag?.targetArea === "top" && mainDraggedIsland?.dock !== "top" ? 1 : 0
-  );
-  const mainRequiredToolWidth = mainShowTopToolArea
-    ? getRequiredToolIslandsWidth(Math.max(mainTopPreviewColumnCount, 1))
-    : 0;
-  const mainMinChatFraction = mainCombinedWorkspaceWidth > 0
-    ? Math.min(0.92, mainWorkspaceChatMinWidth / mainCombinedWorkspaceWidth)
-    : 1;
-  const mainMinToolFraction = mainShowTopToolArea && mainCombinedWorkspaceWidth > 0
-    ? Math.min(0.92, mainRequiredToolWidth / mainCombinedWorkspaceWidth)
-    : 0;
-  const storedMainChatFraction = mainToolWorkspace.widthFractions[0] ?? 1;
-  const mainMaxChatFraction = Math.max(0, 1 - mainMinToolFraction);
-  const effectiveMainChatFraction = mainShowTopToolArea
-    ? Math.min(mainMaxChatFraction, Math.max(mainMinChatFraction, storedMainChatFraction))
-    : 1;
-  const effectiveMainToolAreaFraction = mainShowTopToolArea
-    ? Math.max(0, 1 - effectiveMainChatFraction)
-    : 0;
-  const mainToolAreaWidth = Math.max(0, mainCombinedWorkspaceWidth * effectiveMainToolAreaFraction);
-  const mainToolRelativeFractions = mainTopToolColumnCount > 0
-    ? normalizeRatios(mainToolWorkspace.widthFractions.slice(1), mainTopToolColumnCount)
-    : [];
-  const maxMainTopToolColumns = Math.max(
-    1,
-    Math.floor((mainMaxToolAreaWidth + SPLIT_HANDLE_WIDTH) / (MIN_TOOLS_PANEL_WIDTH + SPLIT_HANDLE_WIDTH)),
-  );
-  const isAddingMainTopColumn = !mainDraggedIsland || mainDraggedIsland.dock !== "top";
-  const canAddMainTopColumn = isAddingMainTopColumn
-    ? mainTopToolColumnCount < maxMainTopToolColumns
-    : mainTopToolColumnCount <= maxMainTopToolColumns;
-
-  /** Check if a specific tool can fit as a new column at its preferred width. */
-  const canFitToolAsNewColumn = useCallback((toolId: ToolId): boolean => {
-    const preferredPx = TOOL_PREFERRED_WIDTHS[toolId] ?? DEFAULT_TOOL_PREFERRED_WIDTH;
-    const handleCost = mainTopToolColumnCount > 0 ? SPLIT_HANDLE_WIDTH : 0;
-    const totalNeeded = mainToolAreaWidth + handleCost + preferredPx;
-    return mainCombinedWorkspaceWidth - totalNeeded >= mainWorkspaceChatMinWidth;
-  }, [mainToolAreaWidth, mainTopToolColumnCount, mainCombinedWorkspaceWidth, mainWorkspaceChatMinWidth]);
-
-  const handleMainToolAreaResizeStart = useCallback((event: React.MouseEvent) => {
-    if (mainTopToolColumnCount <= 0 || mainCombinedWorkspaceWidth <= 0) return;
-
-    event.preventDefault();
-    setIsMainToolAreaResizing(true);
-    const startX = event.clientX;
-    const startFractions = mainToolWorkspace.widthFractions.length === mainTopToolColumnCount + 1
-      ? [...mainToolWorkspace.widthFractions]
-      : [effectiveMainChatFraction, ...mainToolRelativeFractions.map((fraction) => fraction * effectiveMainToolAreaFraction)];
-    const firstToolFraction = startFractions[1] ?? 0;
-    const otherToolFractions = startFractions.slice(2);
-    const otherToolFractionTotal = otherToolFractions.reduce((sum, fraction) => sum + fraction, 0);
-    const minFirstToolFraction = Math.min(0.92, MIN_TOOLS_PANEL_WIDTH / mainCombinedWorkspaceWidth);
-    const maxFirstToolFraction = Math.max(
-      minFirstToolFraction,
-      1 - otherToolFractionTotal - mainMinChatFraction,
-    );
-
-    const handleMove = (moveEvent: MouseEvent) => {
-      const deltaFraction = (startX - moveEvent.clientX) / mainCombinedWorkspaceWidth;
-      const nextFirstToolFraction = Math.max(
-        minFirstToolFraction,
-        Math.min(maxFirstToolFraction, firstToolFraction + deltaFraction),
-      );
-      const nextChatFraction = Math.max(0, 1 - otherToolFractionTotal - nextFirstToolFraction);
-      // Fractions are already clamped above — bypass double-clamping via setWidthFractionsDirect
-      mainToolWorkspace.setWidthFractionsDirect([
-        nextChatFraction,
-        nextFirstToolFraction,
-        ...otherToolFractions,
-      ]);
-    };
-
-    const handleUp = () => {
-      setIsMainToolAreaResizing(false);
-      document.removeEventListener("mousemove", handleMove);
-      document.removeEventListener("mouseup", handleUp);
-    };
-
-    document.addEventListener("mousemove", handleMove);
-    document.addEventListener("mouseup", handleUp);
-  }, [
-    effectiveMainChatFraction,
-    effectiveMainToolAreaFraction,
-    mainCombinedWorkspaceWidth,
-    mainMinChatFraction,
-    mainToolRelativeFractions,
-    mainToolWorkspace,
-    mainTopToolColumnCount,
-  ]);
   useEffect(() => {
     if (isSplitActive) return;
     if (mainTopToolColumnCount <= maxMainTopToolColumns) return;
@@ -1498,26 +921,13 @@ export function AppLayout() {
       activeEngine={manager.activeSession?.engine}
       isActiveSessionPane={true}
       hasLiveSession={!manager.isDraft}
-      selectedWorktreePath={activeSpaceTerminalCwd}
-      onSelectWorktreePath={handleAgentWorktreeChange}
       {...toolIslandCtx}
     />
-  ), [activeProjectId, activeProjectPath, activeSpaceProject?.path, activeSpaceTerminalCwd, handleAgentWorktreeChange, manager.activeSession?.engine, manager.activeSessionId, manager.isDraft, manager.messages, spaceManager.activeSpaceId, toolIslandCtx]);
-  const moveMainBottomToolToTop = useCallback((islandId: string) => {
-    const island = mainToolWorkspace.bottomToolIslands.find((i) => i.id === islandId);
-    if ((island && canFitToolAsNewColumn(island.toolId)) || mainToolWorkspace.topRowItems.length === 0) {
-      mainToolWorkspace.moveToolIsland(islandId, "top");
-      return;
-    }
-
-    const lastColumnId = mainToolWorkspace.topRowItems[mainToolWorkspace.topRowItems.length - 1]?.column.id;
-    if (lastColumnId) {
-      mainToolWorkspace.moveToolIslandToTopColumn(islandId, lastColumnId);
-      return;
-    }
-
-    mainToolWorkspace.moveToolIsland(islandId, "top");
-  }, [mainToolWorkspace, canFitToolAsNewColumn]);
+  ), [activeProjectId, activeProjectPath, activeSpaceProject?.path, manager.activeSession?.engine, manager.activeSessionId, manager.isDraft, manager.messages, spaceManager.activeSpaceId, toolIslandCtx]);
+  const handleMoveMainBottomToolToTop = useCallback(
+    (islandId: string) => moveBottomToolToTop(mainToolWorkspace, islandId, canFitToolAsNewColumn),
+    [mainToolWorkspace, canFitToolAsNewColumn],
+  );
   const showCodexAuthDialog =
     !!manager.activeSessionId &&
     manager.activeSession?.engine === "codex" &&
@@ -1530,6 +940,8 @@ export function AppLayout() {
     manager.acpAuthRequired;
 
   return (
+    <ThemeProvider value={resolvedTheme}>
+    <AgentProvider value={agentContextValue}>
     <div
       className={`relative flex h-screen overflow-hidden bg-sidebar text-foreground${settings.islandLayout ? "" : " no-islands"}${settings.islandShine ? "" : " no-island-shine"}`}
       style={islandLayoutVars}
@@ -1549,86 +961,66 @@ export function AppLayout() {
         />
       )}
       <AppSidebar
-        isOpen={sidebar.isOpen}
-        islandLayout={settings.islandLayout}
-        projects={projectManager.projects}
-        sessions={manager.sessions}
-        activeSessionId={manager.activeSessionId}
-        jiraBoardProjectId={jiraBoardProjectId}
-        jiraBoardEnabled={jiraBoardEnabled}
-        foldersByProject={o.foldersByProject}
-        organizeByChatBranch={settings.organizeByChatBranch}
-        onNewChat={handleOpenNewChat}
-        onToggleProjectJiraBoard={handleToggleProjectJiraBoard}
-        onSelectSession={handleSidebarSelectSession}
-        onDeleteSession={manager.deleteSession}
-        onRenameSession={manager.renameSession}
-        onCreateProject={handleCreateProject}
-        onDeleteProject={projectManager.deleteProject}
-        onRenameProject={projectManager.renameProject}
-        onUpdateProjectIcon={projectManager.updateProjectIcon}
-        onImportCCSession={handleImportCCSession}
-        onToggleSidebar={sidebar.toggle}
-        onNavigateToMessage={handleNavigateToMessage}
-        onMoveProjectToSpace={handleMoveProjectToSpace}
-        onReorderProject={projectManager.reorderProject}
-        onPinSession={o.handlePinSession}
-        onMoveSessionToFolder={o.handleMoveSessionToFolder}
-        onCreateFolder={o.handleCreateFolder}
-        onRenameFolder={o.handleRenameFolder}
-        onDeleteFolder={o.handleDeleteFolder}
-        onPinFolder={o.handlePinFolder}
-        onSetOrganizeByChatBranch={settings.setOrganizeByChatBranch}
-        spaces={spaceManager.spaces}
-        activeSpaceId={spaceManager.activeSpaceId}
-        onSelectSpace={spaceManager.setActiveSpaceId}
-        onStartCreateSpace={handleStartCreateSpace}
-        onUpdateSpace={handleUpdateSpace}
-        onDeleteSpace={handleDeleteSpace}
-        onOpenSettings={() => setShowSettings(true)}
-        draftSpaceId={draftSpaceId}
-        onConfirmCreateSpace={handleConfirmCreateSpace}
-        onCancelCreateSpace={handleCancelCreateSpace}
-        agents={agents}
-        onOpenInSplitView={(sessionId) => {
-          void requestAddSplitSession(sessionId);
+        state={{
+          isOpen: sidebar.isOpen,
+          islandLayout: settings.islandLayout,
+          projects: projectManager.projects,
+          sessions: manager.sessions,
+          activeSessionId: manager.activeSessionId,
+          jiraBoardProjectId,
+          jiraBoardEnabled,
+          foldersByProject: o.foldersByProject,
+          organizeByChatBranch: settings.organizeByChatBranch,
+          draftSpaceId,
         }}
-        canOpenSessionInSplitView={(sessionId) => splitView.canShowSessionSplitAction(sessionId, manager.activeSessionId)}
+        projectActions={{
+          onNewChat: handleOpenNewChat,
+          onToggleProjectJiraBoard: handleToggleProjectJiraBoard,
+          onCreateProject: handleCreateProject,
+          onDeleteProject: projectManager.deleteProject,
+          onRenameProject: projectManager.renameProject,
+          onUpdateProjectIcon: projectManager.updateProjectIcon,
+          onImportCCSession: handleImportCCSession,
+          onToggleSidebar: sidebar.toggle,
+          onNavigateToMessage: handleNavigateToMessage,
+          onMoveProjectToSpace: handleMoveProjectToSpace,
+          onReorderProject: projectManager.reorderProject,
+          onCreateFolder: o.handleCreateFolder,
+          onSetOrganizeByChatBranch: settings.setOrganizeByChatBranch,
+        }}
+        spaceState={{
+          spaces: spaceManager.spaces,
+          activeSpaceId: spaceManager.activeSpaceId,
+        }}
+        spaceActions={{
+          onSelectSpace: spaceManager.setActiveSpaceId,
+          onStartCreateSpace: handleStartCreateSpace,
+          onUpdateSpace: handleUpdateSpace,
+          onDeleteSpace: handleDeleteSpace,
+          onOpenSettings: () => setShowSettings(true),
+          onConfirmCreateSpace: handleConfirmCreateSpace,
+          onCancelCreateSpace: handleCancelCreateSpace,
+        }}
+        sessionActions={{
+          onSelectSession: handleSidebarSelectSession,
+          onDeleteSession: manager.deleteSession,
+          onRenameSession: manager.renameSession,
+          onPinSession: o.handlePinSession,
+          onMoveSessionToFolder: o.handleMoveSessionToFolder,
+          onRenameFolder: o.handleRenameFolder,
+          onDeleteFolder: o.handleDeleteFolder,
+          onPinFolder: o.handlePinFolder,
+          onOpenInSplitView: (sessionId) => {
+            void requestAddSplitSession(sessionId);
+          },
+          canOpenSessionInSplitView: (sessionId) => splitView.canShowSessionSplitAction(sessionId, manager.activeSessionId),
+        }}
       />
 
       <div ref={contentRef} className={`flex min-w-0 flex-1 flex-col ${settings.islandLayout ? "m-[var(--island-gap)]" : sidebar.isOpen ? "flat-divider-s" : ""} ${isResizing ? "select-none" : ""}`}>
         {showSettings && (
           <SettingsView
             onClose={() => setShowSettings(false)}
-            agents={agents}
-            onSaveAgent={saveAgent}
-            onDeleteAgent={deleteAgent}
-            theme={settings.theme}
-            onThemeChange={settings.setTheme}
-            islandLayout={settings.islandLayout}
-            onIslandLayoutChange={settings.setIslandLayout}
-            islandShine={settings.islandShine}
-            onIslandShineChange={settings.setIslandShine}
-            macBackgroundEffect={settings.macBackgroundEffect}
-            onMacBackgroundEffectChange={settings.setMacBackgroundEffect}
-            autoGroupTools={settings.autoGroupTools}
-            onAutoGroupToolsChange={settings.setAutoGroupTools}
-            avoidGroupingEdits={settings.avoidGroupingEdits}
-            onAvoidGroupingEditsChange={settings.setAvoidGroupingEdits}
-            autoExpandTools={settings.autoExpandTools}
-            onAutoExpandToolsChange={settings.setAutoExpandTools}
-            expandEditToolCallsByDefault={settings.expandEditToolCallsByDefault}
-            onExpandEditToolCallsByDefaultChange={settings.setExpandEditToolCallsByDefault}
-            transparentToolPicker={settings.transparentToolPicker}
-            onTransparentToolPickerChange={settings.setTransparentToolPicker}
-            coloredSidebarIcons={settings.coloredSidebarIcons}
-            onColoredSidebarIconsChange={settings.setColoredSidebarIcons}
-            showToolIcons={settings.showToolIcons}
-            onShowToolIconsChange={settings.setShowToolIcons}
-            coloredToolIcons={settings.coloredToolIcons}
-            onColoredToolIconsChange={settings.setColoredToolIcons}
-            transparency={settings.transparency}
-            onTransparencyChange={settings.setTransparency}
             glassSupported={glassSupported}
             macLiquidGlassSupported={macLiquidGlassSupported}
             sidebarOpen={sidebar.isOpen}
@@ -1761,7 +1153,63 @@ export function AppLayout() {
                             }}
                           />
                         ) : (
-                          renderSplitTopRowItem(entry.item, displayIndex, panePreviewIndex, insertBeforeIndex)
+                          <SplitTopRowItem
+                            item={entry.item}
+                            displayIndex={displayIndex}
+                            previewIndex={panePreviewIndex}
+                            insertBeforeIndex={insertBeforeIndex}
+                            activeSessionId={manager.activeSessionId}
+                            activeSession={manager.activeSession}
+                            primaryPane={manager.primaryPane}
+                            loadSplitPaneBootstrap={manager.loadSplitPaneBootstrap}
+                            projects={projectManager.projects}
+                            activeProjectPath={activeProjectPath}
+                            splitView={splitView}
+                            paneControllerCtx={paneControllerCtx}
+                            isIsland={isIsland}
+                            shouldAnimateTopRowLayout={shouldAnimateTopRowLayout}
+                            chatFadeStrength={chatFadeStrength}
+                            topFadeBackground={topFadeBackground}
+                            titlebarSurfaceColor={titlebarSurfaceColor}
+                            bottomFadeBackground={bottomFadeBackground}
+                            splitToolDrag={splitToolDrag}
+                            setSplitToolDrag={setSplitToolDrag}
+                            commitSplitToolDrop={commitSplitToolDrop}
+                            resetSplitToolDrag={resetSplitToolDrag}
+                            splitToolLabel={splitToolLabel}
+                            splitToolColumnRefs={splitToolColumnRefs}
+                            paneRefs={paneRefs}
+                            splitToolColumnResize={splitToolColumnResize}
+                            toolIslandCtx={toolIslandCtx}
+                            spaceActiveSpaceId={spaceManager.activeSpaceId}
+                            sidebarOpen={sidebar.isOpen}
+                            sidebarToggle={sidebar.toggle}
+                            showThinking={showThinking}
+                            acpPermissionBehavior={settings.acpPermissionBehavior}
+                            setAcpPermissionBehavior={settings.setAcpPermissionBehavior}
+                            agents={agents}
+                            devFillEnabled={devFillEnabled}
+                            handleSeedDevExampleSpaceData={handleSeedDevExampleSpaceData}
+                            seedDevExampleConversation={manager.seedDevExampleConversation}
+                            grabbedElements={grabbedElements}
+                            handleRemoveGrabbedElement={handleRemoveGrabbedElement}
+                            lockedEngine={lockedEngine}
+                            lockedAgentId={lockedAgentId}
+                            handleAgentWorktreeChange={handleAgentWorktreeChange}
+                            handleRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
+                            handleFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
+                            makePaneScrollCallback={makePaneScrollCallback}
+                            setScrollToMessageId={setScrollToMessageId}
+                            handlePreviewFile={handlePreviewFile}
+                            handleElementGrab={handleElementGrab}
+                            handleCloseSplitPane={handleCloseSplitPane}
+                            codexRawModels={manager.codexRawModels}
+                            queuedCount={manager.queuedCount}
+                            availableContextual={availableContextual}
+                            activeTodos={activeTodos}
+                            bgAgents={bgAgents}
+                            getPreviewPaneMetrics={getPreviewPaneMetrics}
+                          />
                         )}
 
                         {displayIndex === topRowRenderEntries.length - 1 && !splitToolDrag
@@ -1847,7 +1295,26 @@ export function AppLayout() {
                                 <PanelDockPreview orientation="horizontal" label={splitToolLabel ?? undefined} className="min-h-0 flex-1" />
                               </div>
                             ) : (
-                              renderSplitBottomToolIsland(entry.island, fraction, insertBeforeIndex)
+                              <SplitBottomToolIsland
+                                island={entry.island}
+                                fraction={fraction}
+                                insertBeforeIndex={insertBeforeIndex}
+                                activeSessionId={manager.activeSessionId}
+                                activeSession={manager.activeSession}
+                                primaryPane={manager.primaryPane}
+                                loadSplitPaneBootstrap={manager.loadSplitPaneBootstrap}
+                                projects={projectManager.projects}
+                                activeProjectPath={activeProjectPath}
+                                splitView={splitView}
+                                shouldAnimateTopRowLayout={shouldAnimateTopRowLayout}
+                                splitToolDrag={splitToolDrag}
+                                setSplitToolDrag={setSplitToolDrag}
+                                commitSplitToolDrop={commitSplitToolDrop}
+                                resetSplitToolDrag={resetSplitToolDrag}
+                                toolIslandCtx={toolIslandCtx}
+                                acpPermissionBehavior={settings.acpPermissionBehavior}
+                                handleAgentWorktreeChange={handleAgentWorktreeChange}
+                              />
                             )}
                             {displayIndex < bottomRowRenderEntries.length - 1 && (
                               <SplitHandle
@@ -1965,12 +1432,6 @@ export function AppLayout() {
                 messages={manager.messages}
                 isProcessing={manager.isProcessing}
                 showThinking={showThinking}
-                autoGroupTools={settings.autoGroupTools}
-                avoidGroupingEdits={settings.avoidGroupingEdits}
-                autoExpandTools={settings.autoExpandTools}
-                expandEditToolCallsByDefault={settings.expandEditToolCallsByDefault}
-                showToolIcons={settings.showToolIcons}
-                coloredToolIcons={settings.coloredToolIcons}
                 extraBottomPadding={!!manager.pendingPermission}
                 scrollToMessageId={scrollToMessageId}
                 onScrolledToMessage={handleScrolledToMessage}
@@ -1981,9 +1442,6 @@ export function AppLayout() {
                 onSendQueuedNow={handleSendQueuedNow}
                 onUnqueueQueuedMessage={handleUnqueueMessage}
                 sendNextId={manager.sendNextId}
-                agents={agents}
-                selectedAgent={selectedAgent}
-                onAgentChange={handleAgentChange}
               />
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
@@ -2034,7 +1492,6 @@ export function AppLayout() {
                   selectedWorktreePath={activeSpaceTerminalCwd}
                   onSelectWorktree={handleAgentWorktreeChange}
                   isEmptySession={manager.messages.length === 0}
-                  isIslandLayout={isIsland}
                 />
               </div>
               </>
@@ -2110,47 +1567,55 @@ export function AppLayout() {
               style={showSinglePaneSplitPreview ? { width: 0, minWidth: 0 } : undefined}
             >
               <RightPanel
-                isIsland={isIsland}
-                isResizing={isResizing}
-                rightPanelRef={rightPanelRef}
-                rightPanelWidth={settings.rightPanelWidth}
-                rightSplitRatio={settings.rightSplitRatio}
-                splitGap={splitGap}
-                handleResizeStart={handleResizeStart}
-                handleRightSplitStart={handleRightSplitStart}
-                hasTodos={hasTodos}
-                hasAgents={hasAgents}
-                activeTools={activeTools}
-                activeTodos={activeTodos}
-                bgAgents={bgAgents}
-                expandEditToolCallsByDefault={settings.expandEditToolCallsByDefault}
+                layout={{
+                  isIsland,
+                  isResizing,
+                  rightPanelRef,
+                  rightPanelWidth: settings.rightPanelWidth,
+                  rightSplitRatio: settings.rightSplitRatio,
+                  splitGap,
+                  handleResizeStart,
+                  handleRightSplitStart,
+                }}
+                content={{
+                  hasTodos,
+                  hasAgents,
+                  activeTools,
+                  activeTodos,
+                  bgAgents,
+                  expandEditToolCallsByDefault: settings.expandEditToolCallsByDefault,
+                }}
               />
             </motion.div>
           )}
 
           {manager.activeSessionId && (
             <MainTopToolArea
-              isIsland={isIsland}
-              shouldAnimateTopRowLayout={shouldAnimateTopRowLayout}
-              showSinglePaneSplitPreview={showSinglePaneSplitPreview}
-              toolAreaWidth={mainToolAreaWidth}
-              isOuterResizeActive={isMainToolAreaResizing}
+              layout={{
+                isIsland,
+                shouldAnimateTopRowLayout,
+                showSinglePaneSplitPreview,
+                toolAreaWidth: mainToolAreaWidth,
+                isOuterResizeActive: isMainToolAreaResizing,
+                canAddMainTopColumn,
+                onOuterResizeStart: mainToolAreaResize.handleResizeStart,
+                topAreaRef: mainToolAreaRef,
+                toolsColumnRef,
+                topToolColumnRefs: mainTopToolColumnRefs,
+                topPaneResize: mainToolPaneResize,
+                activeToolColumnResizeId: mainToolColumnResize.activeResizeId,
+                onToolColumnResizeStart: mainToolColumnResize.handleResizeStart,
+              }}
               workspace={mainToolWorkspace}
-              mainToolDrag={mainToolDrag}
-              setMainToolDrag={setMainToolDrag}
-              mainDraggedIsland={mainDraggedIsland}
-              mainToolLabel={mainToolLabel}
-              canAddMainTopColumn={canAddMainTopColumn}
-              onOuterResizeStart={handleMainToolAreaResizeStart}
-              onCommitDrop={commitMainToolDrop}
-              onResetDrag={resetMainToolDrag}
+              drag={{
+                mainToolDrag,
+                setMainToolDrag,
+                mainDraggedIsland,
+                mainToolLabel,
+                onCommitDrop: commitMainToolDrop,
+                onResetDrag: resetMainToolDrag,
+              }}
               renderToolContent={renderMainWorkspaceToolContent}
-              topAreaRef={mainToolAreaRef}
-              toolsColumnRef={toolsColumnRef}
-              topToolColumnRefs={mainTopToolColumnRefs}
-              topPaneResize={mainToolPaneResize}
-              activeToolColumnResizeId={mainToolColumnResize.activeResizeId}
-              onToolColumnResizeStart={mainToolColumnResize.handleResizeStart}
             />
           )}
 
@@ -2169,36 +1634,13 @@ export function AppLayout() {
               style={showSinglePaneSplitPreview ? { width: 0, minWidth: 0, marginInlineStart: 0 } : undefined}
             >
               <ToolPicker
-                islandLayout={isIsland}
-                transparentBackground={settings.transparentToolPicker}
-                coloredIcons={settings.coloredSidebarIcons}
                 activeTools={mainPickerActiveTools}
                 onToggle={(toolId) => {
                   if (toolId === "tasks" || toolId === "agents") {
                     handleToggleTool(toolId);
                     return;
                   }
-                  const existing = mainToolWorkspace.getToolIsland(toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">);
-                  if (existing) {
-                    mainToolWorkspace.closeToolIsland(existing.id);
-                    return;
-                  }
-                  const panelToolId = toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">;
-                  const rememberedDock = mainToolWorkspace.getRememberedDock(panelToolId);
-                  if (rememberedDock === "bottom") {
-                    mainToolWorkspace.openToolIsland(panelToolId, "top");
-                    return;
-                  }
-                  if (canFitToolAsNewColumn(panelToolId) || mainToolWorkspace.topRowItems.length === 0) {
-                    mainToolWorkspace.openToolIsland(panelToolId, "top");
-                    return;
-                  }
-                  const lastColumnId = mainToolWorkspace.topRowItems[mainToolWorkspace.topRowItems.length - 1]?.column.id;
-                  if (lastColumnId) {
-                    mainToolWorkspace.openToolIslandInTopColumn(panelToolId, lastColumnId);
-                  } else {
-                    mainToolWorkspace.openToolIsland(panelToolId, "top");
-                  }
+                  togglePanelTool(mainToolWorkspace, toolId as PanelToolId, canFitToolAsNewColumn);
                 }}
                 availableContextual={availableContextual}
                 toolOrder={settings.toolOrder}
@@ -2210,6 +1652,7 @@ export function AppLayout() {
                   event.dataTransfer.effectAllowed = "move";
                   setMainToolDrag({
                     toolId,
+                    sourceSessionId: null,
                     islandId: null,
                     targetArea: null,
                     targetIndex: null,
@@ -2219,35 +1662,8 @@ export function AppLayout() {
                 onPanelToolDragEnd={resetMainToolDrag}
                 projectPath={activeProjectPath}
                 bottomTools={new Set<ToolId>(mainToolWorkspace.bottomToolIslands.map((island) => island.toolId))}
-                onMoveToBottom={(toolId) => {
-                  const existing = mainToolWorkspace.getToolIsland(toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">);
-                  if (existing) mainToolWorkspace.moveToolIsland(existing.id, "bottom");
-                  else mainToolWorkspace.openToolIsland(toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">, "bottom");
-                }}
-                onMoveToSide={(toolId) => {
-                  const panelToolId = toolId as Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">;
-                  const existing = mainToolWorkspace.getToolIsland(panelToolId);
-                  if (existing) {
-                    if (existing.dock === "top") return;
-                    if (canFitToolAsNewColumn(panelToolId) || mainToolWorkspace.topRowItems.length === 0) {
-                      mainToolWorkspace.moveToolIsland(existing.id, "top");
-                      return;
-                    }
-                    const lastColumnId = mainToolWorkspace.topRowItems[mainToolWorkspace.topRowItems.length - 1]?.column.id;
-                    if (lastColumnId) {
-                      mainToolWorkspace.moveToolIslandToTopColumn(existing.id, lastColumnId);
-                    }
-                    return;
-                  }
-                  if (canFitToolAsNewColumn(panelToolId) || mainToolWorkspace.topRowItems.length === 0) {
-                    mainToolWorkspace.openToolIsland(panelToolId, "top");
-                    return;
-                  }
-                  const lastColumnId = mainToolWorkspace.topRowItems[mainToolWorkspace.topRowItems.length - 1]?.column.id;
-                  if (lastColumnId) {
-                    mainToolWorkspace.openToolIslandInTopColumn(panelToolId, lastColumnId);
-                  }
-                }}
+                onMoveToBottom={(toolId) => moveToolToBottom(mainToolWorkspace, toolId as PanelToolId)}
+                onMoveToSide={(toolId) => moveToolToSide(mainToolWorkspace, toolId as PanelToolId, canFitToolAsNewColumn)}
                 taskProgress={activeTodos.length > 0 ? {
                   completed: activeTodos.filter((t) => t.status === "completed").length,
                   total: activeTodos.length,
@@ -2261,21 +1677,25 @@ export function AppLayout() {
 
         {!isSplitActive && manager.activeSessionId && (
           <MainBottomToolDock
-            isIsland={isIsland}
+            layout={{
+              isIsland,
+              isResizeActive: isResizing,
+              isBottomHeightResizing: isMainBottomHeightResizing,
+              bottomRowRef: mainBottomRowRef,
+              bottomPaneResize: mainBottomPaneResize,
+              onBottomResizeStart: mainBottomHeightResize.handleResizeStart,
+              onMoveBottomToolToTop: handleMoveMainBottomToolToTop,
+            }}
             workspace={mainToolWorkspace}
-            mainToolDrag={mainToolDrag}
-            setMainToolDrag={setMainToolDrag}
-            mainDraggedIsland={mainDraggedIsland}
-            mainToolLabel={mainToolLabel}
-            isResizeActive={isResizing}
-            isBottomHeightResizing={isMainBottomHeightResizing}
-            bottomRowRef={mainBottomRowRef}
-            bottomPaneResize={mainBottomPaneResize}
-            onBottomResizeStart={mainBottomHeightResize.handleResizeStart}
-            onCommitDrop={commitMainToolDrop}
-            onResetDrag={resetMainToolDrag}
+            drag={{
+              mainToolDrag,
+              setMainToolDrag,
+              mainDraggedIsland,
+              mainToolLabel,
+              onCommitDrop: commitMainToolDrop,
+              onResetDrag: resetMainToolDrag,
+            }}
             renderToolContent={renderMainWorkspaceToolContent}
-            onMoveBottomToolToTop={moveMainBottomToolToTop}
           />
         )}
         </div>{/* end showSettings wrapper */}
@@ -2305,29 +1725,16 @@ export function AppLayout() {
       {/* Welcome wizard — full-screen overlay on first run */}
       {!welcomeCompleted && (
         <WelcomeWizard
-          theme={settings.theme}
-          onThemeChange={settings.setTheme}
-          islandLayout={settings.islandLayout}
-          onIslandLayoutChange={settings.setIslandLayout}
-          autoGroupTools={settings.autoGroupTools}
-          onAutoGroupToolsChange={settings.setAutoGroupTools}
-          autoExpandTools={settings.autoExpandTools}
-          onAutoExpandToolsChange={settings.setAutoExpandTools}
-          expandEditToolCallsByDefault={settings.expandEditToolCallsByDefault}
-          onExpandEditToolCallsByDefaultChange={settings.setExpandEditToolCallsByDefault}
-          transparency={settings.transparency}
-          onTransparencyChange={settings.setTransparency}
           glassSupported={glassSupported}
           permissionMode={settings.permissionMode}
           onPermissionModeChange={handlePermissionModeChange}
           onCreateProject={handleCreateProject}
           hasProjects={hasProjects}
-          agents={agents}
-          onSaveAgent={saveAgent}
-          onDeleteAgent={deleteAgent}
           onComplete={handleWelcomeComplete}
         />
       )}
     </div>
+    </AgentProvider>
+    </ThemeProvider>
   );
 }

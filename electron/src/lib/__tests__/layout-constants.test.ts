@@ -15,7 +15,7 @@ import {
   WINDOWS_FRAME_BUFFER_WIDTH,
   getBootstrapMinWindowWidth,
   getMinChatWidth,
-} from "../../../../src/lib/layout-constants";
+} from "../../../../src/lib/layout/constants";
 
 describe("layout constants", () => {
   it("keeps island mode chat width aligned with flat mode", () => {

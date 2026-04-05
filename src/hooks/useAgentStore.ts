@@ -4,7 +4,7 @@ import {
   fetchAgentRegistry,
   resolveRegistryBinaryPaths,
   type BinaryCheckResult,
-} from "@/lib/acp-agent-registry";
+} from "@/lib/engine/acp-agent-registry";
 
 /**
  * Fetches the ACP agent registry from the CDN.

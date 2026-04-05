@@ -5,7 +5,7 @@ import {
   getMinChatWidth,
   getResizeHandleWidth,
   getToolPickerWidth,
-} from "@/lib/layout-constants";
+} from "@/lib/layout/constants";
 
 // ── Layout constants ──
 const MIN_PANEL_WIDTH = MIN_RIGHT_PANEL_WIDTH;

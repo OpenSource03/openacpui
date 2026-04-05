@@ -21,12 +21,14 @@ import { GeneralSettings } from "@/components/settings/GeneralSettings";
 import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
 import { McpSettings } from "@/components/settings/McpSettings";
 import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
+import { EngineSettings } from "@/components/settings/EngineSettings";
 import { PlaceholderSection } from "@/components/settings/PlaceholderSection";
 import { AboutSettings } from "@/components/settings/AboutSettings";
 import { AnalyticsSettings } from "@/components/settings/AnalyticsSettings";
+import { useSettingsStore } from "@/stores/settings-store";
 import { isMac } from "@/lib/utils";
-import type { InstalledAgent, MacBackgroundEffect, ThemeOption } from "@/types";
-import type { AppSettings } from "@/types/ui";
+import type { AppSettings } from "@/types";
+import { useAgentContext } from "./AgentContext";
 
 // ── Section definitions ──
 
@@ -58,35 +60,6 @@ const NAV_ITEMS: NavItem[] = [
 
 interface SettingsViewProps {
   onClose: () => void;
-  agents: InstalledAgent[];
-  onSaveAgent: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
-  onDeleteAgent: (id: string) => Promise<{ ok?: boolean; error?: string }>;
-  theme: ThemeOption;
-  onThemeChange: (t: ThemeOption) => void;
-  islandLayout: boolean;
-  onIslandLayoutChange: (enabled: boolean) => void;
-  islandShine: boolean;
-  onIslandShineChange: (enabled: boolean) => void;
-  macBackgroundEffect: MacBackgroundEffect;
-  onMacBackgroundEffectChange: (effect: MacBackgroundEffect) => void;
-  autoGroupTools: boolean;
-  onAutoGroupToolsChange: (enabled: boolean) => void;
-  avoidGroupingEdits: boolean;
-  onAvoidGroupingEditsChange: (enabled: boolean) => void;
-  autoExpandTools: boolean;
-  onAutoExpandToolsChange: (enabled: boolean) => void;
-  expandEditToolCallsByDefault: boolean;
-  onExpandEditToolCallsByDefaultChange: (enabled: boolean) => void;
-  transparentToolPicker: boolean;
-  onTransparentToolPickerChange: (enabled: boolean) => void;
-  coloredSidebarIcons: boolean;
-  onColoredSidebarIconsChange: (enabled: boolean) => void;
-  showToolIcons: boolean;
-  onShowToolIconsChange: (enabled: boolean) => void;
-  coloredToolIcons: boolean;
-  onColoredToolIconsChange: (enabled: boolean) => void;
-  transparency: boolean;
-  onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;
   macLiquidGlassSupported: boolean;
   sidebarOpen?: boolean;
@@ -99,41 +72,14 @@ interface SettingsViewProps {
 
 export const SettingsView = memo(function SettingsView({
   onClose,
-  agents,
-  onSaveAgent,
-  onDeleteAgent,
-  theme,
-  onThemeChange,
-  islandLayout,
-  onIslandLayoutChange,
-  islandShine,
-  onIslandShineChange,
-  macBackgroundEffect,
-  onMacBackgroundEffectChange,
-  autoGroupTools,
-  onAutoGroupToolsChange,
-  avoidGroupingEdits,
-  onAvoidGroupingEditsChange,
-  autoExpandTools,
-  onAutoExpandToolsChange,
-  expandEditToolCallsByDefault,
-  onExpandEditToolCallsByDefaultChange,
-  transparentToolPicker,
-  onTransparentToolPickerChange,
-  coloredSidebarIcons,
-  onColoredSidebarIconsChange,
-  showToolIcons,
-  onShowToolIconsChange,
-  coloredToolIcons,
-  onColoredToolIconsChange,
-  transparency,
-  onTransparencyChange,
   glassSupported,
   macLiquidGlassSupported,
   sidebarOpen = false,
   onToggleSidebar,
   onReplayWelcome,
 }: SettingsViewProps) {
+  const { agents, saveAgent, deleteAgent } = useAgentContext();
+  const islandLayout = useSettingsStore((s) => s.islandLayout);
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const macIslandTitlebarOffsetClass = "";
 
@@ -173,34 +119,7 @@ export const SettingsView = memo(function SettingsView({
       case "appearance":
         return (
           <AppearanceSettings
-            theme={theme}
-            onThemeChange={onThemeChange}
-            islandLayout={islandLayout}
-            onIslandLayoutChange={onIslandLayoutChange}
-            islandShine={islandShine}
-            onIslandShineChange={onIslandShineChange}
-            macBackgroundEffect={macBackgroundEffect}
-            onMacBackgroundEffectChange={onMacBackgroundEffectChange}
-            autoGroupTools={autoGroupTools}
-            onAutoGroupToolsChange={onAutoGroupToolsChange}
-            avoidGroupingEdits={avoidGroupingEdits}
-            onAvoidGroupingEditsChange={onAvoidGroupingEditsChange}
-            autoExpandTools={autoExpandTools}
-            onAutoExpandToolsChange={onAutoExpandToolsChange}
-            expandEditToolCallsByDefault={expandEditToolCallsByDefault}
-            onExpandEditToolCallsByDefaultChange={onExpandEditToolCallsByDefaultChange}
-            transparentToolPicker={transparentToolPicker}
-            onTransparentToolPickerChange={onTransparentToolPickerChange}
-            coloredSidebarIcons={coloredSidebarIcons}
-            onColoredSidebarIconsChange={onColoredSidebarIconsChange}
-            showToolIcons={showToolIcons}
-            onShowToolIconsChange={onShowToolIconsChange}
-            coloredToolIcons={coloredToolIcons}
-            onColoredToolIconsChange={onColoredToolIconsChange}
-            transparency={transparency}
-            onTransparencyChange={onTransparencyChange}
             glassSupported={glassSupported}
-            isMac={isMac}
             macLiquidGlassSupported={macLiquidGlassSupported}
           />
         );
@@ -222,19 +141,17 @@ export const SettingsView = memo(function SettingsView({
         return (
           <AgentSettings
             agents={agents}
-            onSave={onSaveAgent}
-            onDelete={onDeleteAgent}
+            onSave={saveAgent}
+            onDelete={deleteAgent}
           />
         );
       case "mcp":
         return <McpSettings />;
       case "engines":
         return (
-          <AdvancedSettings
+          <EngineSettings
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
-            section="engines"
-            onReplayWelcome={onReplayWelcome}
           />
         );
       case "advanced":
@@ -242,7 +159,6 @@ export const SettingsView = memo(function SettingsView({
           <AdvancedSettings
             appSettings={appSettings}
             onUpdateAppSettings={updateAppSettings}
-            section="advanced"
             onReplayWelcome={onReplayWelcome}
           />
         );
@@ -269,7 +185,7 @@ export const SettingsView = memo(function SettingsView({
       default:
         return null;
     }
-  }, [activeSection, appSettings, updateAppSettings, agents, onSaveAgent, onDeleteAgent, theme, onThemeChange, islandLayout, onIslandLayoutChange, islandShine, onIslandShineChange, macBackgroundEffect, onMacBackgroundEffectChange, autoGroupTools, onAutoGroupToolsChange, avoidGroupingEdits, onAvoidGroupingEditsChange, autoExpandTools, onAutoExpandToolsChange, expandEditToolCallsByDefault, onExpandEditToolCallsByDefaultChange, transparentToolPicker, onTransparentToolPickerChange, coloredSidebarIcons, onColoredSidebarIconsChange, showToolIcons, onShowToolIconsChange, coloredToolIcons, onColoredToolIconsChange, transparency, onTransparencyChange, glassSupported, macLiquidGlassSupported, onReplayWelcome]);
+  }, [activeSection, appSettings, updateAppSettings, agents, saveAgent, deleteAgent, glassSupported, macLiquidGlassSupported, onReplayWelcome]);
 
   return (
     <div className={`island flex flex-1 flex-col overflow-hidden bg-background ${islandLayout ? "rounded-[var(--island-radius)]" : "rounded-none"}`}>

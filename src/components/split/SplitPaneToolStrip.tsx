@@ -10,7 +10,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { ToolId } from "@/components/ToolPicker";
+import type { ToolId } from "@/types/tools";
 
 interface SplitPaneToolStripProps {
   sourceSessionId: string;

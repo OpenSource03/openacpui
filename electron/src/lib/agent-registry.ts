@@ -3,29 +3,14 @@ import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { app } from "electron";
+import type { InstalledAgent, BinaryCheckResult } from "@shared/types/registry";
+import type { ACPConfigOption } from "@shared/types/acp";
+
+// Re-export shared types so existing consumers importing from this file still work
+export type { InstalledAgent, BinaryCheckResult } from "@shared/types/registry";
+export type { EngineId } from "@shared/types/engine";
 
 const execFileAsync = promisify(execFile);
-
-export type EngineId = "claude" | "acp" | "codex";
-
-export interface InstalledAgent {
-  id: string;
-  name: string;
-  engine: EngineId;
-  binary?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  icon?: string;
-  builtIn?: boolean;
-  /** Matching id from the ACP registry (for update detection) */
-  registryId?: string;
-  /** Version from the registry at install time */
-  registryVersion?: string;
-  /** Description from the registry, shown in agent cards */
-  description?: string;
-  /** Cached config options from the last ACP session — shown before session starts */
-  cachedConfigOptions?: unknown[];
-}
 
 const BUILTIN_CLAUDE: InstalledAgent = {
   id: "claude-code",
@@ -87,7 +72,7 @@ export function deleteAgent(id: string): void {
 }
 
 /** Update only the cached config options for an agent (fire-and-forget from renderer) */
-export function updateCachedConfig(id: string, configOptions: unknown[]): void {
+export function updateCachedConfig(id: string, configOptions: ACPConfigOption[]): void {
   const agent = agents.get(id);
   if (!agent || agent.builtIn) return;
   agent.cachedConfigOptions = configOptions;
@@ -181,11 +166,6 @@ function extractBinaryName(cmd: string): string {
   const normalized = executable.replace(/\\/g, "/");
   const base = path.posix.basename(normalized);
   return base.replace(/\.(exe|cmd|bat|ps1)$/i, "");
-}
-
-export interface BinaryCheckResult {
-  path: string;
-  args?: string[];
 }
 
 /**

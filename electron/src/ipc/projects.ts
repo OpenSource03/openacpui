@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { getDataDir } from "../lib/data-dir";
-import { log } from "../lib/logger";
+import { reportError } from "../lib/error-utils";
 import { captureEvent } from "../lib/posthog";
 
 interface Project {
@@ -39,7 +39,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     try {
       return readProjects();
     } catch (err) {
-      log("PROJECTS:LIST_ERR", (err as Error).message);
+      reportError("PROJECTS:LIST_ERR", err);
       return [];
     }
   });
@@ -72,7 +72,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       void captureEvent("project_created");
       return project;
     } catch (err) {
-      log("PROJECTS:CREATE_ERR", (err as Error).message);
+      reportError("PROJECTS:CREATE_ERR", err);
       return null;
     }
   });
@@ -109,7 +109,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       writeProjects(projects);
       return project;
     } catch (err) {
-      log("PROJECTS:CREATE_DEV_ERR", (err as Error).message);
+      reportError("PROJECTS:CREATE_DEV_ERR", err);
       return null;
     }
   });
@@ -124,8 +124,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
       return { ok: true };
     } catch (err) {
-      log("PROJECTS:DELETE_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      return { error: reportError("PROJECTS:DELETE_ERR", err) };
     }
   });
 
@@ -137,8 +136,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       writeProjects(projects);
       return { ok: true };
     } catch (err) {
-      log("PROJECTS:RENAME_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      return { error: reportError("PROJECTS:RENAME_ERR", err) };
     }
   });
 
@@ -153,8 +151,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       writeProjects(projects);
       return { ok: true };
     } catch (err) {
-      log("PROJECTS:REORDER_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      return { error: reportError("PROJECTS:REORDER_ERR", err) };
     }
   });
 
@@ -172,8 +169,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       writeProjects(projects);
       return { ok: true };
     } catch (err) {
-      log("PROJECTS:UPDATE_ICON_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      return { error: reportError("PROJECTS:UPDATE_ICON_ERR", err) };
     }
   });
 
@@ -185,8 +181,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       writeProjects(projects);
       return { ok: true };
     } catch (err) {
-      log("PROJECTS:UPDATE_SPACE_ERR", (err as Error).message);
-      return { error: (err as Error).message };
+      return { error: reportError("PROJECTS:UPDATE_SPACE_ERR", err) };
     }
   });
 }

@@ -6,14 +6,7 @@ import { gitExec, ALWAYS_SKIP } from "../lib/git-exec";
 import { captureEvent } from "../lib/posthog";
 import { reportError } from "../lib/error-utils";
 import { log } from "../lib/logger";
-
-interface DiscoveredRepo {
-  path: string;
-  name: string;
-  isSubRepo: boolean;
-  isWorktree: boolean;
-  isPrimaryWorktree: boolean;
-}
+import type { GitRepoInfo } from "@shared/types/git";
 
 interface RepoMetadata {
   topLevel: string;
@@ -129,7 +122,7 @@ function validateRef(ref: string): void {
 export function register(): void {
   ipcMain.handle("git:discover-repos", async (_event, projectPath: string) => {
     const normalizedProjectPath = normalizePath(projectPath);
-    const reposByPath = new Map<string, DiscoveredRepo>();
+    const reposByPath = new Map<string, GitRepoInfo>();
     const candidatePaths = new Set<string>([normalizedProjectPath]);
 
     const upsertRepo = (

@@ -5,7 +5,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import type { ImageAttachment } from "@/types/ui";
+import type { ImageAttachment } from "@/types";
 
 interface ImageLightboxProps {
   image: ImageAttachment | null;

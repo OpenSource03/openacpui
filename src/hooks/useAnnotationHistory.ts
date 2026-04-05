@@ -1,5 +1,5 @@
 import { useReducer, useCallback, useEffect, type RefObject } from "react";
-import type { Annotation } from "@/lib/annotation-types";
+import type { Annotation } from "@/lib/chat/annotation-types";
 
 // Cap history at 50 entries to prevent memory bloat with large freehand paths
 const MAX_HISTORY = 50;

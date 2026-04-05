@@ -2,109 +2,85 @@ import { memo } from "react";
 import { SunMoon, Layout, Blend, Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingRow, SettingsSelect } from "@/components/settings/shared";
-import type { MacBackgroundEffect, ThemeOption } from "@/types";
+import { SettingRow, SettingsSelect, SettingsHeader, SettingsSection } from "@/components/settings/shared";
+import { useSettingsStore, deriveMacBackgroundEffect } from "@/stores/settings-store";
+import { isMac } from "@/lib/utils";
 
 // ── Props ──
 
 interface AppearanceSettingsProps {
-  theme: ThemeOption;
-  onThemeChange: (t: ThemeOption) => void;
-  islandLayout: boolean;
-  onIslandLayoutChange: (enabled: boolean) => void;
-  islandShine: boolean;
-  onIslandShineChange: (enabled: boolean) => void;
-  macBackgroundEffect: MacBackgroundEffect;
-  onMacBackgroundEffectChange: (effect: MacBackgroundEffect) => void;
-  autoGroupTools: boolean;
-  onAutoGroupToolsChange: (enabled: boolean) => void;
-  avoidGroupingEdits: boolean;
-  onAvoidGroupingEditsChange: (enabled: boolean) => void;
-  autoExpandTools: boolean;
-  onAutoExpandToolsChange: (enabled: boolean) => void;
-  expandEditToolCallsByDefault: boolean;
-  onExpandEditToolCallsByDefaultChange: (enabled: boolean) => void;
-  showToolIcons: boolean;
-  onShowToolIconsChange: (enabled: boolean) => void;
-  coloredToolIcons: boolean;
-  onColoredToolIconsChange: (enabled: boolean) => void;
-  transparentToolPicker: boolean;
-  onTransparentToolPickerChange: (enabled: boolean) => void;
-  coloredSidebarIcons: boolean;
-  onColoredSidebarIconsChange: (enabled: boolean) => void;
-  transparency: boolean;
-  onTransparencyChange: (enabled: boolean) => void;
   /** Whether the platform supports transparency (glass/mica) */
   glassSupported: boolean;
-  isMac: boolean;
   macLiquidGlassSupported: boolean;
 }
 
 // ── Component ──
 
 export const AppearanceSettings = memo(function AppearanceSettings({
-  theme,
-  onThemeChange,
-  islandLayout,
-  onIslandLayoutChange,
-  islandShine,
-  onIslandShineChange,
-  macBackgroundEffect,
-  onMacBackgroundEffectChange,
-  autoGroupTools,
-  onAutoGroupToolsChange,
-  avoidGroupingEdits,
-  onAvoidGroupingEditsChange,
-  autoExpandTools,
-  onAutoExpandToolsChange,
-  expandEditToolCallsByDefault,
-  onExpandEditToolCallsByDefaultChange,
-  showToolIcons,
-  onShowToolIconsChange,
-  coloredToolIcons,
-  onColoredToolIconsChange,
-  transparentToolPicker,
-  onTransparentToolPickerChange,
-  coloredSidebarIcons,
-  onColoredSidebarIconsChange,
-  transparency,
-  onTransparencyChange,
   glassSupported,
-  isMac,
   macLiquidGlassSupported,
 }: AppearanceSettingsProps) {
+  // ── Read all appearance settings from the Zustand store ──
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const islandLayout = useSettingsStore((s) => s.islandLayout);
+  const setIslandLayout = useSettingsStore((s) => s.setIslandLayout);
+  const islandShine = useSettingsStore((s) => s.islandShine);
+  const setIslandShine = useSettingsStore((s) => s.setIslandShine);
+  const macBackgroundEffect = useSettingsStore((s) => deriveMacBackgroundEffect(s));
+  const setMacBackgroundEffect = useSettingsStore((s) => s.setMacBackgroundEffect);
+  const autoGroupTools = useSettingsStore((s) => s.autoGroupTools);
+  const setAutoGroupTools = useSettingsStore((s) => s.setAutoGroupTools);
+  const avoidGroupingEdits = useSettingsStore((s) => s.avoidGroupingEdits);
+  const setAvoidGroupingEdits = useSettingsStore((s) => s.setAvoidGroupingEdits);
+  const autoExpandTools = useSettingsStore((s) => s.autoExpandTools);
+  const setAutoExpandTools = useSettingsStore((s) => s.setAutoExpandTools);
+  const expandEditToolCallsByDefault = useSettingsStore((s) => s.expandEditToolCallsByDefault);
+  const setExpandEditToolCallsByDefault = useSettingsStore((s) => s.setExpandEditToolCallsByDefault);
+  const showToolIcons = useSettingsStore((s) => s.showToolIcons);
+  const setShowToolIcons = useSettingsStore((s) => s.setShowToolIcons);
+  const coloredToolIcons = useSettingsStore((s) => s.coloredToolIcons);
+  const setColoredToolIcons = useSettingsStore((s) => s.setColoredToolIcons);
+  const transparentToolPicker = useSettingsStore((s) => s.transparentToolPicker);
+  const setTransparentToolPicker = useSettingsStore((s) => s.setTransparentToolPicker);
+  const coloredSidebarIcons = useSettingsStore((s) => s.coloredSidebarIcons);
+  const setColoredSidebarIcons = useSettingsStore((s) => s.setColoredSidebarIcons);
+  const transparency = useSettingsStore((s) => s.transparency);
+  const setTransparency = useSettingsStore((s) => s.setTransparency);
+
+  const onThemeChange = setTheme;
+  const onIslandLayoutChange = setIslandLayout;
+  const onIslandShineChange = setIslandShine;
+  const onMacBackgroundEffectChange = setMacBackgroundEffect;
+  const onAutoGroupToolsChange = setAutoGroupTools;
+  const onAvoidGroupingEditsChange = setAvoidGroupingEdits;
+  const onAutoExpandToolsChange = setAutoExpandTools;
+  const onExpandEditToolCallsByDefaultChange = setExpandEditToolCallsByDefault;
+  const onShowToolIconsChange = setShowToolIcons;
+  const onColoredToolIconsChange = setColoredToolIcons;
+  const onTransparentToolPickerChange = setTransparentToolPicker;
+  const onColoredSidebarIconsChange = setColoredSidebarIcons;
+  const onTransparencyChange = setTransparency;
+
   const effectiveMacBackgroundEffect = !macLiquidGlassSupported && macBackgroundEffect === "liquid-glass"
     ? "vibrancy"
     : macBackgroundEffect;
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-foreground/[0.06] px-6 py-4">
-        <h2 className="text-base font-semibold text-foreground">Appearance</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Customize the look and feel of the interface
-        </p>
-      </div>
+      <SettingsHeader title="Appearance" description="Customize the look and feel of the interface" />
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-6 py-2">
           {/* ── Theme section ── */}
-          <div className="py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <SunMoon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Theme
-              </span>
-            </div>
-
+          <SettingsSection icon={SunMoon} label="Theme" first>
             <SettingRow
               label="Color theme"
               description="Choose between light and dark appearance, or follow your system setting."
             >
               <SettingsSelect
                 value={theme}
-                onValueChange={(v) => onThemeChange(v as ThemeOption)}
+                onValueChange={onThemeChange}
                 options={[
                   { value: "dark", label: "Dark" },
                   { value: "light", label: "Light" },
@@ -112,17 +88,10 @@ export const AppearanceSettings = memo(function AppearanceSettings({
                 ]}
               />
             </SettingRow>
-          </div>
+          </SettingsSection>
 
           {/* ── Tools section ── */}
-          <div className="border-t border-foreground/[0.04] py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Wrench className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Tools
-              </span>
-            </div>
-
+          <SettingsSection icon={Wrench} label="Tools">
             <SettingRow
               label="Auto-group tools"
               description="Collapse consecutive tool calls into a single group. Disable to keep every tool call and in-between thinking row visible on its own."
@@ -184,18 +153,10 @@ export const AppearanceSettings = memo(function AppearanceSettings({
                 disabled={!showToolIcons}
               />
             </SettingRow>
-
-          </div>
+          </SettingsSection>
 
           {/* ── Layout section ── */}
-          <div className="border-t border-foreground/[0.04] py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Layout className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Layout
-              </span>
-            </div>
-
+          <SettingsSection icon={Layout} label="Layout">
             <div className="py-3">
               <p className="text-sm font-medium text-foreground">Window layout</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -309,17 +270,10 @@ export const AppearanceSettings = memo(function AppearanceSettings({
                 disabled={!islandLayout}
               />
             </SettingRow>
-          </div>
+          </SettingsSection>
 
           {/* ── Transparency section ── */}
-          <div className="border-t border-foreground/[0.04] py-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Blend className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Transparency
-              </span>
-            </div>
-
+          <SettingsSection icon={Blend} label="Transparency">
             <SettingRow
               label={isMac ? "Window background effect" : "Window transparency"}
               description={
@@ -339,10 +293,10 @@ export const AppearanceSettings = memo(function AppearanceSettings({
               {isMac ? (
                 <SettingsSelect
                   value={effectiveMacBackgroundEffect}
-                  onValueChange={(value) => onMacBackgroundEffectChange(value as MacBackgroundEffect)}
+                  onValueChange={onMacBackgroundEffectChange}
                   options={[
                     ...(macLiquidGlassSupported
-                      ? [{ value: "liquid-glass", label: "Liquid Glass" }]
+                      ? [{ value: "liquid-glass" as const, label: "Liquid Glass" }]
                       : []),
                     { value: "vibrancy", label: "Vibrancy" },
                     { value: "off", label: "Blur Off" },
@@ -367,7 +321,7 @@ export const AppearanceSettings = memo(function AppearanceSettings({
                 onCheckedChange={onTransparentToolPickerChange}
               />
             </SettingRow>
-          </div>
+          </SettingsSection>
         </div>
       </ScrollArea>
     </div>

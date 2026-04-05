@@ -11,8 +11,8 @@ vi.mock("mermaid", () => ({
   },
 }));
 
-vi.mock("@/hooks/useResolvedThemeClass", () => ({
-  useResolvedThemeClass: () => "dark",
+vi.mock("@/hooks/useTheme", () => ({
+  useResolvedTheme: () => "dark",
 }));
 
 describe("MermaidDiagram", () => {

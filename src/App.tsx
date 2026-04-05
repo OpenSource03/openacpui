@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/AppLayout";
-import { syncAnalyticsSettings } from "@/lib/posthog";
+import { syncAnalyticsSettings } from "@/lib/analytics/posthog";
 
 export function App() {
   // Sync analytics opt-in state after mount — avoids blocking first paint with IPC calls

@@ -1,5 +1,5 @@
 import { useCallback, type ComponentProps } from "react";
-import { InputBar } from "./InputBar";
+import { InputBar } from "./input-bar";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { WorktreeBar } from "./WorktreeBar";
 

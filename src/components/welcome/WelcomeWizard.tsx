@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { ThemeOption, InstalledAgent } from "@/types";
+import { useSettingsStore } from "@/stores/settings-store";
+import { useAgentContext } from "@/components/AgentContext";
 import { WIZARD_STEPS, WELCOME_COMPLETED_KEY, springTransition } from "./shared";
 import { StepIndicator } from "./StepIndicator";
 import { WelcomeStep } from "./WelcomeStep";
@@ -15,26 +16,11 @@ import { ReadyStep } from "./ReadyStep";
 // ── Props ──
 
 interface WelcomeWizardProps {
-  theme: ThemeOption;
-  onThemeChange: (t: ThemeOption) => void;
-  islandLayout: boolean;
-  onIslandLayoutChange: (enabled: boolean) => void;
-  autoGroupTools: boolean;
-  onAutoGroupToolsChange: (enabled: boolean) => void;
-  autoExpandTools: boolean;
-  onAutoExpandToolsChange: (enabled: boolean) => void;
-  expandEditToolCallsByDefault: boolean;
-  onExpandEditToolCallsByDefaultChange: (enabled: boolean) => void;
-  transparency: boolean;
-  onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
   onCreateProject: () => void;
   hasProjects: boolean;
-  agents: InstalledAgent[];
-  onSaveAgent: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
-  onDeleteAgent: (id: string) => Promise<{ ok?: boolean; error?: string }>;
   onComplete: () => void;
 }
 
@@ -56,28 +42,15 @@ const stepVariants = {
 };
 
 export function WelcomeWizard({
-  theme,
-  onThemeChange,
-  islandLayout,
-  onIslandLayoutChange,
-  autoGroupTools,
-  onAutoGroupToolsChange,
-  autoExpandTools,
-  onAutoExpandToolsChange,
-  expandEditToolCallsByDefault,
-  onExpandEditToolCallsByDefaultChange,
-  transparency,
-  onTransparencyChange,
   glassSupported,
   permissionMode,
   onPermissionModeChange,
   onCreateProject,
   hasProjects,
-  agents,
-  onSaveAgent,
-  onDeleteAgent,
   onComplete,
 }: WelcomeWizardProps) {
+  const { agents, saveAgent, deleteAgent } = useAgentContext();
+  const islandLayout = useSettingsStore((s) => s.islandLayout);
   const [currentStep, setCurrentStep] = useState(0);
   const [direction, setDirection] = useState(1);
   const [isExiting, setIsExiting] = useState(false);
@@ -183,18 +156,6 @@ export function WelcomeWizard({
               {stepId === "appearance" && (
                 <AppearanceStep
                   {...stepProps}
-                  theme={theme}
-                  onThemeChange={onThemeChange}
-                  islandLayout={islandLayout}
-                  onIslandLayoutChange={onIslandLayoutChange}
-                  autoGroupTools={autoGroupTools}
-                  onAutoGroupToolsChange={onAutoGroupToolsChange}
-                  autoExpandTools={autoExpandTools}
-                  onAutoExpandToolsChange={onAutoExpandToolsChange}
-                  expandEditToolCallsByDefault={expandEditToolCallsByDefault}
-                  onExpandEditToolCallsByDefaultChange={onExpandEditToolCallsByDefaultChange}
-                  transparency={transparency}
-                  onTransparencyChange={onTransparencyChange}
                   glassSupported={glassSupported}
                 />
               )}
@@ -216,14 +177,13 @@ export function WelcomeWizard({
                 <AgentsStep
                   {...stepProps}
                   agents={agents}
-                  onSaveAgent={onSaveAgent}
-                  onDeleteAgent={onDeleteAgent}
+                  onSaveAgent={saveAgent}
+                  onDeleteAgent={deleteAgent}
                 />
               )}
               {stepId === "tour" && <FeatureTourStep {...stepProps} />}
               {stepId === "ready" && (
                 <ReadyStep
-                  theme={theme}
                   permissionMode={permissionMode}
                   onComplete={finish}
                 />

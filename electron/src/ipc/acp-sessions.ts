@@ -30,8 +30,9 @@ async function getACP() {
   return _acp;
 }
 
-import { resolveACPFilePath, applyReadRange } from "@shared/lib/acp-helpers";
+import { resolveACPFilePath, applyReadRange, ACP_CLIENT_CAPABILITIES } from "@shared/lib/acp-helpers";
 import type { ACPTextFileParams } from "@shared/lib/acp-helpers";
+import type { McpServerInput } from "@shared/lib/mcp-config";
 import type { ACPAuthMethod, ACPAuthenticateResult } from "@shared/types/acp";
 
 type ACPReadTextFileParams = ACPTextFileParams & { content?: string; line?: number | null; limit?: number | null };
@@ -51,13 +52,6 @@ async function acpWriteTextFile(params: ACPWriteTextFileParams): Promise<{ fileP
   await fs.writeFile(filePath, params.content, "utf-8");
   return { filePath };
 }
-
-// Advertise only capabilities that are fully implemented here.
-// Intentionally omit `terminal` and any custom `_meta` flags (e.g. terminal_output)
-// so ACP agents use their protocol fallbacks instead of unsupported client RPC paths.
-const ACP_CLIENT_CAPABILITIES = {
-  fs: { readTextFile: true, writeTextFile: true },
-} as const;
 
 const ACP_INIT_TIMEOUT_MS = 15000;
 const ACP_START_TIMEOUT_MS = 20000;
@@ -196,8 +190,6 @@ function summarizeUpdate(update: Record<string, unknown>): string {
   }
 }
 
-type McpServerInput = { name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> };
-
 /** Convert renderer MCP server configs to ACP SDK format (with fresh auth headers). */
 async function buildAcpMcpServers(servers: McpServerInput[]): Promise<McpServer[]> {
   const resolved = await Promise.all(servers.map(async (s): Promise<McpServer | null> => {
@@ -214,7 +206,7 @@ async function buildAcpMcpServers(servers: McpServerInput[]): Promise<McpServer[
     const authHeaders = await getMcpAuthHeaders(s.name, s.url);
     const mergedHeaders = { ...s.headers, ...authHeaders };
     return {
-      type: s.transport as "http" | "sse",
+      type: s.transport,
       name: s.name,
       url: s.url,
       headers: Object.entries(mergedHeaders).map(([name, value]) => ({ name, value })),
@@ -958,4 +950,15 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     session.pendingPermissions.delete(requestId);
     return { ok: true };
   });
+}
+
+/** Stop all ACP sessions (called on app quit). Idempotent. */
+export function stopAll(): void {
+  for (const [sessionId, entry] of acpSessions) {
+    log("CLEANUP", `Stopping ACP session ${sessionId.slice(0, 8)}`);
+    try { entry.process.kill(); } catch { /* already dead */ }
+  }
+  acpSessions.clear();
+  configBuffer.clear();
+  commandsBuffer.clear();
 }

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { BottomComposer } from "./BottomComposer";
 
-vi.mock("./InputBar", () => ({
+vi.mock("./input-bar", () => ({
   InputBar: () => <div data-testid="input-bar">input-bar</div>,
 }));
 

@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import mermaid from "mermaid";
-import { reportError } from "@/lib/analytics";
-import { CHAT_CONTENT_RESIZED_EVENT } from "@/lib/events";
-import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
+import { reportError } from "@/lib/analytics/analytics";
+import { CHAT_CONTENT_RESIZED_EVENT } from "@/lib/layout/constants";
+import { useResolvedTheme } from "@/hooks/useTheme";
 import { CopyButton } from "./CopyButton";
 
 /** Bump when mermaid config changes to invalidate cached SVGs. */
@@ -294,7 +294,7 @@ export function MermaidDiagram({ code, isStreaming }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const renderRequestRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
-  const resolvedTheme = useResolvedThemeClass();
+  const resolvedTheme = useResolvedTheme();
   const cacheKey = getMermaidCacheKey(code, resolvedTheme);
 
   // Single merged effect: initialize mermaid with the current theme, then render.

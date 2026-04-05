@@ -1,3 +1,5 @@
+// ── Protocol types (Claude CLI stream-json wire format) ──
+
 export type {
   SystemInitEvent,
   SystemStatusEvent,
@@ -24,36 +26,90 @@ export type {
   AuthStatusEvent,
 } from "./protocol";
 
+// ── Session types ──
+
 export type {
-  SpaceColor,
-  Space,
-  SearchMessageResult,
-  SearchSessionResult,
+  ClaudeEffort,
   TodoItem,
   SubagentToolStep,
   UIMessage,
   SessionInfo,
   Project,
-  SessionBase,
   ChatFolder,
+  SessionBase,
   ChatSession,
   PersistedSession,
-  PermissionRequest,
-  PermissionUpdate,
-  PermissionUpdateDestination,
-  PermissionRuleValue,
-  AcpPermissionBehavior,
   CCSessionInfo,
-  BackgroundAgent,
-  BackgroundAgentActivity,
-  BackgroundAgentUsage,
+} from "./session";
+
+// ── Space types ──
+
+export type {
+  SpaceColor,
+  Space,
+} from "./spaces";
+
+// ── Search types ──
+
+export type {
+  SearchMessageResult,
+  SearchSessionResult,
+} from "./search";
+
+// ── Attachment types ──
+
+export type {
   ImageAttachment,
   GrabbedElement,
+} from "./attachments";
+
+// ── Permission types ──
+
+export type {
+  PermissionUpdateDestination,
+  PermissionRuleValue,
+  PermissionUpdate,
+  PermissionRequest,
+  AcpPermissionBehavior,
+} from "./permissions";
+
+// ── Background agent types ──
+
+export type {
+  BackgroundAgentUsage,
+  BackgroundAgent,
+  BackgroundAgentActivity,
+} from "./agents";
+
+// ── MCP & model types ──
+
+export type {
   ContextUsage,
-  AppSettings,
-  InstalledAgent,
   ModelInfo,
-  ClaudeEffort,
+  McpTransport,
+  McpServerConfig,
+  McpServerStatusState,
+  McpServerStatus,
+} from "./mcp";
+
+// ── Settings types (shared) ──
+
+export type {
+  PreferredEditor,
+  VoiceDictationMode,
+  ThemeOption,
+  MacBackgroundEffect,
+  CodexBinarySource,
+  ClaudeBinarySource,
+  NotificationTrigger,
+  NotificationEventSettings,
+  NotificationSettings,
+  AppSettings,
+} from "@shared/types/settings";
+
+// ── Git types (shared) ──
+
+export type {
   GitFileStatus,
   GitFileGroup,
   GitFileChange,
@@ -61,17 +117,35 @@ export type {
   GitRepoInfo,
   GitStatus,
   GitLogEntry,
-  McpTransport,
-  McpServerConfig,
-  McpServerStatusState,
-  McpServerStatus,
-  ThemeOption,
-  MacBackgroundEffect,
-} from "./ui";
+} from "@shared/types/git";
+
+// ── Registry types ──
+
+export type {
+  InstalledAgent,
+  RegistryAgent,
+  RegistryData,
+  RegistryDistribution,
+  RegistryNpxDistribution,
+  RegistryBinaryTarget,
+  BinaryCheckResult,
+} from "./registry";
+
+// ── ACP types ──
 
 export type {
   ACPSessionEvent,
   ACPSessionUpdate,
+  ACPAgentMessageChunk,
+  ACPAgentThoughtChunk,
+  ACPUserMessageChunk,
+  ACPToolCall,
+  ACPToolCallUpdate,
+  ACPPlan,
+  ACPUsageUpdate,
+  ACPSessionInfoUpdate,
+  ACPCurrentModeUpdate,
+  ACPConfigOptionUpdate,
   ACPPermissionEvent,
   ACPTurnCompleteEvent,
   ACPConfigOption,
@@ -79,21 +153,56 @@ export type {
   ACPConfigSelectGroup,
   ACPAvailableCommand,
   ACPAvailableCommandsUpdate,
+  ACPAuthEnvVar,
+  ACPAuthMethodAgent,
+  ACPAuthMethodEnvVar,
+  ACPAuthMethodTerminal,
+  ACPAuthMethod,
+  ACPStatusInfo,
+  ACPStartSuccessResult,
+  ACPStartAuthRequiredResult,
+  ACPStartErrorResult,
+  ACPStartResult,
+  ACPAuthenticateResult,
 } from "./acp";
 
-export type { EngineId, EngineHookState, AppPermissionBehavior, AppPermissionBehavior as PermissionBehavior, RespondPermissionFn, SessionMeta, SlashCommand } from "./engine";
+// ── Engine types ──
+
+export type { EngineId, EngineHookState, AppPermissionBehavior, RespondPermissionFn, BackgroundSessionSnapshot, SlashCommand } from "./engine";
+
+// ── Codex types ──
 
 export type {
   CodexSessionEvent,
   CodexApprovalRequest,
+  CodexRequestUserInputRequest,
   CodexServerRequest,
   CodexExitEvent,
+  CodexAuthRequiredNotification,
+  CodexTokenUsageNotification,
+  CodexThreadItem,
 } from "./codex";
 
+// ── Tool types ──
+
+export type { ToolId, PanelToolId, ToolDef } from "./tools";
+
+// ── Tool islands types ──
+
 export type {
-  RegistryAgent,
-  RegistryData,
-  RegistryDistribution,
-  RegistryNpxDistribution,
-  RegistryBinaryTarget,
-} from "./registry";
+  ToolIslandDock,
+  ToolIsland,
+  ToolColumn,
+  TopRowItem,
+  ToolIslandMemory,
+  ToolDragState,
+  PaneResizeController,
+  TopColumnLocation,
+} from "./tool-islands";
+
+// ── Pane controller types ──
+
+export type {
+  PaneController,
+  ToolIslandContextProps,
+} from "./pane-controller";

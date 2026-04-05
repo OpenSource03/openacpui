@@ -6,7 +6,7 @@ import {
   getTopScrollProgress,
   isWithinBottomLockThreshold,
   shouldUnlockBottomLock,
-} from "../../../../src/lib/chat-scroll";
+} from "../../../../src/lib/chat/scroll";
 
 describe("chat scroll helpers", () => {
   it("computes exact distance from the bottom", () => {

@@ -4,7 +4,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { UIMessage } from "@/types";
-import { getTodoItems } from "@/lib/todo-utils";
+import { getTodoItems } from "@/lib/chat/todo-utils";
 
 export function TodoWriteContent({ message }: { message: UIMessage }) {
   const todos = getTodoItems(message.toolInput?.todos);

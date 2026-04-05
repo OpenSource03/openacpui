@@ -1,13 +1,11 @@
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   Library,
   FileCode2,
   ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-const REMARK_PLUGINS = [remarkGfm];
+import { McpListHeader, McpEmptyState, MCP_ROW_CLASS, REMARK_PLUGINS } from "./shared";
 
 // ── Context7: Library search (resolve-library-id) ──
 
@@ -60,14 +58,12 @@ function Context7LibraryListView({ rawText }: { rawText: string }) {
         </div>
       );
     }
-    return <p className="text-foreground/40 py-2">No libraries found</p>;
+    return <McpEmptyState message="No libraries found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {libraries.length} librar{libraries.length !== 1 ? "ies" : "y"}
-      </span>
+      <McpListHeader count={libraries.length} noun="library" plural="libraries" />
       {libraries.map((lib) => {
         const reputationColor = lib.sourceReputation === "High"
           ? "text-emerald-400"
@@ -82,7 +78,7 @@ function Context7LibraryListView({ rawText }: { rawText: string }) {
         return (
           <div
             key={lib.libraryId ?? lib.title}
-            className="rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+            className={MCP_ROW_CLASS}
           >
             <div className="flex items-center gap-2">
               <Library className="h-3.5 w-3.5 shrink-0 text-purple-400/60" />
@@ -201,7 +197,7 @@ function Context7DocsResultView({ rawText, toolInput }: { rawText: string; toolI
         </div>
       );
     }
-    return <p className="text-foreground/40 py-2">No documentation found</p>;
+    return <McpEmptyState message="No documentation found" />;
   }
 
   return (

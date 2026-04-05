@@ -3,7 +3,7 @@ import {
   buildSessionCacheKey,
   computeFilePanelData,
   getCachedFilePanelData,
-} from "../../../../src/lib/session-derived-data";
+} from "../../../../src/lib/session/derived-data";
 import type { UIMessage } from "../../../../src/types";
 
 function makeUserMessage(id: string, content: string, timestamp: number): UIMessage {

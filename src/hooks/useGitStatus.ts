@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GitRepoInfo, GitStatus, GitBranch, GitLogEntry } from "@/types";
-import { reportError } from "@/lib/analytics";
+import { reportError } from "@/lib/analytics/analytics";
+import { discoverReposCached, invalidateDiscoverReposCache } from "@/lib/git/discover-repos-cache";
 
 export interface DiffStat {
   additions: number;
@@ -28,6 +29,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   const projectPathRef = useRef(projectPath);
   const requestIdRef = useRef(0);
   const loadingRequestIdRef = useRef(0);
+  const pollingInFlightRef = useRef(false);
   repoStatesRef.current = repoStates;
   projectPathRef.current = projectPath;
 
@@ -62,7 +64,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
         ]);
         return {
           repo,
-          status: (!("error" in statusResult) || !statusResult.error) ? statusResult as GitStatus : previous?.status ?? null,
+          status: "error" in statusResult ? previous?.status ?? null : statusResult,
           branches: Array.isArray(branchesResult) ? branchesResult : previous?.branches ?? [],
           log: Array.isArray(logResult) ? logResult : previous?.log ?? [],
           diffStat: diffStatResult ?? previous?.diffStat ?? { additions: 0, deletions: 0 },
@@ -74,11 +76,17 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   }, [applyRepoStates, isRequestCurrent]);
 
   const refreshKnownRepos = useCallback(async () => {
-    const scopePath = projectPathRef.current;
-    const repos = repoStatesRef.current.map((state) => state.repo);
-    if (!scopePath || repos.length === 0) return;
-    const requestId = ++requestIdRef.current;
-    await loadRepoStates(repos, requestId, scopePath);
+    if (pollingInFlightRef.current) return;
+    pollingInFlightRef.current = true;
+    try {
+      const scopePath = projectPathRef.current;
+      const repos = repoStatesRef.current.map((state) => state.repo);
+      if (!scopePath || repos.length === 0) return;
+      const requestId = ++requestIdRef.current;
+      await loadRepoStates(repos, requestId, scopePath);
+    } finally {
+      pollingInFlightRef.current = false;
+    }
   }, [loadRepoStates]);
 
   const refreshAll = useCallback(async () => {
@@ -94,7 +102,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
 
     setIsLoading(true);
     try {
-      const discovered = await window.claude.git.discoverRepos(scopePath);
+      const discovered = await discoverReposCached(scopePath);
       if (!isRequestCurrent(requestId, scopePath)) return;
       await loadRepoStates(discovered, requestId, scopePath);
     } catch (err) {
@@ -145,7 +153,7 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
       const next = [...prev];
       next[nextIdx] = {
         repo: rs.repo,
-        status: (!("error" in statusResult) || !statusResult.error) ? statusResult as GitStatus : rs.status,
+        status: "error" in statusResult ? rs.status : statusResult,
         branches: Array.isArray(branchesResult) ? branchesResult : rs.branches,
         log: Array.isArray(logResult) ? logResult : rs.log,
         diffStat: diffStatResult ?? rs.diffStat,
@@ -155,10 +163,9 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
     });
   }, [isRequestCurrent]);
 
-  // Poll all repos every 3s
+  // Poll all repos every 3s (initial fetch handled by discovery effect above)
   useEffect(() => {
     if (!projectPath || repoStates.length === 0) return;
-    void refreshKnownRepos();
 
     const interval = setInterval(() => {
       if (!document.hidden) void refreshKnownRepos();
@@ -246,7 +253,10 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   const createWorktree = useCallback(
     async (repoPath: string, worktreePath: string, branch: string, fromRef?: string) => {
       const result = await window.claude.git.createWorktree(repoPath, worktreePath, branch, fromRef);
-      if (!result.error) await refreshAll();
+      if (!result.error) {
+        if (projectPathRef.current) invalidateDiscoverReposCache(projectPathRef.current);
+        await refreshAll();
+      }
       return result;
     },
     [refreshAll],
@@ -255,7 +265,10 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   const removeWorktree = useCallback(
     async (repoPath: string, worktreePath: string, force?: boolean) => {
       const result = await window.claude.git.removeWorktree(repoPath, worktreePath, force);
-      if (!result.error) await refreshAll();
+      if (!result.error) {
+        if (projectPathRef.current) invalidateDiscoverReposCache(projectPathRef.current);
+        await refreshAll();
+      }
       return result;
     },
     [refreshAll],
@@ -264,7 +277,10 @@ export function useGitStatus({ projectPath }: UseGitStatusOptions) {
   const pruneWorktrees = useCallback(
     async (repoPath: string) => {
       const result = await window.claude.git.pruneWorktrees(repoPath);
-      if (!result.error) await refreshAll();
+      if (!result.error) {
+        if (projectPathRef.current) invalidateDiscoverReposCache(projectPathRef.current);
+        await refreshAll();
+      }
       return result;
     },
     [refreshAll],

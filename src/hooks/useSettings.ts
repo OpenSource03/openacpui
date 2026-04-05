@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ToolId } from "@/components/ToolPicker";
+import type { ToolId } from "@/types/tools";
 import type { AcpPermissionBehavior, ClaudeEffort, EngineId, MacBackgroundEffect, ThemeOption } from "@/types";
 
 // ── Helpers ──
@@ -34,11 +34,6 @@ const IS_MAC_PLATFORM = typeof navigator !== "undefined"
   && /mac/i.test(navigator.platform);
 
 type MacNativeBackgroundEffect = Exclude<MacBackgroundEffect, "off">;
-
-function readMacNativeBackgroundEffect(): MacNativeBackgroundEffect {
-  const stored = localStorage.getItem("harnss-mac-background-effect");
-  return stored === "vibrancy" ? "vibrancy" : "liquid-glass";
-}
 
 function persistMacBackgroundEffect(effect: MacNativeBackgroundEffect): void {
   if (!IS_MAC_PLATFORM || typeof window === "undefined" || !window.claude?.settings) return;
@@ -293,9 +288,7 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     localStorage.setItem("harnss-island-shine", String(enabled));
   }, []);
 
-  const [macNativeBackgroundEffect, setMacNativeBackgroundEffectRaw] = useState<MacNativeBackgroundEffect>(() =>
-    readMacNativeBackgroundEffect(),
-  );
+  const [macNativeBackgroundEffect, setMacNativeBackgroundEffectRaw] = useState<MacNativeBackgroundEffect>("liquid-glass");
   const [transparencyRaw, setTransparencyRaw] = useState(() =>
     readBool("harnss-transparency", true),
   );
@@ -305,13 +298,11 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
 
     window.claude.settings.get().then((appSettings) => {
       if (cancelled) return;
-      const nextNativeEffect = appSettings?.macBackgroundEffect === "vibrancy"
-        ? "vibrancy"
-        : "liquid-glass";
-      setMacNativeBackgroundEffectRaw(nextNativeEffect);
-      localStorage.setItem("harnss-mac-background-effect", nextNativeEffect);
+      setMacNativeBackgroundEffectRaw(
+        appSettings?.macBackgroundEffect === "vibrancy" ? "vibrancy" : "liquid-glass",
+      );
     }).catch(() => {
-      // Keep the local renderer fallback when app settings are unavailable.
+      // Keep the default when app settings are unavailable.
     });
 
     return () => {
@@ -330,7 +321,6 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     }
 
     setMacNativeBackgroundEffectRaw(effect);
-    localStorage.setItem("harnss-mac-background-effect", effect);
     setTransparencyRaw(true);
     localStorage.setItem("harnss-transparency", "true");
     persistMacBackgroundEffect(effect);
@@ -340,7 +330,6 @@ export function useSettings(projectId: string | null, engine: EngineId = "claude
     setTransparencyRaw(enabled);
     localStorage.setItem("harnss-transparency", String(enabled));
     if (IS_MAC_PLATFORM && enabled) {
-      localStorage.setItem("harnss-mac-background-effect", macNativeBackgroundEffect);
       persistMacBackgroundEffect(macNativeBackgroundEffect);
     }
   }, [macNativeBackgroundEffect]);

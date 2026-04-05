@@ -9,25 +9,29 @@
  */
 
 import { type RefObject, useCallback, useEffect, useMemo } from "react";
-import type { ToolId } from "@/components/ToolPicker";
+import type { ToolId } from "@/types/tools";
 import {
   DEFAULT_TOOL_PREFERRED_WIDTH,
   MAX_BOTTOM_TOOLS_HEIGHT,
+  MIN_CHAT_WIDTH_SPLIT,
   MIN_BOTTOM_TOOLS_HEIGHT,
   MIN_PANE_WIDTH_FRACTION,
   TOOL_PREFERRED_WIDTHS,
   clampWidthFractions,
   equalWidthFractions,
-} from "@/lib/layout-constants";
-import { makeToolColumnItemId } from "@/lib/tool-island-utils";
+} from "@/lib/layout/constants";
+import {
+  getTopToolAreaWidthPx,
+  scaleTopRowFractionsToToolArea,
+} from "@/lib/workspace/main-tool-widths";
+import { isPanelTool, makeToolColumnItemId } from "@/lib/workspace/tool-island-utils";
 import type {
   PanelToolId,
   ToolColumn,
   ToolIsland,
   ToolIslandDock,
   ToolIslandMemory,
-} from "@/types/tool-islands";
-import { isPanelTool } from "@/types/tool-islands";
+} from "@/types";
 import {
   type ToolIslandsState,
   type TopRowChange,
@@ -35,11 +39,10 @@ import {
   useToolIslands,
 } from "./useToolIslands";
 
-// ── Re-exports for backward compatibility ──
+// ── Re-exports ──
 
-export type { PanelToolId, ToolIslandDock as MainToolIslandDock } from "@/types/tool-islands";
-export type { ToolIsland as MainToolIsland, ToolColumn as MainToolColumn } from "@/types/tool-islands";
-export type { TopRowItem as MainTopRowItem } from "@/types/tool-islands";
+export type { PanelToolId } from "@/types";
+export type { TopRowItem as MainTopRowItem } from "@/types";
 
 // ── Constants ──
 
@@ -171,11 +174,12 @@ function sanitizeWorkspaceState(state: ToolIslandsState): ToolIslandsState {
   return {
     topRowItemIds: nextTopRowItemIds,
     topToolColumnsById: nextTopToolColumnsById,
-    widthFractions: sanitizeTopRowWidthFractions(state.widthFractions, nextTopRowItemIds.length),
-    toolIslandsById: nextToolIslandsById,
-    toolMemories: nextToolMemories,
-    bottomToolIslandIds: nextBottomToolIslandIds,
-    bottomHeight: Math.max(MIN_BOTTOM_TOOLS_HEIGHT, Math.min(MAX_BOTTOM_TOOLS_HEIGHT, state.bottomHeight)),
+  widthFractions: sanitizeTopRowWidthFractions(state.widthFractions, nextTopRowItemIds.length),
+  preferredTopAreaWidthPx: state.preferredTopAreaWidthPx ?? null,
+  toolIslandsById: nextToolIslandsById,
+  toolMemories: nextToolMemories,
+  bottomToolIslandIds: nextBottomToolIslandIds,
+  bottomHeight: Math.max(MIN_BOTTOM_TOOLS_HEIGHT, Math.min(MAX_BOTTOM_TOOLS_HEIGHT, state.bottomHeight)),
     bottomWidthFractions: nextBottomToolIslandIds.length > 0 && state.bottomWidthFractions.length === nextBottomToolIslandIds.length
       ? clampWidthFractions(state.bottomWidthFractions)
       : equalWidthFractions(nextBottomToolIslandIds.length),
@@ -189,6 +193,7 @@ interface LegacySerializedState {
   topRowItemIds: string[];
   topToolColumnsById: Record<string, ToolColumn>;
   widthFractions: number[];
+  preferredTopAreaWidthPx?: number | null;
   toolIslandsById: Record<string, { id: string; toolId: PanelToolId; dock: ToolIslandDock; persistKey: string }>;
   toolMemoriesByToolId: Partial<Record<PanelToolId, ToolIslandMemory>>;
   bottomToolIslandIds: string[];
@@ -227,6 +232,7 @@ function readAndConvertState(projectId: string | null, migration: MigrationInput
           topRowItemIds: parsed.topRowItemIds,
           topToolColumnsById: parsed.topToolColumnsById,
           widthFractions: parsed.widthFractions,
+          preferredTopAreaWidthPx: parsed.preferredTopAreaWidthPx ?? null,
           toolIslandsById,
           toolMemories,
           bottomToolIslandIds: parsed.bottomToolIslandIds,
@@ -284,6 +290,7 @@ function migrateFromSettings(projectId: string | null, migration: MigrationInput
     topRowItemIds,
     topToolColumnsById,
     widthFractions: buildDefaultWidthFractions(topRowItemIds.length),
+    preferredTopAreaWidthPx: null,
     toolIslandsById,
     toolMemories,
     bottomToolIslandIds,
@@ -309,6 +316,7 @@ function persistState(projectId: string | null, state: ToolIslandsState): void {
     topRowItemIds: state.topRowItemIds,
     topToolColumnsById: state.topToolColumnsById,
     widthFractions: state.widthFractions,
+    preferredTopAreaWidthPx: state.preferredTopAreaWidthPx,
     toolIslandsById,
     toolMemoriesByToolId,
     bottomToolIslandIds: state.bottomToolIslandIds,
@@ -321,14 +329,40 @@ function persistState(projectId: string | null, state: ToolIslandsState): void {
 // ── Config builder ──
 
 function buildConfig(projectId: string | null, workspaceWidthRef: RefObject<number>): UseToolIslandsConfig {
-  return {
-    computeWidthFractions: (change: TopRowChange) => {
-      const { kind, prevFractions, prevItemCount, nextItemCount, changeIndex, toolHint } = change;
-      if (kind === "column-added") {
-        const validFractions = prevFractions.length === prevItemCount + 1
-          ? prevFractions
-          : buildDefaultWidthFractions(prevItemCount);
+  const getMaxToolAreaFraction = (workspaceWidth: number): number => {
+    if (workspaceWidth <= 0) return 1 - MIN_CHAT_FRACTION;
+    return Math.max(0, 1 - Math.min(0.92, MIN_CHAT_WIDTH_SPLIT / workspaceWidth));
+  };
 
+  const getCurrentToolAreaFraction = (widthFractions: number[], preferredTopAreaWidthPx: number | null): number => {
+    const workspaceWidth = workspaceWidthRef.current;
+    if (workspaceWidth > 0) {
+      return Math.min(
+        getMaxToolAreaFraction(workspaceWidth),
+        Math.max(
+          0,
+          (preferredTopAreaWidthPx ?? getTopToolAreaWidthPx(widthFractions, workspaceWidth)) / workspaceWidth,
+        ),
+      );
+    }
+
+    return Math.max(0, 1 - (widthFractions[0] ?? 1));
+  };
+
+  return {
+    computeWidthFractions: (change: TopRowChange, current) => {
+      const { kind, prevItemCount, nextItemCount, changeIndex, toolHint } = change;
+      const workspaceWidth = workspaceWidthRef.current;
+      const currentToolAreaFraction = getCurrentToolAreaFraction(
+        current.widthFractions,
+        current.preferredTopAreaWidthPx,
+      );
+
+      const rebasedFractions = current.widthFractions.length === prevItemCount + 1
+        ? scaleTopRowFractionsToToolArea(current.widthFractions, prevItemCount, currentToolAreaFraction)
+        : buildDefaultWidthFractions(prevItemCount);
+
+      if (kind === "column-added") {
         // Priority 1: remembered fraction from last close
         // Priority 2: preferred pixel width → fraction
         // Priority 3: DEFAULT_TOOL_COLUMN_FRACTION fallback
@@ -337,26 +371,35 @@ function buildConfig(projectId: string | null, workspaceWidthRef: RefObject<numb
           desiredFraction = toolHint.lastWidthFraction;
         } else if (toolHint?.toolId) {
           const preferredPx = TOOL_PREFERRED_WIDTHS[toolHint.toolId] ?? DEFAULT_TOOL_PREFERRED_WIDTH;
-          const workspaceWidth = workspaceWidthRef.current;
           if (workspaceWidth > 0) {
             desiredFraction = Math.min(
-              1 - MIN_CHAT_FRACTION,
+              getMaxToolAreaFraction(workspaceWidth),
               Math.max(MIN_PANE_WIDTH_FRACTION, preferredPx / workspaceWidth),
             );
           }
         }
 
-        return insertToolColumnFraction(validFractions, changeIndex, desiredFraction);
+        return insertToolColumnFraction(rebasedFractions, changeIndex, desiredFraction);
       }
       if (kind === "column-removed") {
-        return removeToolColumnFraction(prevFractions, changeIndex);
+        return removeToolColumnFraction(rebasedFractions, changeIndex);
       }
       // count-changed: preserve if length matches, otherwise rebuild
-      if (prevFractions.length === nextItemCount + 1) return prevFractions;
+      if (rebasedFractions.length === nextItemCount + 1) return rebasedFractions;
       return buildDefaultWidthFractions(nextItemCount);
     },
 
-    getColumnWidthFraction: (fractions, topRowIndex) => fractions[topRowIndex + 1],
+    getColumnWidthFraction: (state, topRowIndex) => {
+      const toolAreaFraction = getCurrentToolAreaFraction(
+        state.widthFractions,
+        state.preferredTopAreaWidthPx,
+      );
+      return scaleTopRowFractionsToToolArea(
+        state.widthFractions,
+        Math.max(0, state.widthFractions.length - 1),
+        toolAreaFraction,
+      )[topRowIndex + 1];
+    },
 
     makeIslandId: (_toolId, _sessionId, existingId) => existingId ?? `main-tool:${_toolId}`,
 
@@ -376,16 +419,18 @@ function buildConfig(projectId: string | null, workspaceWidthRef: RefObject<numb
   };
 }
 
-// ── Public interface (unchanged from before) ──
+// ── Public interface ──
 
 export interface MainToolWorkspaceState {
   topRowItems: Array<{ kind: "tool-column"; itemId: string; column: ToolColumn; islands: ToolIsland[] }>;
   bottomToolIslands: ToolIsland[];
   widthFractions: number[];
+  preferredTopAreaWidthPx: number | null;
   bottomHeight: number;
   bottomWidthFractions: number[];
   setWidthFractions: (fractions: number[]) => void;
   setWidthFractionsDirect: (fractions: number[]) => void;
+  setPreferredTopAreaWidthPx: (width: number | null) => void;
   setTopToolColumnSplitRatios: (columnId: string, ratios: number[]) => void;
   setBottomHeight: (height: number) => void;
   setBottomWidthFractions: (fractions: number[]) => void;
@@ -396,6 +441,113 @@ export interface MainToolWorkspaceState {
   closeToolIsland: (islandId: string) => void;
   getToolIsland: (toolId: PanelToolId) => ToolIsland | null;
   getRememberedDock: (toolId: PanelToolId) => ToolIslandDock | null;
+}
+
+// ── Picker integration (encapsulates the "find target column" heuristic) ──
+
+/**
+ * Toggle a panel tool on or off via the tool picker.
+ *
+ * If open, closes it. If closed, opens it with smart column placement:
+ * - Tools that were last in the bottom dock re-open in the top
+ * - Tools that fit as a new column get their own column
+ * - Otherwise, stack into the last existing column
+ */
+export function togglePanelTool(
+  workspace: MainToolWorkspaceState,
+  toolId: PanelToolId,
+  canFitToolAsNewColumn: (toolId: PanelToolId) => boolean,
+): void {
+  const existing = workspace.getToolIsland(toolId);
+  if (existing) {
+    workspace.closeToolIsland(existing.id);
+    return;
+  }
+  const rememberedDock = workspace.getRememberedDock(toolId);
+  if (rememberedDock === "bottom") {
+    workspace.openToolIsland(toolId, "top");
+    return;
+  }
+  if (canFitToolAsNewColumn(toolId) || workspace.topRowItems.length === 0) {
+    workspace.openToolIsland(toolId, "top");
+    return;
+  }
+  const lastColumnId = workspace.topRowItems[workspace.topRowItems.length - 1]?.column.id;
+  if (lastColumnId) {
+    workspace.openToolIslandInTopColumn(toolId, lastColumnId);
+  } else {
+    workspace.openToolIsland(toolId, "top");
+  }
+}
+
+/**
+ * Move a panel tool to the top (side) dock.
+ *
+ * If already in the top dock, this is a no-op.
+ * If in the bottom dock or not open, moves/opens into a new column or stacks.
+ */
+export function moveToolToSide(
+  workspace: MainToolWorkspaceState,
+  toolId: PanelToolId,
+  canFitToolAsNewColumn: (toolId: PanelToolId) => boolean,
+): void {
+  const existing = workspace.getToolIsland(toolId);
+  if (existing) {
+    if (existing.dock === "top") return;
+    if (canFitToolAsNewColumn(toolId) || workspace.topRowItems.length === 0) {
+      workspace.moveToolIsland(existing.id, "top");
+      return;
+    }
+    const lastColumnId = workspace.topRowItems[workspace.topRowItems.length - 1]?.column.id;
+    if (lastColumnId) {
+      workspace.moveToolIslandToTopColumn(existing.id, lastColumnId);
+    }
+    return;
+  }
+  if (canFitToolAsNewColumn(toolId) || workspace.topRowItems.length === 0) {
+    workspace.openToolIsland(toolId, "top");
+    return;
+  }
+  const lastColumnId = workspace.topRowItems[workspace.topRowItems.length - 1]?.column.id;
+  if (lastColumnId) {
+    workspace.openToolIslandInTopColumn(toolId, lastColumnId);
+  }
+}
+
+/**
+ * Move a panel tool to the bottom dock.
+ */
+export function moveToolToBottom(
+  workspace: MainToolWorkspaceState,
+  toolId: PanelToolId,
+): void {
+  const existing = workspace.getToolIsland(toolId);
+  if (existing) {
+    workspace.moveToolIsland(existing.id, "bottom");
+  } else {
+    workspace.openToolIsland(toolId, "bottom");
+  }
+}
+
+/**
+ * Move a bottom-docked tool to the top row (checking column capacity first).
+ */
+export function moveBottomToolToTop(
+  workspace: MainToolWorkspaceState,
+  islandId: string,
+  canFitToolAsNewColumn: (toolId: PanelToolId) => boolean,
+): void {
+  const island = workspace.bottomToolIslands.find((i) => i.id === islandId);
+  if ((island && canFitToolAsNewColumn(island.toolId)) || workspace.topRowItems.length === 0) {
+    workspace.moveToolIsland(islandId, "top");
+    return;
+  }
+  const lastColumnId = workspace.topRowItems[workspace.topRowItems.length - 1]?.column.id;
+  if (lastColumnId) {
+    workspace.moveToolIslandToTopColumn(islandId, lastColumnId);
+    return;
+  }
+  workspace.moveToolIsland(islandId, "top");
 }
 
 // ── Hook ──
@@ -458,14 +610,36 @@ export function useMainToolWorkspace(
     ? toolIslands.state.bottomWidthFractions
     : equalWidthFractions(toolIslands.bottomToolIslands.length);
 
+  useEffect(() => {
+    if (topRowItems.length <= 0) return;
+
+    const workspaceWidth = workspaceWidthRef.current;
+    if (workspaceWidth <= 0) return;
+
+    const nextPreferredTopAreaWidthPx = getTopToolAreaWidthPx(widthFractions, workspaceWidth);
+    if (Math.abs((toolIslands.state.preferredTopAreaWidthPx ?? -1) - nextPreferredTopAreaWidthPx) <= 0.5) {
+      return;
+    }
+
+    toolIslands.setPreferredTopAreaWidthPx(nextPreferredTopAreaWidthPx);
+  }, [
+    topRowItems.length,
+    toolIslands.setPreferredTopAreaWidthPx,
+    toolIslands.state.preferredTopAreaWidthPx,
+    widthFractions,
+    workspaceWidthRef,
+  ]);
+
   return {
     topRowItems,
     bottomToolIslands: toolIslands.bottomToolIslands,
     widthFractions,
+    preferredTopAreaWidthPx: toolIslands.state.preferredTopAreaWidthPx,
     bottomHeight: toolIslands.state.bottomHeight,
     bottomWidthFractions,
     setWidthFractions: toolIslands.setWidthFractions,
     setWidthFractionsDirect: toolIslands.setWidthFractionsDirect,
+    setPreferredTopAreaWidthPx: toolIslands.setPreferredTopAreaWidthPx,
     setTopToolColumnSplitRatios: toolIslands.setTopToolColumnSplitRatios,
     setBottomHeight: toolIslands.setBottomHeight,
     setBottomWidthFractions: toolIslands.setBottomWidthFractions,

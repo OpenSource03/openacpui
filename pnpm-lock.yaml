@@ -29,6 +29,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.13.22
         version: 3.13.22(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      dompurify:
+        specifier: ^3.3.3
+        version: 3.3.3
       electron-context-menu:
         specifier: ^4.1.1
         version: 4.1.1
@@ -65,6 +68,9 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      zustand:
+        specifier: ^5.0.12
+        version: 5.0.12(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     devDependencies:
       '@electron/rebuild':
         specifier: ^4.0.3
@@ -75,6 +81,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2))
+      '@types/dompurify':
+        specifier: ^3.2.0
+        version: 3.2.0
       '@types/hast':
         specifier: ^3.0.4
         version: 3.0.4
@@ -2133,6 +2142,10 @@ packages:
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
+  '@types/dompurify@3.2.0':
+    resolution: {integrity: sha512-Fgg31wv9QbLDA0SpTOXO3MaxySc4DKGLi8sna4/Utjo4r3ZRPdCt4UQee8BWr+Q5z21yifghREPJGYaEOEIACg==}
+    deprecated: This is a stub types definition. dompurify provides its own type definitions, so you do not need this installed.
+
   '@types/estree-jsx@1.0.5':
     resolution: {integrity: sha512-52CcUVNFyfb1A2ALocQw/Dd1BQFNmSdkuC3BkZ6iqhdMfQz7JWOFRuJFloOzjk+6WijU56m9oKXFAXc7o3Towg==}
 
@@ -3024,9 +3037,8 @@ packages:
   dompurify@3.2.7:
     resolution: {integrity: sha512-WhL/YuveyGXJaerVlMYGWhvQswa7myDG17P7Vu65EWC05o8vfeNbvNf4d/BOvH99+ZW+LlQsc1GDKMa1vNK6dw==}
 
-  dompurify@3.3.2:
-    resolution: {integrity: sha512-6obghkliLdmKa56xdbLOpUZ43pAR6xFy1uOrxBaIDjT+yaRuuybLjGS9eVBoSR/UPU5fq3OXClEHLJNGvbxKpQ==}
-    engines: {node: '>=20'}
+  dompurify@3.3.3:
+    resolution: {integrity: sha512-Oj6pzI2+RqBfFG+qOaOLbFXLQ90ARpcGG6UePL82bJLtdsa6CYJD7nmiU8MW9nQNOtCHV3lZ/Bzq1X0QYbBZCA==}
 
   dotenv-expand@11.0.7:
     resolution: {integrity: sha512-zIHwmZPRshsCdpMDyVsqGmgyP0yT8GAgXUnkdAoJisxvf33k7yO6OuoKmcTGuXPWSsm8Oh88nZicRLA9Y0rUeA==}
@@ -5693,6 +5705,24 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zustand@5.0.12:
+    resolution: {integrity: sha512-i77ae3aZq4dhMlRhJVCYgMLKuSiZAaUPAct2AksxQ+gOtimhGMdXljRT21P5BNpeT4kXlLIckvkPM029OljD7g==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -7679,6 +7709,10 @@ snapshots:
 
   '@types/deep-eql@4.0.2': {}
 
+  '@types/dompurify@3.2.0':
+    dependencies:
+      dompurify: 3.3.3
+
   '@types/estree-jsx@1.0.5':
     dependencies:
       '@types/estree': 1.0.8
@@ -8632,7 +8666,7 @@ snapshots:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
-  dompurify@3.3.2:
+  dompurify@3.3.3:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -9886,7 +9920,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.20
-      dompurify: 3.3.2
+      dompurify: 3.3.3
       katex: 0.16.38
       khroma: 2.1.0
       lodash-es: 4.17.23
@@ -10522,7 +10556,7 @@ snapshots:
       '@posthog/core': 1.23.2
       '@posthog/types': 1.360.0
       core-js: 3.48.0
-      dompurify: 3.3.2
+      dompurify: 3.3.3
       fflate: 0.4.8
       preact: 10.28.4
       query-selector-shadow-dom: 1.0.1
@@ -11746,5 +11780,11 @@ snapshots:
       zod: 3.25.76
 
   zod@3.25.76: {}
+
+  zustand@5.0.12(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)):
+    optionalDependencies:
+      '@types/react': 19.2.14
+      react: 19.2.4
+      use-sync-external-store: 1.6.0(react@19.2.4)
 
   zwitch@2.0.4: {}

@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import {
   GitBranch as GitBranchIcon,
   ChevronDown,
@@ -56,18 +57,12 @@ export function BranchPicker({
   const [showNewBranch, setShowNewBranch] = useState(false);
   const branchPickerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!showBranchPicker) return;
-    const handler = (e: MouseEvent) => {
-      if (branchPickerRef.current && !branchPickerRef.current.contains(e.target as Node)) {
-        setShowBranchPicker(false);
-        setBranchFilter("");
-        setShowNewBranch(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showBranchPicker]);
+  const closePicker = useCallback(() => {
+    setShowBranchPicker(false);
+    setBranchFilter("");
+    setShowNewBranch(false);
+  }, []);
+  useClickOutside(branchPickerRef, closePicker, showBranchPicker);
 
   const handleCheckout = useCallback(
     (branch: string) => {

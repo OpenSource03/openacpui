@@ -1,46 +1,23 @@
 import React, { type Dispatch, type MutableRefObject, type ReactNode, type SetStateAction } from "react";
 import { motion } from "motion/react";
 import { normalizeRatios } from "@/hooks/useSettings";
-import type { MainToolIsland, MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
-import { equalWidthFractions } from "@/lib/layout-constants";
-import { getHorizontalInsertSide, getToolColumnDropIntent } from "@/lib/workspace-drag";
+import type { MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
+import { equalWidthFractions } from "@/lib/layout/constants";
+import { getHorizontalInsertSide, getToolColumnDropIntent } from "@/lib/workspace/drag";
 import { PanelDockControls } from "@/components/PanelDockControls";
 import { PanelDockPreview } from "@/components/PanelDockPreview";
 import { SplitHandle } from "@/components/split/SplitHandle";
-import type { ToolId } from "@/components/ToolPicker";
+import type { PanelToolId } from "@/types/tools";
+import type { PaneResizeController, ToolDragState, ToolIsland } from "@/types";
 
-type PanelToolId = Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">;
-
-interface MainToolDragState {
-  toolId: ToolId;
-  islandId: string | null;
-  targetArea: "top" | "top-stack" | "bottom" | null;
-  targetIndex: number | null;
-  targetColumnId: string | null;
-}
-
-interface PaneResizeController {
-  isResizing: boolean;
-  handleSplitResizeStart: (handleIndex: number, event: React.MouseEvent) => void;
-  handleSplitDoubleClick: () => void;
-}
-
-interface MainTopToolAreaProps {
+interface MainTopToolAreaLayoutProps {
   isIsland: boolean;
   shouldAnimateTopRowLayout: boolean;
   showSinglePaneSplitPreview: boolean;
   toolAreaWidth: number;
   isOuterResizeActive: boolean;
-  workspace: MainToolWorkspaceState;
-  mainToolDrag: MainToolDragState | null;
-  setMainToolDrag: Dispatch<SetStateAction<MainToolDragState | null>>;
-  mainDraggedIsland: MainToolIsland | null;
-  mainToolLabel: string | null;
   canAddMainTopColumn: boolean;
   onOuterResizeStart: (event: React.MouseEvent) => void;
-  onCommitDrop: () => void;
-  onResetDrag: () => void;
-  renderToolContent: (toolId: PanelToolId, controls: ReactNode) => ReactNode;
   topAreaRef: MutableRefObject<HTMLDivElement | null>;
   toolsColumnRef: MutableRefObject<HTMLDivElement | null>;
   topToolColumnRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
@@ -54,29 +31,51 @@ interface MainTopToolAreaProps {
   ) => void;
 }
 
+interface MainTopToolAreaDragProps {
+  mainToolDrag: ToolDragState | null;
+  setMainToolDrag: Dispatch<SetStateAction<ToolDragState | null>>;
+  mainDraggedIsland: ToolIsland | null;
+  mainToolLabel: string | null;
+  onCommitDrop: () => void;
+  onResetDrag: () => void;
+}
+
+interface MainTopToolAreaProps {
+  layout: MainTopToolAreaLayoutProps;
+  workspace: MainToolWorkspaceState;
+  drag: MainTopToolAreaDragProps;
+  renderToolContent: (toolId: PanelToolId, controls: ReactNode) => ReactNode;
+}
+
 export function MainTopToolArea({
-  isIsland,
-  shouldAnimateTopRowLayout,
-  showSinglePaneSplitPreview,
-  toolAreaWidth,
-  isOuterResizeActive,
+  layout,
   workspace,
-  mainToolDrag,
-  setMainToolDrag,
-  mainDraggedIsland,
-  mainToolLabel,
-  canAddMainTopColumn,
-  onOuterResizeStart,
-  onCommitDrop,
-  onResetDrag,
+  drag,
   renderToolContent,
-  topAreaRef,
-  toolsColumnRef,
-  topToolColumnRefs,
-  topPaneResize,
-  activeToolColumnResizeId,
-  onToolColumnResizeStart,
 }: MainTopToolAreaProps) {
+  const {
+    isIsland,
+    shouldAnimateTopRowLayout,
+    showSinglePaneSplitPreview,
+    toolAreaWidth,
+    isOuterResizeActive,
+    canAddMainTopColumn,
+    onOuterResizeStart,
+    topAreaRef,
+    toolsColumnRef,
+    topToolColumnRefs,
+    topPaneResize,
+    activeToolColumnResizeId,
+    onToolColumnResizeStart,
+  } = layout;
+  const {
+    mainToolDrag,
+    setMainToolDrag,
+    mainDraggedIsland,
+    mainToolLabel,
+    onCommitDrop,
+    onResetDrag,
+  } = drag;
   const topItems = workspace.topRowItems;
   const toolFractionsBase = workspace.widthFractions.slice(1);
   const toolFractions = toolFractionsBase.length === topItems.length
@@ -338,6 +337,7 @@ export function MainTopToolArea({
                                   event.dataTransfer.effectAllowed = "move";
                                   setMainToolDrag({
                                     toolId: stackEntry.island.toolId,
+                                    sourceSessionId: null,
                                     islandId: stackEntry.island.id,
                                     targetArea: null,
                                     targetIndex: null,

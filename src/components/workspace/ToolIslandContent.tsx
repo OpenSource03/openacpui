@@ -15,9 +15,7 @@ import { GitPanel } from "@/components/git/GitPanel";
 import { FilesPanel } from "@/components/FilesPanel";
 import { ProjectFilesPanel } from "@/components/ProjectFilesPanel";
 import { McpPanel } from "@/components/McpPanel";
-import type { PanelToolId } from "@/types/tool-islands";
-import type { EngineId, McpServerConfig, McpServerStatus, UIMessage } from "@/types";
-import type { GrabbedElement } from "@/types/ui";
+import type { PanelToolId, EngineId, McpServerConfig, McpServerStatus, UIMessage, GrabbedElement } from "@/types";
 import type { TerminalTab } from "@/lib/terminal-tabs";
 import type { ResolvedTheme } from "@/hooks/useTheme";
 
@@ -55,9 +53,6 @@ export interface ToolIslandContentProps {
   onPreviewFile?: (path: string, rect: DOMRect) => void;
   collapsedRepos: Set<string>;
   onToggleRepoCollapsed: (path: string) => void;
-  selectedWorktreePath: string | null | undefined;
-  onSelectWorktreePath?: (path: string | null) => void;
-
   // MCP panel
   mcpServerStatuses: McpServerStatus[];
   mcpStatusPreliminary: boolean;
@@ -92,8 +87,6 @@ export function ToolIslandContent({
   onPreviewFile,
   collapsedRepos,
   onToggleRepoCollapsed,
-  selectedWorktreePath,
-  onSelectWorktreePath,
   mcpServerStatuses,
   mcpStatusPreliminary,
   onRefreshMcpStatus,
@@ -130,8 +123,6 @@ export function ToolIslandContent({
           cwd={projectRoot}
           collapsedRepos={collapsedRepos}
           onToggleRepoCollapsed={onToggleRepoCollapsed}
-          selectedWorktreePath={selectedWorktreePath}
-          onSelectWorktreePath={isActiveSessionPane ? onSelectWorktreePath : undefined}
           activeEngine={activeEngine}
           activeSessionId={sessionId}
           headerControls={headerControls}

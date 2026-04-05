@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import { Search, MessageSquare, Hash, X } from "lucide-react";
 import type { SearchMessageResult, SearchSessionResult } from "@/types";
 
@@ -57,15 +58,8 @@ export const SidebarSearch = memo(function SidebarSearch({
   }, [query, doSearch]);
 
   // Close on click outside
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const closeDropdown = useCallback(() => setIsOpen(false), []);
+  useClickOutside(containerRef, closeDropdown);
 
   // Close on Escape
   const handleKeyDown = (e: React.KeyboardEvent) => {

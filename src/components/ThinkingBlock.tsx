@@ -4,12 +4,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, memo } from "react";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import {
   advanceThinkingAnimationState,
   createThinkingAnimationState,
-} from "@/lib/thinking-animation";
+} from "@/lib/chat/thinking-animation";
 import { useChatPersistedState } from "@/components/chat-ui-state";
 import { CHAT_COLLAPSIBLE_CONTENT_CLASS } from "@/components/lib/chat-layout";
 
@@ -20,7 +20,7 @@ interface ThinkingBlockProps {
   storageKey?: string;
 }
 
-export function ThinkingBlock({
+export const ThinkingBlock = memo(function ThinkingBlock({
   thinking,
   isStreaming,
   thinkingComplete,
@@ -105,4 +105,9 @@ export function ThinkingBlock({
       )}
     </Collapsible>
   );
-}
+}, (prev, next) =>
+  prev.thinking === next.thinking &&
+  prev.isStreaming === next.isStreaming &&
+  prev.thinkingComplete === next.thinkingComplete &&
+  prev.storageKey === next.storageKey,
+);

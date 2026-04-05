@@ -9,12 +9,12 @@
 
 import { useMemo } from "react";
 import { toast } from "sonner";
-import type { ACPConfigOption, ChatSession, EngineId, ImageAttachment, InstalledAgent, ModelInfo } from "@/types";
+import type { ACPConfigOption, ChatSession, ClaudeEffort, EngineId, ImageAttachment, InstalledAgent, ModelInfo } from "@/types";
 import type { SessionPaneState } from "@/hooks/session/useSessionPane";
 import type { CodexModelSummary } from "@/hooks/session/types";
 import { buildCodexCollabMode, DEFAULT_PERMISSION_MODE } from "@/hooks/session/types";
 import { findEquivalentModel } from "@/lib/model-utils";
-import type { PaneController } from "@/types/pane-controller";
+import type { PaneController } from "@/types";
 
 // ── Model catalog builders (moved from AppLayout) ──
 
@@ -29,7 +29,7 @@ function buildCodexModelCatalog(rawModels: CodexModelSummary[]): ModelInfo[] {
     displayName: model.displayName,
     description: model.description,
     supportsEffort: model.supportedReasoningEfforts.length > 0,
-    supportedEffortLevels: model.supportedReasoningEfforts.map((entry) => entry.reasoningEffort),
+    supportedEffortLevels: model.supportedReasoningEfforts.map((entry) => entry.reasoningEffort as ClaudeEffort),
   }));
 }
 
@@ -55,12 +55,12 @@ export interface PaneControllerContext {
     getModelForEngine: (engine: EngineId) => string;
     permissionMode: string;
     planMode: boolean;
-    claudeEffort: string;
+    claudeEffort: ClaudeEffort;
     acpPermissionBehavior: "ask" | "auto_accept" | "allow_all";
   };
   // Manager methods for active-pane path
   handleModelChange: (nextModel: string) => void;
-  handleClaudeModelEffortChange: (nextModel: string, effort: string) => void;
+  handleClaudeModelEffortChange: (nextModel: string, effort: ClaudeEffort) => void;
   handlePlanModeChange: (enabled: boolean) => void;
   handlePermissionModeChange: (nextMode: string) => void;
   handleAgentChange: (agent: InstalledAgent | null) => void;
@@ -70,7 +70,7 @@ export interface PaneControllerContext {
   // Manager session-level mutations (for non-active panes)
   manager: {
     setSessionModel: (sessionId: string, model: string) => void;
-    setSessionClaudeModelAndEffort: (sessionId: string, model: string, effort: string) => void;
+    setSessionClaudeModelAndEffort: (sessionId: string, model: string, effort: ClaudeEffort) => void;
     setSessionPlanMode: (sessionId: string, enabled: boolean) => void;
     setSessionPermissionMode: (sessionId: string, mode: string) => void;
     setCodexEffort: (effort: string) => void;
@@ -154,7 +154,7 @@ export function usePaneController(
       ctx.manager.setSessionModel(sessionId, nextModel);
     };
 
-    const handlePaneClaudeModelEffortChange = (nextModel: string, effort: string | undefined) => {
+    const handlePaneClaudeModelEffortChange = (nextModel: string, effort: ClaudeEffort | undefined) => {
       const resolvedEffort = effort ?? ctx.settings.claudeEffort;
       if (isActiveSessionPane) {
         ctx.handleClaudeModelEffortChange(nextModel, resolvedEffort);
@@ -278,7 +278,7 @@ export function usePaneController(
       panePermissionMode,
       panePlanMode,
       paneSupportedModels,
-      paneClaudeEffort: session?.effort ?? ctx.settings.claudeEffort ?? "",
+      paneClaudeEffort: session?.effort ?? ctx.settings.claudeEffort,
       paneSlashCommands: paneState.engine.slashCommands,
       paneAcpConfigOptions,
       paneAcpConfigOptionsLoading,

@@ -9,15 +9,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import type { ChatFolder, ChatSession, InstalledAgent, Project, Space, SpaceColor } from "@/types";
-import { APP_SIDEBAR_WIDTH } from "@/lib/layout-constants";
+import type { ChatFolder, ChatSession, Project, Space, SpaceColor } from "@/types";
+import { APP_SIDEBAR_WIDTH } from "@/lib/layout/constants";
 import { SidebarSearch } from "./SidebarSearch";
 import { SpaceBar, SpaceIcon } from "./SpaceBar";
 import { SpaceCustomizer } from "./SpaceCustomizer";
 import { UpdateBanner } from "./UpdateBanner";
 import { ProjectSection } from "./sidebar/ProjectSection";
+import { SidebarActionsProvider } from "./sidebar/SidebarActionsContext";
+import { useAgentContext } from "./AgentContext";
 
-interface AppSidebarProps {
+interface AppSidebarState {
   isOpen: boolean;
   islandLayout: boolean;
   projects: Project[];
@@ -27,11 +29,12 @@ interface AppSidebarProps {
   jiraBoardEnabled: boolean;
   foldersByProject: Record<string, ChatFolder[]>;
   organizeByChatBranch: boolean;
+  draftSpaceId: string | null;
+}
+
+interface AppSidebarProjectActions {
   onNewChat: (projectId: string) => void;
   onToggleProjectJiraBoard: (projectId: string) => void;
-  onSelectSession: (id: string) => void;
-  onDeleteSession: (id: string) => void;
-  onRenameSession: (id: string, title: string) => void;
   onCreateProject: () => void;
   onDeleteProject: (id: string) => void;
   onRenameProject: (id: string, name: string) => void;
@@ -41,74 +44,103 @@ interface AppSidebarProps {
   onNavigateToMessage: (sessionId: string, messageId: string) => void;
   onMoveProjectToSpace: (projectId: string, spaceId: string) => void;
   onReorderProject: (projectId: string, targetProjectId: string) => void;
-  onPinSession: (sessionId: string, pinned: boolean) => void;
-  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
   onCreateFolder: (projectId: string) => void;
-  onRenameFolder: (projectId: string, folderId: string, name: string) => void;
-  onDeleteFolder: (projectId: string, folderId: string) => void;
-  onPinFolder: (projectId: string, folderId: string, pinned: boolean) => void;
   onSetOrganizeByChatBranch: (on: boolean) => void;
+}
+
+interface AppSidebarSpaceState {
   spaces: Space[];
   activeSpaceId: string;
+}
+
+interface AppSidebarSpaceActions {
   onSelectSpace: (id: string) => void;
   onStartCreateSpace: () => void;
   onUpdateSpace: (id: string, updates: Partial<Pick<Space, "name" | "icon" | "iconType" | "color">>) => void;
   onDeleteSpace: (id: string) => void;
   onOpenSettings: () => void;
-  agents?: InstalledAgent[];
-  onOpenInSplitView?: (sessionId: string) => void;
-  canOpenSessionInSplitView?: (sessionId: string) => boolean;
-  // Draft space creation (draftSpaceId is a real space ID; null when not drafting)
-  draftSpaceId: string | null;
   onConfirmCreateSpace: () => void;
   onCancelCreateSpace: () => void;
 }
 
+interface AppSidebarSessionActions {
+  onSelectSession: (id: string) => void;
+  onDeleteSession: (id: string) => void;
+  onRenameSession: (id: string, title: string) => void;
+  onPinSession: (sessionId: string, pinned: boolean) => void;
+  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
+  onRenameFolder: (projectId: string, folderId: string, name: string) => void;
+  onDeleteFolder: (projectId: string, folderId: string) => void;
+  onPinFolder: (projectId: string, folderId: string, pinned: boolean) => void;
+  onOpenInSplitView?: (sessionId: string) => void;
+  canOpenSessionInSplitView?: (sessionId: string) => boolean;
+}
+
+interface AppSidebarProps {
+  state: AppSidebarState;
+  projectActions: AppSidebarProjectActions;
+  spaceState: AppSidebarSpaceState;
+  spaceActions: AppSidebarSpaceActions;
+  sessionActions: AppSidebarSessionActions;
+}
+
 export const AppSidebar = memo(function AppSidebar({
-  isOpen,
-  islandLayout,
-  projects,
-  sessions,
-  activeSessionId,
-  jiraBoardProjectId,
-  jiraBoardEnabled,
-  foldersByProject,
-  organizeByChatBranch,
-  onNewChat,
-  onToggleProjectJiraBoard,
-  onSelectSession,
-  onDeleteSession,
-  onRenameSession,
-  onCreateProject,
-  onDeleteProject,
-  onRenameProject,
-  onUpdateProjectIcon,
-  onImportCCSession,
-  onToggleSidebar,
-  onNavigateToMessage,
-  onMoveProjectToSpace,
-  onReorderProject,
-  onPinSession,
-  onMoveSessionToFolder,
-  onCreateFolder,
-  onRenameFolder,
-  onDeleteFolder,
-  onPinFolder,
-  onSetOrganizeByChatBranch,
-  spaces,
-  activeSpaceId,
-  onSelectSpace,
-  onStartCreateSpace,
-  onUpdateSpace,
-  onDeleteSpace,
-  onOpenSettings,
-  agents,
-  onOpenInSplitView,
-  canOpenSessionInSplitView,
-  draftSpaceId,
-  onConfirmCreateSpace,
-  onCancelCreateSpace,
+  state,
+  projectActions,
+  spaceState,
+  spaceActions,
+  sessionActions,
 }: AppSidebarProps) {
+  const {
+    isOpen,
+    islandLayout,
+    projects,
+    sessions,
+    activeSessionId,
+    jiraBoardProjectId,
+    jiraBoardEnabled,
+    foldersByProject,
+    organizeByChatBranch,
+    draftSpaceId,
+  } = state;
+  const {
+    onNewChat,
+    onToggleProjectJiraBoard,
+    onCreateProject,
+    onDeleteProject,
+    onRenameProject,
+    onUpdateProjectIcon,
+    onImportCCSession,
+    onToggleSidebar,
+    onNavigateToMessage,
+    onMoveProjectToSpace,
+    onReorderProject,
+    onCreateFolder,
+    onSetOrganizeByChatBranch,
+  } = projectActions;
+  const { spaces, activeSpaceId } = spaceState;
+  const {
+    onSelectSpace,
+    onStartCreateSpace,
+    onUpdateSpace,
+    onDeleteSpace,
+    onOpenSettings,
+    onConfirmCreateSpace,
+    onCancelCreateSpace,
+  } = spaceActions;
+  const {
+    onSelectSession,
+    onDeleteSession,
+    onRenameSession,
+    onPinSession,
+    onMoveSessionToFolder,
+    onRenameFolder,
+    onDeleteFolder,
+    onPinFolder,
+    onOpenInSplitView,
+    canOpenSessionInSplitView,
+  } = sessionActions;
+  const { agents } = useAgentContext();
   const isCreating = draftSpaceId !== null;
   // The draft is a real space — find it in the spaces array
   const draftSpace = isCreating ? spaces.find((s) => s.id === draftSpaceId) ?? null : null;
@@ -127,26 +159,21 @@ export const AppSidebar = memo(function AppSidebar({
     return () => clearTimeout(timer);
   }, [isCreating]);
 
-  // Load default chat limit from main-process settings
+  // Load default chat limit from main-process settings (initial fetch + event-driven updates)
   const [defaultChatLimit, setDefaultChatLimit] = useState(10);
   useEffect(() => {
-    window.claude.settings.get().then((s: { defaultChatLimit?: number } | null) => {
+    window.claude.settings.get().then((s) => {
       if (s?.defaultChatLimit && s.defaultChatLimit > 0) {
         setDefaultChatLimit(s.defaultChatLimit);
       }
     });
-  }, []);
 
-  // Listen for settings changes so the limit updates without restart
-  useEffect(() => {
-    const interval = setInterval(() => {
-      window.claude.settings.get().then((s: { defaultChatLimit?: number } | null) => {
-        if (s?.defaultChatLimit && s.defaultChatLimit > 0) {
-          setDefaultChatLimit((prev) => s.defaultChatLimit !== prev ? s.defaultChatLimit! : prev);
-        }
-      });
-    }, 5000);
-    return () => clearInterval(interval);
+    const unsubscribe = window.claude.settings.onChanged((settings) => {
+      if (settings.defaultChatLimit > 0) {
+        setDefaultChatLimit(settings.defaultChatLimit);
+      }
+    });
+    return unsubscribe;
   }, []);
 
   // Filter projects by active space
@@ -161,8 +188,47 @@ export const AppSidebar = memo(function AppSidebar({
 
   const projectIds = useMemo(() => filteredProjects.map((p) => p.id), [filteredProjects]);
 
+  // Pre-group sessions by projectId (O(n) once) instead of filtering per project (O(n*m))
+  const sessionsByProject = useMemo(() => {
+    const map = new Map<string, ChatSession[]>();
+    for (const s of sessions) {
+      const arr = map.get(s.projectId) ?? [];
+      arr.push(s);
+      map.set(s.projectId, arr);
+    }
+    return map;
+  }, [sessions]);
+
   // Other spaces for "Move to space" menu
   const otherSpaces = useMemo(() => spaces.filter((s) => s.id !== activeSpaceId), [spaces, activeSpaceId]);
+
+  // Stabilize context value — all callbacks come from useCallback in the orchestrator
+  const sidebarActions = useMemo(
+    () => ({
+      selectSession: onSelectSession,
+      deleteSession: onDeleteSession,
+      renameSession: onRenameSession,
+      pinSession: onPinSession,
+      moveSessionToFolder: onMoveSessionToFolder,
+      pinFolder: onPinFolder,
+      renameFolder: onRenameFolder,
+      deleteFolder: onDeleteFolder,
+      openInSplitView: onOpenInSplitView,
+      canOpenSessionInSplitView,
+    }),
+    [
+      onSelectSession,
+      onDeleteSession,
+      onRenameSession,
+      onPinSession,
+      onMoveSessionToFolder,
+      onPinFolder,
+      onRenameFolder,
+      onDeleteFolder,
+      onOpenInSplitView,
+      canOpenSessionInSplitView,
+    ],
+  );
 
   // Slide direction on space switch
   const prevSpaceIdRef = useRef(activeSpaceId);
@@ -352,6 +418,7 @@ export const AppSidebar = memo(function AppSidebar({
         </div>
       ) : (
         /* ── Normal sidebar content ── */
+        <SidebarActionsProvider value={sidebarActions}>
         <div className={`flex min-h-0 flex-1 flex-col ${draftSlideClass}`}>
           <SidebarSearch
             projectIds={projectIds}
@@ -366,9 +433,7 @@ export const AppSidebar = memo(function AppSidebar({
             <ScrollArea ref={scrollRef} className="h-full">
               <div className={`px-3 pt-2 pb-8 ${slideClass}`}>
                 {filteredProjects.map((project) => {
-                  const projectSessions = sessions.filter(
-                    (s) => s.projectId === project.id,
-                  );
+                  const projectSessions = sessionsByProject.get(project.id) ?? [];
                   const projectFolders = foldersByProject[project.id] ?? [];
 
                   return (
@@ -384,9 +449,6 @@ export const AppSidebar = memo(function AppSidebar({
                       organizeByChatBranch={organizeByChatBranch}
                       onNewChat={() => onNewChat(project.id)}
                       onToggleJiraBoard={() => onToggleProjectJiraBoard(project.id)}
-                      onSelectSession={onSelectSession}
-                      onDeleteSession={onDeleteSession}
-                      onRenameSession={onRenameSession}
                       onDeleteProject={() => onDeleteProject(project.id)}
                       onRenameProject={(name) => onRenameProject(project.id, name)}
                       onUpdateIcon={(icon, iconType) =>
@@ -403,16 +465,9 @@ export const AppSidebar = memo(function AppSidebar({
                         onReorderProject(project.id, targetId)
                       }
                       defaultChatLimit={defaultChatLimit}
-                      onPinSession={onPinSession}
-                      onMoveSessionToFolder={onMoveSessionToFolder}
                       onCreateFolder={() => onCreateFolder(project.id)}
-                      onRenameFolder={onRenameFolder}
-                      onDeleteFolder={onDeleteFolder}
-                      onPinFolder={onPinFolder}
                       onSetOrganizeByChatBranch={onSetOrganizeByChatBranch}
                       agents={agents}
-                      onOpenInSplitView={onOpenInSplitView}
-                      canOpenSessionInSplitView={canOpenSessionInSplitView}
                     />
                   );
                 })}
@@ -444,6 +499,7 @@ export const AppSidebar = memo(function AppSidebar({
             </a>
           </div>
         </div>
+        </SidebarActionsProvider>
       )}
 
       <SpaceBar

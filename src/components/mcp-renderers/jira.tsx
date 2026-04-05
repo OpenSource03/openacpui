@@ -1,5 +1,4 @@
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   LayoutGrid,
   Bug,
@@ -15,35 +14,9 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-
-const REMARK_PLUGINS = [remarkGfm];
-
-// ── Jira status colors ──
-
-const STATUS_COLORS: Record<string, string> = {
-  "to do": "bg-muted text-muted-foreground",
-  "open": "bg-muted text-muted-foreground",
-  "backlog": "bg-muted text-muted-foreground",
-  "in progress": "bg-blue-500/15 text-blue-400",
-  "in review": "bg-purple-500/15 text-purple-400",
-  "done": "bg-emerald-500/15 text-emerald-400",
-  "closed": "bg-emerald-500/15 text-emerald-400",
-  "resolved": "bg-emerald-500/15 text-emerald-400",
-};
-
-function getStatusColor(status: string): string {
-  const lower = status.toLowerCase();
-  return STATUS_COLORS[lower] ?? "bg-muted text-muted-foreground";
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
+import { isRecord } from "@/lib/utils";
+import { getInitials, getStatusColor } from "@/lib/jira-utils";
+import { Field, McpListHeader, McpEmptyState, MCP_ROW_CLASS, REMARK_PLUGINS } from "./shared";
 
 const PRIORITY_ICONS: Record<string, { icon: typeof ArrowUpCircle; color: string }> = {
   highest: { icon: ArrowUpCircle, color: "text-red-500" },
@@ -85,14 +58,15 @@ export interface JiraIssue {
 
 /** Unwrap Atlassian MCP response: `{ issues: { nodes: [...] } }` → issue array, or flat `{ key, fields }` → single issue */
 export function unwrapJiraIssues(data: unknown): JiraIssue[] {
-  const obj = data as Record<string, unknown>;
+  if (!isRecord(data)) return [];
   // Flat issue: { key, fields }
-  if (obj.key || obj.fields) return [data as JiraIssue];
+  if (data.key || data.fields) return [data as JiraIssue];
   // Wrapped: { issues: { nodes: [...] } } or { issues: [...] }
-  if (obj.issues) {
-    if (Array.isArray(obj.issues)) return obj.issues as JiraIssue[];
-    const inner = obj.issues as Record<string, unknown>;
-    if (Array.isArray(inner.nodes)) return inner.nodes as JiraIssue[];
+  if (data.issues) {
+    if (Array.isArray(data.issues)) return data.issues as JiraIssue[];
+    if (isRecord(data.issues) && Array.isArray(data.issues.nodes)) {
+      return data.issues.nodes as JiraIssue[];
+    }
   }
   return [];
 }
@@ -115,16 +89,12 @@ function JiraIssueListView({ data }: { data: JiraIssueSearchData }) {
   const totalCount = inner?.totalCount ?? data.total;
 
   if (issues.length === 0) {
-    return <p className="text-foreground/40 py-2">No issues found</p>;
+    return <McpEmptyState message="No issues found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium">
-          {totalCount != null ? `${totalCount} issue${totalCount !== 1 ? "s" : ""}` : `${issues.length} results`}
-        </span>
-      </div>
+      <McpListHeader count={totalCount ?? issues.length} noun={totalCount != null ? "issue" : "result"} />
       {issues.map((issue) => (
         <JiraIssueRow key={issue.key ?? issue.id} issue={issue} />
       ))}
@@ -133,6 +103,7 @@ function JiraIssueListView({ data }: { data: JiraIssueSearchData }) {
 }
 
 export function JiraIssueList({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <JiraIssueListView data={data as JiraIssueSearchData} />;
 }
 
@@ -153,7 +124,7 @@ function JiraIssueRow({ issue }: { issue: JiraIssue }) {
   const prioColor = prioInfo?.color;
 
   return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors group">
+    <div className={`flex items-center gap-2 ${MCP_ROW_CLASS} group`}>
       <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
       <span className="shrink-0 text-[11px] font-mono text-foreground/50 w-[72px]">
         {issue.key}
@@ -284,16 +255,8 @@ function JiraIssueDetailView({ data }: { data: JiraIssueSearchData }) {
 }
 
 export function JiraIssueDetail({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <JiraIssueDetailView data={data as JiraIssueSearchData} />;
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-foreground/30 shrink-0">{label}</span>
-      {children}
-    </div>
-  );
 }
 
 /** Extract plain text from Atlassian Document Format */
@@ -324,18 +287,16 @@ function JiraProjectListView({ data }: { data: JiraProjectListData }) {
   const projects = isArray ? data : (data.values ?? []);
   const total = isArray ? undefined : data.total;
   if (projects.length === 0) {
-    return <p className="text-foreground/40 py-2">No projects found</p>;
+    return <McpEmptyState message="No projects found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {total ?? projects.length} project{(total ?? projects.length) !== 1 ? "s" : ""}
-      </span>
+      <McpListHeader count={total ?? projects.length} noun="project" />
       {projects.map((project) => (
         <div
           key={project.key}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+          className={`flex items-center gap-2 ${MCP_ROW_CLASS}`}
         >
           <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-blue-400/60" />
           <span className="shrink-0 text-[11px] font-mono text-foreground/50 w-[52px]">
@@ -359,6 +320,7 @@ function JiraProjectListView({ data }: { data: JiraProjectListData }) {
 }
 
 export function JiraProjectList({ data }: { data: unknown }) {
+  if (!data || typeof data !== "object") return null;
   const typed = Array.isArray(data) ? (data as JiraProject[]) : (data as { values?: JiraProject[]; total?: number });
   return <JiraProjectListView data={typed} />;
 }
@@ -378,14 +340,12 @@ interface JiraTransitionsData {
 function JiraTransitionsView({ data }: { data: JiraTransitionsData }) {
   const transitions = data.transitions;
   if (!transitions || transitions.length === 0) {
-    return <p className="text-foreground/40 py-2">No transitions available</p>;
+    return <McpEmptyState message="No transitions available" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        Available transitions
-      </span>
+      <McpListHeader count={transitions.length} noun="transition" />
       {transitions.map((t) => (
         <div
           key={t.id}
@@ -411,5 +371,6 @@ function JiraTransitionsView({ data }: { data: JiraTransitionsData }) {
 }
 
 export function JiraTransitions({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <JiraTransitionsView data={data as JiraTransitionsData} />;
 }

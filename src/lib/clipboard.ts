@@ -1,4 +1,4 @@
-import { reportError } from "@/lib/analytics";
+import { reportError } from "@/lib/analytics/analytics";
 
 /**
  * Last-resort clipboard write via a hidden textarea and `execCommand("copy")`.

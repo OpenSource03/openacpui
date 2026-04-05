@@ -1,6 +1,3 @@
-import type { Dispatch, SetStateAction } from "react";
-import type { UIMessage, SessionInfo, PermissionRequest, ContextUsage } from "../../src/types/ui";
-
 /** Unified slash command representation — normalized from each engine's native format. */
 export interface SlashCommand {
   /** The command string without leading slash (e.g., "compact", "help"). */
@@ -17,16 +14,6 @@ export interface SlashCommand {
   appSlug?: string;
   /** Icon URL for the autocomplete popup (Codex skills/apps may have icons). */
   iconUrl?: string;
-}
-
-/** Metadata snapshot for restoring a session from the background store. */
-export interface SessionMeta {
-  isProcessing: boolean;
-  isConnected: boolean;
-  sessionInfo: SessionInfo | null;
-  totalCost: number;
-  contextUsage: ContextUsage | null;
-  isCompacting?: boolean;
 }
 
 /** All supported engine identifiers. */
@@ -53,24 +40,3 @@ export type RespondPermissionFn = (
   newPermissionMode?: string,
   updatedPermissions?: unknown[],
 ) => Promise<void>;
-
-/**
- * The contract every engine hook must fulfill.
- * useSessionManager consumes this interface — it never touches engine internals directly.
- */
-export interface EngineHookState {
-  messages: UIMessage[];
-  setMessages: Dispatch<SetStateAction<UIMessage[]>>;
-  isProcessing: boolean;
-  setIsProcessing: Dispatch<SetStateAction<boolean>>;
-  isConnected: boolean;
-  setIsConnected: Dispatch<SetStateAction<boolean>>;
-  sessionInfo: SessionInfo | null;
-  setSessionInfo: Dispatch<SetStateAction<SessionInfo | null>>;
-  totalCost: number;
-  setTotalCost: Dispatch<SetStateAction<number>>;
-  contextUsage: ContextUsage | null;
-  isCompacting?: boolean;
-  pendingPermission: PermissionRequest | null;
-  respondPermission: RespondPermissionFn;
-}

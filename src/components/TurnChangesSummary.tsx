@@ -2,7 +2,7 @@ import { memo, useMemo, useCallback } from "react";
 import { FileDiff, Pencil, Plus, ChevronRight, ChevronDown } from "lucide-react";
 import { DiffViewer } from "./DiffViewer";
 import { OpenInEditorButton } from "./OpenInEditorButton";
-import type { TurnSummary, FileChange } from "@/lib/turn-changes";
+import type { TurnSummary, FileChange } from "@/lib/chat/turn-changes";
 import { useChatPersistedState } from "@/components/chat-ui-state";
 import { CHAT_ROW_CLASS, CHAT_ROW_WIDTH_CLASS } from "@/components/lib/chat-layout";
 

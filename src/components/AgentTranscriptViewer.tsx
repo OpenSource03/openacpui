@@ -21,7 +21,7 @@ import {
 import { ToolCall } from "@/components/ToolCall";
 import { AgentIcon } from "@/components/AgentIcon";
 import { ENGINE_ICONS } from "@/lib/engine-icons";
-import { reportError } from "@/lib/analytics";
+import { reportError } from "@/lib/analytics/analytics";
 import type { UIMessage } from "@/types";
 
 const CLAUDE_ICON = ENGINE_ICONS["claude"];

@@ -2,7 +2,7 @@ import { CheckCircle2, Loader2, ListChecks, Circle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PanelHeader } from "@/components/PanelHeader";
 import type { TodoItem } from "@/types";
-import { getTodoItems } from "@/lib/todo-utils";
+import { getTodoItems } from "@/lib/chat/todo-utils";
 
 interface TodoPanelProps {
   todos: TodoItem[];

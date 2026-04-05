@@ -27,7 +27,7 @@ shared/
     │   ├── v2/          # Modern v2 API types
     │   └── serde_json/  # JSON value types
     ├── codex.ts         # Codex type re-exports with Codex-prefixed aliases
-    ├── engine.ts        # EngineId, AppPermissionBehavior, SessionMeta, EngineHookState
+    ├── engine.ts        # EngineId, AppPermissionBehavior, SlashCommand, RespondPermissionFn
     ├── acp.ts           # ACP session update types
     └── registry.ts      # Agent registry types
 
@@ -278,7 +278,8 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 
 - **`shared/types/codex-protocol/`** — auto-generated from `codex app-server generate-ts`. Contains v1, v2, and serde_json type families. Used by both electron Codex handlers and renderer hooks.
 - **`shared/types/codex.ts`** — re-exports with `Codex`-prefixed aliases (e.g., `CodexThreadItem`, `CodexSessionEvent`) plus Harnss-specific wrappers (`CodexApprovalRequest`, `CodexRequestUserInputRequest`).
-- **`shared/types/engine.ts`** — `EngineId`, `AppPermissionBehavior`, `SessionMeta`, `EngineHookState`, `RespondPermissionFn`. Imports UI types from `../../src/types/ui`.
+- **`shared/types/engine.ts`** — `EngineId`, `AppPermissionBehavior`, `SlashCommand`, `RespondPermissionFn`. No React or renderer dependencies.
+- **`src/types/engine-hook.ts`** — `EngineHookState`, `BackgroundSessionSnapshot`. React-dependent engine types that live in the renderer layer.
 - **`shared/types/acp.ts`** — ACP session update discriminated union types.
 - **`shared/types/registry.ts`** — agent registry types (`RegistryAgent`, `RegistryData`).
 
@@ -288,7 +289,7 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 - `InstalledAgent` (was `AgentDefinition` — renamed to avoid SDK clash)
 - `AppPermissionBehavior` (was `PermissionBehavior` — renamed to avoid SDK clash)
 - `SessionBase` — shared base for `ChatSession` and `PersistedSession`
-- `SessionMeta` — `{ isProcessing, isConnected, sessionInfo, totalCost }` snapshot for background store
+- `BackgroundSessionSnapshot` — `{ isProcessing, isConnected, sessionInfo, totalCost }` snapshot for background store
 
 **Electron SDK types**: `electron/src/lib/sdk.ts` imports `Query` and `query` types directly from `@anthropic-ai/claude-agent-sdk` (no more manual type definitions or double-casts). ACP connection is typed as `ClientSideConnection` from `@agentclientprotocol/sdk`.
 

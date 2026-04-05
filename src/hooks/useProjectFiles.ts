@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildFileTree, type FileTreeNode } from "@/lib/file-tree";
-import { captureException } from "@/lib/analytics";
+import { captureException } from "@/lib/analytics/analytics";
 
 interface UseProjectFilesReturn {
   tree: FileTreeNode[] | null;

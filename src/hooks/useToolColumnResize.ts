@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { MIN_PANE_WIDTH_FRACTION } from "@/lib/layout-constants";
+import { MIN_PANE_WIDTH_FRACTION } from "@/lib/layout/constants";
 
 interface UseToolColumnResizeOptions {
   columnRefs: React.RefObject<Record<string, HTMLDivElement | null>>;

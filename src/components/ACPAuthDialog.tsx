@@ -1,7 +1,8 @@
 import { memo, useCallback, useState } from "react";
 import { ExternalLink, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { ACPAuthenticateResult, ACPAuthMethod } from "@/types/acp";
+import { AuthDialogShell } from "@/components/AuthDialogShell";
+import type { ACPAuthenticateResult, ACPAuthMethod } from "@/types";
 
 interface ACPAuthDialogProps {
   sessionId: string;
@@ -51,41 +52,30 @@ export const ACPAuthDialog = memo(function ACPAuthDialog({
   const cursorHint = agentId === "cursor" || authMethods.some((method) => method.id === "cursor_login");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-xl border bg-background p-6 shadow-xl">
-        <div className="mb-4 flex items-start gap-3">
-          <div className="rounded-lg border border-border/60 bg-muted/40 p-2">
-            <ShieldCheck className="h-4 w-4" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold">{agentName} Authentication</h2>
-            <p className="text-sm text-muted-foreground">
-              This ACP agent needs authentication before a session can start.
-            </p>
-          </div>
+    <AuthDialogShell
+      open
+      onClose={() => void onCancel()}
+      title={`${agentName} Authentication`}
+      description="This ACP agent needs authentication before a session can start."
+      error={error}
+      loading={isLoading}
+      icon={<ShieldCheck className="h-4 w-4" />}
+    >
+      {cursorHint && (
+        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-300">
+          Cursor may require running <code>cursor-agent login</code> in a terminal first.
         </div>
+      )}
 
-        {error && (
-          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            {error}
+      <div className="flex flex-col gap-3">
+        {authMethods.length === 0 && (
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+            No supported authentication methods were advertised by this agent.
           </div>
         )}
-
-        {cursorHint && (
-          <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-300">
-            Cursor may require running <code>cursor-agent login</code> in a terminal first.
-          </div>
-        )}
-
-        <div className="flex flex-col gap-3">
-          {authMethods.length === 0 && (
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-              No supported authentication methods were advertised by this agent.
-            </div>
-          )}
-          {authMethods.map((method) => {
-            const unsupported = method.type === "terminal" || method.type === "env_var";
-            return (
+        {authMethods.map((method) => {
+          const unsupported = method.type === "terminal" || method.type === "env_var";
+          return (
             <Button
               key={method.id}
               variant="outline"
@@ -117,16 +107,9 @@ export const ACPAuthDialog = memo(function ACPAuthDialog({
                 )}
               </div>
             </Button>
-            );
-          })}
-        </div>
-
-        <div className="mt-4 flex justify-end">
-          <Button variant="ghost" size="sm" onClick={() => void onCancel()} disabled={isLoading}>
-            Cancel
-          </Button>
-        </div>
+          );
+        })}
       </div>
-    </div>
+    </AuthDialogShell>
   );
 });

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChevronDown, Check } from "lucide-react";
 import type { SelectorOption } from "./git-panel-utils";
 
@@ -23,16 +24,8 @@ export function InlineSelector({
     [options, value],
   );
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  const closeDropdown = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, closeDropdown, open);
 
   const isDisabled = disabled || options.length === 0;
 

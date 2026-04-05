@@ -1,13 +1,13 @@
 import { memo, useState, useCallback, useEffect } from "react";
 import { Bell, Volume2, MonitorSmartphone } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingRow, SettingsSelect } from "@/components/settings/shared";
+import { SettingRow, SettingsSelect, SettingsHeader, SettingsSection } from "@/components/settings/shared";
 import type {
   NotificationTrigger,
   NotificationEventSettings,
   NotificationSettings,
   AppSettings,
-} from "@/types/ui";
+} from "@/types";
 
 // ── Props ──
 
@@ -92,30 +92,15 @@ export const NotificationsSettings = memo(function NotificationsSettings({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-foreground/[0.06] px-6 py-4">
-        <h2 className="text-base font-semibold text-foreground">
-          Notifications
-        </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Configure when OS notifications and sounds play for different events.
-        </p>
-      </div>
+      <SettingsHeader
+        title="Notifications"
+        description="Configure when OS notifications and sounds play for different events."
+      />
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-6 py-2">
           {EVENT_GROUPS.map((event, i) => (
-            <div
-              key={event.key}
-              className={`py-3 ${i > 0 ? "border-t border-foreground/[0.04]" : ""}`}
-            >
-              {/* Event group header */}
-              <div className="mb-1 flex items-center gap-2">
-                <Bell className="h-4 w-4 text-muted-foreground" />
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {event.label}
-                </span>
-              </div>
+            <SettingsSection key={event.key} icon={Bell} label={event.label} first={i === 0}>
               <p className="mb-2 text-xs text-muted-foreground">
                 {event.description}
               </p>
@@ -128,7 +113,7 @@ export const NotificationsSettings = memo(function NotificationsSettings({
                     <SettingsSelect
                       value={settings[event.key].osNotification}
                       onValueChange={(v) =>
-                        updateEventSetting(event.key, "osNotification", v as NotificationTrigger)
+                        updateEventSetting(event.key, "osNotification", v)
                       }
                       options={TRIGGER_OPTIONS}
                     />
@@ -141,14 +126,14 @@ export const NotificationsSettings = memo(function NotificationsSettings({
                     <SettingsSelect
                       value={settings[event.key].sound}
                       onValueChange={(v) =>
-                        updateEventSetting(event.key, "sound", v as NotificationTrigger)
+                        updateEventSetting(event.key, "sound", v)
                       }
                       options={TRIGGER_OPTIONS}
                     />
                   </div>
                 </SettingRow>
               </div>
-            </div>
+            </SettingsSection>
           ))}
         </div>
       </ScrollArea>

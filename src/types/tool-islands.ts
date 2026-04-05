@@ -1,16 +1,6 @@
-import type { ToolId } from "@/components/ToolPicker";
+import type { ToolId, PanelToolId } from "@/types/tools";
 
-// ── Panel tool subset ──
-
-export type PanelToolId = Extract<ToolId, "terminal" | "browser" | "git" | "files" | "project-files" | "mcp">;
-
-export const PANEL_TOOL_IDS = new Set<PanelToolId>([
-  "terminal", "browser", "git", "files", "project-files", "mcp",
-]);
-
-export function isPanelTool(toolId: ToolId): toolId is PanelToolId {
-  return PANEL_TOOL_IDS.has(toolId as PanelToolId);
-}
+export type { PanelToolId } from "@/types/tools";
 
 // ── Core island types ──
 
@@ -73,19 +63,3 @@ export interface TopColumnLocation {
   stackIndex: number;
   islandCount: number;
 }
-
-// ── Backward-compatible aliases ──
-// These allow consumers to migrate gradually without breaking imports.
-
-/** @deprecated Use `ToolIsland` instead */
-export type MainToolIsland = ToolIsland;
-/** @deprecated Use `ToolIslandDock` instead */
-export type MainToolIslandDock = ToolIslandDock;
-/** @deprecated Use `ToolColumn` instead */
-export type MainToolColumn = ToolColumn;
-/** @deprecated Use `ToolIsland` instead */
-export type SplitToolIsland = ToolIsland;
-/** @deprecated Use `ToolIslandDock` instead */
-export type SplitToolIslandDock = ToolIslandDock;
-/** @deprecated Use `ToolColumn` instead */
-export type SplitToolColumn = ToolColumn;

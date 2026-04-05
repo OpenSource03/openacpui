@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Shapes, Trash2 } from "lucide-react";
 import { icons } from "lucide-react";
 import { resolveLucideIcon } from "@/lib/icon-utils";
-import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
+import { useResolvedTheme } from "@/hooks/useTheme";
 import { SPACE_COLOR_PRESETS } from "@/hooks/useSpaceManager";
 import type { SpaceColor } from "@/types";
 
@@ -89,7 +89,7 @@ export function SpaceCustomizer({
 }: SpaceCustomizerProps) {
   const [showIcons, setShowIcons] = useState(iconType === "lucide");
   const [iconSearch, setIconSearch] = useState("");
-  const resolvedTheme = useResolvedThemeClass();
+  const resolvedTheme = useResolvedTheme();
   const isDark = resolvedTheme === "dark";
 
   const useGradient = color.gradientHue !== undefined;

@@ -5,7 +5,7 @@
 
 import { Eye, Pencil, Plus } from "lucide-react";
 import type { UIMessage } from "@/types";
-import { getStructuredPatches, getPatchPath } from "@/lib/patch-utils";
+import { getStructuredPatches, getPatchPath } from "@/lib/diff/patch-utils";
 
 export type AccessType = "read" | "modified" | "created";
 

@@ -2,9 +2,10 @@ import { useCallback } from "react";
 import type { ImageAttachment, Project } from "../../types";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { toMcpStatusState } from "../../lib/mcp-utils";
-import { imageAttachmentsToCodexInputs } from "../../lib/codex-adapter";
-import { buildSdkContent } from "../../lib/protocol";
-import { capture } from "../../lib/analytics";
+import { imageAttachmentsToCodexInputs } from "../../lib/engine/codex-adapter";
+import { buildSdkContent } from "../../lib/engine/protocol";
+import { capture } from "../../lib/analytics/analytics";
+import { createSystemMessage, createUserMessage } from "../../lib/message-factory";
 import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
@@ -57,13 +58,7 @@ export function useSessionRevival({
       if (!oldId || oldId === DRAFT_ID) return;
       const session = sessionsRef.current.find((s) => s.id === oldId);
       if (!session || !session.agentId) {
-        acp.setMessages((prev) => [...prev, {
-          id: `system-error-${Date.now()}`,
-          role: "system" as const,
-          content: "ACP session disconnected. Please start a new session.",
-          isError: true,
-          timestamp: Date.now(),
-        }]);
+        acp.setMessages((prev) => [...prev, createSystemMessage("ACP session disconnected. Please start a new session.", true)]);
         return;
       }
       const project = findProject(session.projectId);
@@ -78,13 +73,7 @@ export function useSessionRevival({
       });
 
       if (result.error || !result.sessionId) {
-        acp.setMessages((prev) => [...prev, {
-          id: `system-error-${Date.now()}`,
-          role: "system" as const,
-          content: result.error || "Failed to reconnect ACP session. Please start a new session.",
-          isError: true,
-          timestamp: Date.now(),
-        }]);
+        acp.setMessages((prev) => [...prev, createSystemMessage(result.error || "Failed to reconnect ACP session. Please start a new session.", true)]);
         return;
       }
 
@@ -114,14 +103,7 @@ export function useSessionRevival({
       setActiveSessionId(newId);
 
       await new Promise((resolve) => setTimeout(resolve, 50));
-      acp.setMessages((prev) => [...prev, {
-        id: `user-${Date.now()}`,
-        role: "user" as const,
-        content: text,
-        timestamp: Date.now(),
-        ...(images?.length ? { images } : {}),
-        ...(displayText ? { displayContent: displayText } : {}),
-      }]);
+      acp.setMessages((prev) => [...prev, createUserMessage(text, images, displayText)]);
       acp.setIsProcessing(true);
       capture("message_sent", {
         engine: "acp",
@@ -131,12 +113,7 @@ export function useSessionRevival({
       });
       const promptResult = await window.claude.acp.prompt(newId, text, images);
       if (promptResult?.error) {
-        acp.setMessages((prev) => [...prev, {
-          id: `system-acp-error-${Date.now()}`,
-          role: "system" as const,
-          content: `ACP error: ${promptResult.error}`,
-          timestamp: Date.now(),
-        }]);
+        acp.setMessages((prev) => [...prev, createSystemMessage(`ACP error: ${promptResult.error}`, true)]);
         acp.setIsProcessing(false);
       }
     },
@@ -163,13 +140,7 @@ export function useSessionRevival({
       }
 
       if (!codexThreadId) {
-        codex.setMessages((prev) => [...prev, {
-          id: `system-error-${Date.now()}`,
-          role: "system" as const,
-          content: "Codex session cannot be resumed (no thread ID). Please start a new session.",
-          isError: true,
-          timestamp: Date.now(),
-        }]);
+        codex.setMessages((prev) => [...prev, createSystemMessage("Codex session cannot be resumed (no thread ID). Please start a new session.", true)]);
         return;
       }
 
@@ -182,13 +153,7 @@ export function useSessionRevival({
       });
 
       if (result.error || !result.sessionId) {
-        codex.setMessages((prev) => [...prev, {
-          id: `system-error-${Date.now()}`,
-          role: "system" as const,
-          content: result.error || "Failed to resume Codex session.",
-          isError: true,
-          timestamp: Date.now(),
-        }]);
+        codex.setMessages((prev) => [...prev, createSystemMessage(result.error || "Failed to resume Codex session.", true)]);
         return;
       }
 
@@ -210,25 +175,13 @@ export function useSessionRevival({
 
       // Small delay to let hook pick up new sessionId
       await new Promise((resolve) => setTimeout(resolve, 50));
-      codex.setMessages((prev) => [...prev, {
-        id: `user-${Date.now()}`,
-        role: "user" as const,
-        content: text,
-        timestamp: Date.now(),
-        ...(images?.length ? { images } : {}),
-      }]);
+      codex.setMessages((prev) => [...prev, createUserMessage(text, images)]);
       codex.setIsProcessing(true);
       let codexCollabMode: CollaborationMode | undefined;
       try {
         codexCollabMode = buildCodexCollabMode(startOptionsRef.current.planMode, session.model);
       } catch (err) {
-        codex.setMessages((prev) => [...prev, {
-          id: `system-error-${Date.now()}`,
-          role: "system" as const,
-          content: err instanceof Error ? err.message : String(err),
-          isError: true,
-          timestamp: Date.now(),
-        }]);
+        codex.setMessages((prev) => [...prev, createSystemMessage(err instanceof Error ? err.message : String(err), true)]);
         codex.setIsProcessing(false);
         return;
       }
@@ -240,13 +193,7 @@ export function useSessionRevival({
         codexCollabMode,
       );
       if (sendResult?.error) {
-        codex.setMessages((prev) => [...prev, {
-          id: `system-error-${Date.now()}`,
-          role: "system" as const,
-          content: `Unable to send message: ${sendResult.error}`,
-          isError: true,
-          timestamp: Date.now(),
-        }]);
+        codex.setMessages((prev) => [...prev, createSystemMessage(`Unable to send message: ${sendResult.error}`, true)]);
         codex.setIsProcessing(false);
       }
     },
@@ -278,26 +225,14 @@ export function useSessionRevival({
       } catch (err) {
         engine.setMessages((prev) => [
           ...prev,
-          {
-            id: `system-revive-error-${Date.now()}`,
-            role: "system" as const,
-            content: `Failed to resume session: ${err instanceof Error ? err.message : String(err)}`,
-            isError: true,
-            timestamp: Date.now(),
-          },
+          createSystemMessage(`Failed to resume session: ${err instanceof Error ? err.message : String(err)}`, true),
         ]);
         return;
       }
       if (result.error) {
         engine.setMessages((prev) => [
           ...prev,
-          {
-            id: `system-revive-error-${Date.now()}`,
-            role: "system" as const,
-            content: result.error!,
-            isError: true,
-            timestamp: Date.now(),
-          },
+          createSystemMessage(result.error!, true),
         ]);
         return;
       }
@@ -349,25 +284,13 @@ export function useSessionRevival({
         liveSessionIdsRef.current.delete(newSessionId);
         engine.setMessages((prev) => [
           ...prev,
-          {
-            id: `system-send-error-${Date.now()}`,
-            role: "system",
-            content: `Unable to send message: ${sendResult.error}`,
-            timestamp: Date.now(),
-          },
+          createSystemMessage(`Unable to send message: ${sendResult.error}`, true),
         ]);
         return;
       }
       engine.setMessages((prev) => [
         ...prev,
-        {
-          id: `user-${Date.now()}`,
-          role: "user",
-          content: text,
-          timestamp: Date.now(),
-          ...(images?.length ? { images } : {}),
-          ...(displayText ? { displayContent: displayText } : {}),
-        },
+        createUserMessage(text, images, displayText),
       ]);
     },
     [engine.setMessages, findProject],

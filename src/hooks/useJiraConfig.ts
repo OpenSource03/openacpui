@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { JiraProjectConfig } from "@shared/types/jira";
-import { captureException } from "@/lib/analytics";
+import { captureException } from "@/lib/analytics/analytics";
 
 export function useJiraConfig(projectId: string | null) {
   const [config, setConfig] = useState<JiraProjectConfig | null>(null);
@@ -39,15 +39,14 @@ export function useJiraConfig(projectId: string | null) {
     async (newConfig: JiraProjectConfig) => {
       if (!projectId) return;
 
-      try {
-        setError(null);
-        await window.claude.jira.saveConfig(projectId, newConfig);
-        setConfig(newConfig);
-      } catch (err) {
-        captureException(err instanceof Error ? err : new Error(String(err)), { label: "JIRA_CONFIG_SAVE_ERR" });
-        setError(String(err));
-        throw err;
+      setError(null);
+      const result = await window.claude.jira.saveConfig(projectId, newConfig);
+      if (result.error) {
+        captureException(new Error(result.error), { label: "JIRA_CONFIG_SAVE_ERR" });
+        setError(result.error);
+        return;
       }
+      setConfig(newConfig);
     },
     [projectId]
   );
@@ -55,15 +54,14 @@ export function useJiraConfig(projectId: string | null) {
   const deleteConfig = useCallback(async () => {
     if (!projectId) return;
 
-    try {
-      setError(null);
-      await window.claude.jira.deleteConfig(projectId);
-      setConfig(null);
-    } catch (err) {
-      captureException(err instanceof Error ? err : new Error(String(err)), { label: "JIRA_CONFIG_DELETE_ERR" });
-      setError(String(err));
-      throw err;
+    setError(null);
+    const result = await window.claude.jira.deleteConfig(projectId);
+    if (result.error) {
+      captureException(new Error(result.error), { label: "JIRA_CONFIG_DELETE_ERR" });
+      setError(result.error);
+      return;
     }
+    setConfig(null);
   }, [projectId]);
 
   return {

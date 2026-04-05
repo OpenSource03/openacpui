@@ -1,4 +1,4 @@
-import type { ThemeOption, InstalledAgent } from "@/types";
+import type { InstalledAgent } from "@/types";
 
 // ── Step definitions ──
 
@@ -25,18 +25,6 @@ export interface WizardStepProps {
 }
 
 export interface AppearanceStepProps extends WizardStepProps {
-  theme: ThemeOption;
-  onThemeChange: (t: ThemeOption) => void;
-  islandLayout: boolean;
-  onIslandLayoutChange: (enabled: boolean) => void;
-  autoGroupTools: boolean;
-  onAutoGroupToolsChange: (enabled: boolean) => void;
-  autoExpandTools: boolean;
-  onAutoExpandToolsChange: (enabled: boolean) => void;
-  expandEditToolCallsByDefault: boolean;
-  onExpandEditToolCallsByDefaultChange: (enabled: boolean) => void;
-  transparency: boolean;
-  onTransparencyChange: (enabled: boolean) => void;
   glassSupported: boolean;
 }
 
@@ -57,7 +45,6 @@ export interface AgentsStepProps extends WizardStepProps {
 }
 
 export interface ReadyStepProps {
-  theme: ThemeOption;
   permissionMode: string;
   onComplete: () => void;
 }

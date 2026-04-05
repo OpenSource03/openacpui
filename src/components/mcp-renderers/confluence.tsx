@@ -1,4 +1,5 @@
 import { useState } from "react";
+import DOMPurify from "dompurify";
 import { BookOpen, LayoutGrid, FileText, FolderOpen, Plus, Pencil, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -6,7 +7,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { isRecord } from "@/lib/utils";
 import { stripHtml } from "./helpers";
+import { Field, McpListHeader, McpEmptyState, MCP_ROW_CLASS } from "./shared";
 
 // ── Confluence: Search results ──
 
@@ -25,21 +28,19 @@ interface ConfluenceSearchData {
 function ConfluenceSearchResultsView({ data }: { data: ConfluenceSearchData }) {
   const results = data.results;
   if (!results || results.length === 0) {
-    return <p className="text-foreground/40 py-2">No results found</p>;
+    return <McpEmptyState message="No results found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {data.totalSize ?? results.length} result{(data.totalSize ?? results.length) !== 1 ? "s" : ""}
-      </span>
+      <McpListHeader count={data.totalSize ?? results.length} noun="result" />
       {results.map((r, i) => {
         const title = r.content?.title ?? r.title ?? "Untitled";
         const space = r.content?.space?.key;
         return (
           <div
             key={i}
-            className="rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+            className={MCP_ROW_CLASS}
           >
             <div className="flex items-center gap-1.5">
               <BookOpen className="h-3 w-3 shrink-0 text-foreground/30" />
@@ -63,6 +64,7 @@ function ConfluenceSearchResultsView({ data }: { data: ConfluenceSearchData }) {
 }
 
 export function ConfluenceSearchResults({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <ConfluenceSearchResultsView data={data as ConfluenceSearchData} />;
 }
 
@@ -83,18 +85,16 @@ interface ConfluenceSpacesData {
 function ConfluenceSpacesView({ data }: { data: ConfluenceSpacesData }) {
   const spaces = data.results;
   if (!spaces || spaces.length === 0) {
-    return <p className="text-foreground/40 py-2">No spaces found</p>;
+    return <McpEmptyState message="No spaces found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {spaces.length} space{spaces.length !== 1 ? "s" : ""}
-      </span>
+      <McpListHeader count={spaces.length} noun="space" />
       {spaces.map((s) => (
         <div
           key={s.key ?? s.id}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+          className={`flex items-center gap-2 ${MCP_ROW_CLASS}`}
         >
           <LayoutGrid className="h-3 w-3 shrink-0 text-foreground/30" />
           <span className="shrink-0 text-[11px] font-mono text-foreground/50 w-[72px] truncate" title={s.key}>
@@ -117,6 +117,7 @@ function ConfluenceSpacesView({ data }: { data: ConfluenceSpacesData }) {
 }
 
 export function ConfluenceSpaces({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <ConfluenceSpacesView data={data as ConfluenceSpacesData} />;
 }
 
@@ -145,14 +146,12 @@ interface ConfluencePageDescendantsData {
 function ConfluencePageDescendantsView({ data }: { data: ConfluencePageDescendantsData }) {
   const results = data.results;
   if (!results || results.length === 0) {
-    return <p className="text-foreground/40 py-2">No descendants found</p>;
+    return <McpEmptyState message="No descendants found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {results.length} descendant{results.length !== 1 ? "s" : ""}
-      </span>
+      <McpListHeader count={results.length} noun="descendant" />
       {results.map((d) => {
         const typeKey = (d.type ?? "page").toLowerCase();
         const typeInfo = DESCENDANT_TYPE_ICON[typeKey] ?? DESCENDANT_TYPE_ICON.page;
@@ -161,7 +160,7 @@ function ConfluencePageDescendantsView({ data }: { data: ConfluencePageDescendan
         return (
           <div
             key={d.id}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+            className={`flex items-center gap-2 ${MCP_ROW_CLASS}`}
             style={d.depth && d.depth > 1 ? { paddingInlineStart: `${8 + (d.depth - 1) * 16}px` } : undefined}
           >
             <Icon className={`h-3.5 w-3.5 shrink-0 ${typeInfo.color}`} />
@@ -186,6 +185,7 @@ function ConfluencePageDescendantsView({ data }: { data: ConfluencePageDescendan
 }
 
 export function ConfluencePageDescendants({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <ConfluencePageDescendantsView data={data as ConfluencePageDescendantsData} />;
 }
 
@@ -284,32 +284,32 @@ function ConfluencePageResult({ data, mode }: { data: ConfluencePageResultData; 
       {/* Fields */}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-3 py-2 text-[11px]">
         {data.id && (
-          <ConfField label="Page ID">
+          <Field label="Page ID">
             <span className="text-foreground/50 font-mono">{data.id}</span>
-          </ConfField>
+          </Field>
         )}
         {data.spaceId && (
-          <ConfField label="Space ID">
+          <Field label="Space ID">
             <span className="text-foreground/50 font-mono">{data.spaceId}</span>
-          </ConfField>
+          </Field>
         )}
         {data.parentId && (
-          <ConfField label="Parent">
+          <Field label="Parent">
             <span className="text-foreground/50 font-mono">{data.parentId}</span>
             {data.parentType && (
               <span className="text-foreground/30 ms-1">({data.parentType})</span>
             )}
-          </ConfField>
+          </Field>
         )}
         {data.version?.number != null && (
-          <ConfField label="Version">
+          <Field label="Version">
             <span className="text-foreground/50">v{data.version.number}</span>
-          </ConfField>
+          </Field>
         )}
         {versionDate && (
-          <ConfField label={isUpdate ? "Updated" : "Created"}>
+          <Field label={isUpdate ? "Updated" : "Created"}>
             <span className="text-foreground/40">{versionDate}</span>
-          </ConfField>
+          </Field>
         )}
       </div>
 
@@ -329,10 +329,12 @@ function ConfluencePageResult({ data, mode }: { data: ConfluencePageResultData; 
 }
 
 export function ConfluenceCreatedPage({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <ConfluencePageResult data={data as ConfluencePageResultData} mode="create" />;
 }
 
 export function ConfluenceUpdatedPage({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <ConfluencePageResult data={data as ConfluencePageResultData} mode="update" />;
 }
 
@@ -354,19 +356,10 @@ function ConfluenceContentPreview({ html }: { html: string }) {
         <CollapsibleContent>
           <div
             className="px-3 pb-2 max-w-none max-h-[600px] overflow-auto text-foreground/70 wrap-break-word confluence-preview"
-            dangerouslySetInnerHTML={{ __html: html }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
           />
         </CollapsibleContent>
       </Collapsible>
-    </div>
-  );
-}
-
-function ConfField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-foreground/30 shrink-0">{label}</span>
-      {children}
     </div>
   );
 }
@@ -389,14 +382,12 @@ interface ConfluencePageListData {
 function ConfluencePageListView({ data }: { data: ConfluencePageListData }) {
   const results = data.results;
   if (!results || results.length === 0) {
-    return <p className="text-foreground/40 py-2">No pages found</p>;
+    return <McpEmptyState message="No pages found" />;
   }
 
   return (
     <div className="space-y-0.5">
-      <span className="text-[10px] text-foreground/40 uppercase tracking-wider font-medium block mb-1.5">
-        {results.length} page{results.length !== 1 ? "s" : ""}
-      </span>
+      <McpListHeader count={results.length} noun="page" />
       {results.map((p) => {
         const typeKey = (p.type ?? "page").toLowerCase();
         const typeInfo = DESCENDANT_TYPE_ICON[typeKey] ?? DESCENDANT_TYPE_ICON.page;
@@ -405,7 +396,7 @@ function ConfluencePageListView({ data }: { data: ConfluencePageListData }) {
         return (
           <div
             key={p.id}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-foreground/[0.03] transition-colors"
+            className={`flex items-center gap-2 ${MCP_ROW_CLASS}`}
           >
             <Icon className={`h-3.5 w-3.5 shrink-0 ${typeInfo.color}`} />
             <span className="min-w-0 flex-1 truncate text-foreground/80 text-[11px]">
@@ -429,5 +420,6 @@ function ConfluencePageListView({ data }: { data: ConfluencePageListData }) {
 }
 
 export function ConfluencePageList({ data }: { data: unknown }) {
+  if (!isRecord(data)) return null;
   return <ConfluencePageListView data={data as ConfluencePageListData} />;
 }

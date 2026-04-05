@@ -1,6 +1,7 @@
 import { memo, useState, useEffect } from "react";
 import { ExternalLink, Github, Scale, Heart } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SettingsHeader } from "@/components/settings/shared";
 
 // ── Harnss logo mark — a stylized "H" rendered inline ──
 
@@ -71,13 +72,7 @@ export const AboutSettings = memo(function AboutSettings() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-foreground/[0.06] px-6 py-4">
-        <h2 className="text-base font-semibold text-foreground">About</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Version info, links &amp; credits
-        </p>
-      </div>
+      <SettingsHeader title="About" description="Version info, links & credits" />
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-6 py-5">

@@ -15,8 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
-import type { AnnotationTool } from "@/lib/annotation-types";
-import { ANNOTATION_COLORS } from "@/lib/annotation-types";
+import type { AnnotationTool } from "@/lib/chat/annotation-types";
+import { ANNOTATION_COLORS } from "@/lib/chat/annotation-types";
 
 interface ImageAnnotationToolbarProps {
   activeTool: AnnotationTool;

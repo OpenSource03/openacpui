@@ -1,11 +1,11 @@
 import { lazy, memo, Suspense, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { OpenInEditorButton } from "./OpenInEditorButton";
-import { useResolvedThemeClass } from "@/hooks/useResolvedThemeClass";
+import { useResolvedTheme } from "@/hooks/useTheme";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useChatIsScrolling } from "@/components/chat-ui-state";
 import { getMonacoLanguageFromPath, disableMonacoDiagnostics } from "@/lib/monaco";
-import { parseUnifiedDiffFromUnknown } from "@/lib/unified-diff";
+import { parseUnifiedDiffFromUnknown } from "@/lib/diff/unified-diff";
 
 const MonacoDiffEditor = lazy(() =>
   import("@monaco-editor/react").then((mod) => ({ default: mod.DiffEditor })),
@@ -374,7 +374,7 @@ export const DiffViewer = memo(function DiffViewer({
       : (fullFileContentCache.get(filePath) ?? null),
   );
   const [copied, setCopied] = useState(false);
-  const resolvedTheme = useResolvedThemeClass();
+  const resolvedTheme = useResolvedTheme();
   const editorRef = useRef<MonacoDiffEditorLike | null>(null);
   const monacoRef = useRef<MonacoLike | null>(null);
   const measureFrameRef = useRef<number | null>(null);

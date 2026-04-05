@@ -1,6 +1,6 @@
 import type { UIMessage, ImageAttachment } from "@/types";
 
-function nextId(prefix: string): string {
+export function nextId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 

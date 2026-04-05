@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import {
   MAX_BOTTOM_TOOLS_HEIGHT,
   MIN_BOTTOM_TOOLS_HEIGHT,
-} from "@/lib/layout-constants";
+} from "@/lib/layout/constants";
 
 /**
  * Manages the vertical resize handle for the bottom tool dock.

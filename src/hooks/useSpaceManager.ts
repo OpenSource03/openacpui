@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Space, SpaceColor } from "@/types";
-import { capture } from "@/lib/analytics";
+import { capture } from "@/lib/analytics/analytics";
 
 const ACTIVE_SPACE_KEY = "harnss-active-space";
 

@@ -3,7 +3,8 @@ import { toast } from "sonner";
 import type { UIMessage, ChatSession, McpServerConfig, Project, ImageAttachment, EngineId } from "../../types";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
-import { captureException } from "../../lib/analytics";
+import { captureException } from "../../lib/analytics/analytics";
+import { createSystemMessage, createUserMessage } from "../../lib/message-factory";
 import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
@@ -387,23 +388,9 @@ export function useDraftMaterialization({
           if (!("sessionId" in result) || !result.sessionId) {
             const errorMsg = ("error" in result && result.error) ? result.error : "Failed to start agent session";
             const failedId = `failed-acp-${Date.now()}`;
-            const now = Date.now();
             const errorMessages: UIMessage[] = [
-              {
-                id: `user-${now}`,
-                role: "user" as const,
-                content: text,
-                timestamp: now,
-                ...(images?.length ? { images } : {}),
-                ...(displayText ? { displayContent: displayText } : {}),
-              },
-              {
-                id: `system-error-${now}`,
-                role: "system" as const,
-                content: errorMsg,
-                isError: true,
-                timestamp: now,
-              },
+              createUserMessage(text, images, displayText),
+              createSystemMessage(errorMsg, true),
             ];
 
             setSessions(prev => prev.map(s =>
@@ -442,14 +429,7 @@ export function useDraftMaterialization({
             acpAgentSessionIdRef.current = null;
             draftAcpSessionIdRef.current = result.sessionId;
             setDraftAcpSessionId(result.sessionId);
-            setInitialMessages([{
-              id: `user-${Date.now()}`,
-              role: "user" as const,
-              content: text,
-              timestamp: Date.now(),
-              ...(images?.length ? { images } : {}),
-              ...(displayText ? { displayContent: displayText } : {}),
-            }]);
+            setInitialMessages([createUserMessage(text, images, displayText)]);
             setInitialMeta({
               isProcessing: false,
               isConnected: false,
@@ -505,10 +485,9 @@ export function useDraftMaterialization({
         if (result.error || !result.sessionId) {
           const errorMsg = result.error || "Failed to start Codex session";
           const failedId = `failed-codex-${Date.now()}`;
-          const now = Date.now();
           const errorMessages: UIMessage[] = [
-            { id: `user-${now}`, role: "user" as const, content: text, timestamp: now, ...(images?.length ? { images } : {}), ...(displayText ? { displayContent: displayText } : {}) },
-            { id: `system-error-${now}`, role: "system" as const, content: errorMsg, isError: true, timestamp: now },
+            createUserMessage(text, images, displayText),
+            createSystemMessage(errorMsg, true),
           ];
           setSessions(prev => prev.map(s => s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s));
           setInitialMessages(errorMessages);
@@ -655,15 +634,7 @@ export function useDraftMaterialization({
           // Preserve the user message + processing state through useACP's reset effect
           // (which fires when sessionId changes from null → new ID).
           // React 19 batches these setState calls with setActiveSessionId below.
-          const userMsg: UIMessage = {
-            id: `user-${Date.now()}`,
-            role: "user" as const,
-            content: text,
-            timestamp: Date.now(),
-            ...(images?.length ? { images } : {}),
-            ...(displayText ? { displayContent: displayText } : {}),
-          };
-          setInitialMessages([userMsg]);
+          setInitialMessages([createUserMessage(text, images, displayText)]);
           setInitialMeta({
             isProcessing: true,
             isConnected: true,

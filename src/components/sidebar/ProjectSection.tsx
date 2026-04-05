@@ -1,4 +1,6 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useInlineRename } from "@/hooks/useInlineRename";
+import { useContextMenuPosition } from "@/hooks/useContextMenuPosition";
 import {
   Pencil,
   Trash2,
@@ -40,7 +42,8 @@ import { CCSessionList } from "./CCSessionList";
 import { PinnedSection } from "./PinnedSection";
 import { FolderSection } from "./FolderSection";
 import { BranchSection } from "./BranchSection";
-import { buildSidebarGroups, type SidebarItem } from "@/lib/sidebar-grouping";
+import { useSidebarActions } from "./SidebarActionsContext";
+import { buildSidebarGroups, type SidebarItem, type PinnedSidebarItem } from "@/lib/sidebar/grouping";
 
 export function ProjectSection({
   islandLayout,
@@ -53,9 +56,6 @@ export function ProjectSection({
   organizeByChatBranch,
   onNewChat,
   onToggleJiraBoard,
-  onSelectSession,
-  onDeleteSession,
-  onRenameSession,
   onDeleteProject,
   onRenameProject,
   onUpdateIcon,
@@ -64,16 +64,9 @@ export function ProjectSection({
   onMoveToSpace,
   onReorderProject,
   defaultChatLimit,
-  onPinSession,
-  onMoveSessionToFolder,
   onCreateFolder,
-  onRenameFolder,
-  onDeleteFolder,
-  onPinFolder,
   onSetOrganizeByChatBranch,
   agents,
-  onOpenInSplitView,
-  canOpenSessionInSplitView,
 }: {
   islandLayout: boolean;
   project: Project;
@@ -85,9 +78,6 @@ export function ProjectSection({
   organizeByChatBranch: boolean;
   onNewChat: () => void;
   onToggleJiraBoard: () => void;
-  onSelectSession: (id: string) => void;
-  onDeleteSession: (id: string) => void;
-  onRenameSession: (id: string, title: string) => void;
   onDeleteProject: () => void;
   onRenameProject: (name: string) => void;
   onUpdateIcon: (icon: string | null, iconType: "emoji" | "lucide" | null) => void;
@@ -96,27 +86,35 @@ export function ProjectSection({
   onMoveToSpace: (spaceId: string) => void;
   onReorderProject: (targetProjectId: string) => void;
   defaultChatLimit: number;
-  onPinSession: (sessionId: string, pinned: boolean) => void;
-  onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
   onCreateFolder: () => void;
-  onRenameFolder: (projectId: string, folderId: string, name: string) => void;
-  onDeleteFolder: (projectId: string, folderId: string) => void;
-  onPinFolder: (projectId: string, folderId: string, pinned: boolean) => void;
   onSetOrganizeByChatBranch: (on: boolean) => void;
   agents?: InstalledAgent[];
-  onOpenInSplitView?: (sessionId: string) => void;
-  canOpenSessionInSplitView?: (sessionId: string) => boolean;
 }) {
+  const {
+    selectSession,
+    deleteSession,
+    renameSession,
+    pinSession,
+    moveSessionToFolder,
+    pinFolder,
+    renameFolder,
+    deleteFolder,
+    openInSplitView,
+    canOpenSessionInSplitView,
+  } = useSidebarActions();
+  const { isEditing, startEditing, inputProps: renameInputProps } = useInlineRename({
+    initialName: project.name,
+    onRename: onRenameProject,
+  });
+  const {
+    menuOpen, menuAlign, setMenuOpen,
+    handleContextMenu, handleMenuButtonClick,
+    triggerStyle, containerRef,
+  } = useContextMenuPosition();
   const [expanded, setExpanded] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState(project.name);
   const [isDragOver, setIsDragOver] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuAlign, setMenuAlign] = useState<"start" | "end">("end");
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const openingIconPickerRef = useRef(false);
-  const headerRef = useRef<HTMLDivElement>(null);
   // Pagination: show N items initially, load 20 more on each click
   const [visibleCount, setVisibleCount] = useState(defaultChatLimit);
 
@@ -132,7 +130,7 @@ export function ProjectSection({
   );
 
   // Count non-pinned items for pagination
-  const pinnedItem = sidebarItems.find((item) => item.type === "pinned");
+  const pinnedItem = sidebarItems.find((item): item is PinnedSidebarItem => item.type === "pinned");
   const contentItems = sidebarItems.filter((item) => item.type !== "pinned");
 
   // For pagination, count total visible sessions (not groups)
@@ -156,49 +154,11 @@ export function ProjectSection({
     return visible;
   }, [contentItems, visibleCount]);
 
-  const handleRename = () => {
-    const trimmed = editName.trim();
-    if (trimmed && trimmed !== project.name) {
-      onRenameProject(trimmed);
-    }
-    setIsEditing(false);
-  };
-
-  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const headerRect = headerRef.current?.getBoundingClientRect();
-    setMenuPos({
-      x: headerRect ? e.clientX - headerRect.left : 0,
-      y: headerRect ? e.clientY - headerRect.top : 0,
-    });
-    setMenuAlign("start");
-    setMenuOpen(true);
-  }, []);
-
-  const handleMenuButtonClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    const headerRect = headerRef.current?.getBoundingClientRect();
-    const buttonRect = e.currentTarget.getBoundingClientRect();
-    setMenuPos({
-      x: headerRect ? buttonRect.right - headerRect.left : 0,
-      y: headerRect ? buttonRect.bottom - headerRect.top : 0,
-    });
-    setMenuAlign("end");
-    setMenuOpen(true);
-  }, []);
-
   if (isEditing) {
     return (
       <div className="mb-1 flex items-center gap-1 px-1 ps-2">
         <input
-          autoFocus
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          onBlur={handleRename}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleRename();
-            if (e.key === "Escape") setIsEditing(false);
-          }}
+          {...renameInputProps}
           className="flex-1 rounded-lg bg-black/5 px-2 py-1 text-[13px] text-sidebar-foreground outline-none ring-1 ring-sidebar-ring dark:bg-white/5"
         />
       </div>
@@ -207,70 +167,55 @@ export function ProjectSection({
 
   /** Render a single sidebar item (folder, branch, or session). */
   function renderItem(item: SidebarItem) {
-    if (item.type === "folder" && item.folder) {
+    if (item.type === "folder") {
+      const { folder } = item;
       return (
         <FolderSection
-          key={`folder-${item.folder.id}`}
-          folder={item.folder}
+          key={`folder-${folder.id}`}
+          folder={folder}
           sessions={item.sessions}
           activeSessionId={activeSessionId}
           islandLayout={islandLayout}
           allFolders={folders}
-          onSelectSession={onSelectSession}
-          onDeleteSession={onDeleteSession}
-          onRenameSession={onRenameSession}
-          onPinSession={onPinSession}
-          onMoveSessionToFolder={onMoveSessionToFolder}
-          onPinFolder={(pinned) => onPinFolder(project.id, item.folder!.id, pinned)}
-          onRenameFolder={(name) => onRenameFolder(project.id, item.folder!.id, name)}
-          onDeleteFolder={() => onDeleteFolder(project.id, item.folder!.id)}
+          onPinFolder={(pinned) => pinFolder(project.id, folder.id, pinned)}
+          onRenameFolder={(name) => renameFolder(project.id, folder.id, name)}
+          onDeleteFolder={() => deleteFolder(project.id, folder.id)}
           agents={agents}
-          onOpenInSplitView={onOpenInSplitView}
-          canOpenSessionInSplitView={canOpenSessionInSplitView}
         />
       );
     }
 
-    if (item.type === "branch" && item.children) {
+    if (item.type === "branch") {
       return (
         <BranchSection
           key={`branch-${item.branchName}`}
-          branchName={item.branchName!}
+          branchName={item.branchName}
           children={item.children}
           activeSessionId={activeSessionId}
           islandLayout={islandLayout}
           allFolders={folders}
-          onSelectSession={onSelectSession}
-          onDeleteSession={onDeleteSession}
-          onRenameSession={onRenameSession}
-          onPinSession={onPinSession}
-          onMoveSessionToFolder={onMoveSessionToFolder}
-          onPinFolder={onPinFolder}
-          onRenameFolder={onRenameFolder}
-          onDeleteFolder={onDeleteFolder}
           agents={agents}
-          onOpenInSplitView={onOpenInSplitView}
-          canOpenSessionInSplitView={canOpenSessionInSplitView}
         />
       );
     }
 
-    if (item.type === "session" && item.session) {
+    if (item.type === "session") {
+      const { session } = item;
       return (
         <SessionItem
-          key={item.session.id}
+          key={session.id}
           islandLayout={islandLayout}
-          session={item.session}
-          isActive={item.session.id === activeSessionId}
-          onSelect={() => onSelectSession(item.session!.id)}
-          onDelete={() => onDeleteSession(item.session!.id)}
-          onRename={(title) => onRenameSession(item.session!.id, title)}
-          onPinToggle={() => onPinSession(item.session!.id, !item.session!.pinned)}
+          session={session}
+          isActive={session.id === activeSessionId}
+          onSelect={() => selectSession(session.id)}
+          onDelete={() => deleteSession(session.id)}
+          onRename={(title) => renameSession(session.id, title)}
+          onPinToggle={() => pinSession(session.id, !session.pinned)}
           folders={folders}
-          onMoveToFolder={(folderId) => onMoveSessionToFolder(item.session!.id, folderId)}
+          onMoveToFolder={(folderId) => moveSessionToFolder(session.id, folderId)}
           agents={agents}
-          onOpenInSplitView={onOpenInSplitView ? () => onOpenInSplitView(item.session!.id) : undefined}
-          canOpenInSplitView={canOpenSessionInSplitView?.(item.session!.id) ?? true}
+          onOpenInSplitView={openInSplitView ? () => openInSplitView(session.id) : undefined}
+          canOpenInSplitView={canOpenSessionInSplitView?.(session.id) ?? true}
         />
       );
     }
@@ -300,7 +245,7 @@ export function ProjectSection({
     >
       {/* Project header row */}
       <div
-        ref={headerRef}
+        ref={containerRef}
         className="group relative flex items-center"
         draggable
         onDragStart={(e) => {
@@ -389,16 +334,7 @@ export function ProjectSection({
 
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <span
-              style={{
-                position: "absolute",
-                left: menuPos.x,
-                top: menuPos.y,
-                width: 0,
-                height: 0,
-                pointerEvents: "none",
-              }}
-            />
+            <span style={triggerStyle} />
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align={menuAlign}
@@ -423,12 +359,7 @@ export function ProjectSection({
               Organize by branch
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => {
-                setEditName(project.name);
-                setIsEditing(true);
-              }}
-            >
+            <DropdownMenuItem onClick={startEditing}>
               <Pencil className="me-2 h-3.5 w-3.5" />
               Rename
             </DropdownMenuItem>
@@ -505,17 +436,7 @@ export function ProjectSection({
               activeSessionId={activeSessionId}
               islandLayout={islandLayout}
               folders={folders}
-              onSelectSession={onSelectSession}
-              onDeleteSession={onDeleteSession}
-              onRenameSession={onRenameSession}
-              onPinSession={onPinSession}
-              onMoveSessionToFolder={onMoveSessionToFolder}
-              onPinFolder={onPinFolder}
-              onRenameFolder={onRenameFolder}
-              onDeleteFolder={onDeleteFolder}
               agents={agents}
-              onOpenInSplitView={onOpenInSplitView}
-              canOpenSessionInSplitView={canOpenSessionInSplitView}
             />
           )}
 

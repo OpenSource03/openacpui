@@ -8,12 +8,12 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { UIMessage, SessionInfo, PermissionRequest, ContextUsage, SessionMeta } from "@/types";
+import type { UIMessage, SessionInfo, PermissionRequest, ContextUsage, BackgroundSessionSnapshot } from "@/types";
 
 export interface UseEngineBaseOptions {
   sessionId: string | null;
   initialMessages?: UIMessage[];
-  initialMeta?: SessionMeta | null;
+  initialMeta?: BackgroundSessionSnapshot | null;
   initialPermission?: PermissionRequest | null;
 }
 

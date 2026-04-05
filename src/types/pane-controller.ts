@@ -6,8 +6,7 @@
  * the single-chat view and each split-view pane.
  */
 
-import type { ACPConfigOption, ImageAttachment, SlashCommand, EngineId, InstalledAgent, McpServerConfig, McpServerStatus, ModelInfo } from "@/types";
-import type { GrabbedElement } from "@/types/ui";
+import type { ACPConfigOption, ClaudeEffort, ImageAttachment, SlashCommand, EngineId, InstalledAgent, McpServerConfig, McpServerStatus, ModelInfo, GrabbedElement } from "@/types";
 import type { TerminalTab } from "@/lib/terminal-tabs";
 import type { ResolvedTheme } from "@/hooks/useTheme";
 
@@ -19,14 +18,14 @@ export interface PaneController {
   panePermissionMode: string;
   panePlanMode: boolean;
   paneSupportedModels: ModelInfo[];
-  paneClaudeEffort: string;
+  paneClaudeEffort: ClaudeEffort;
   paneSlashCommands: SlashCommand[];
   paneAcpConfigOptions: ACPConfigOption[];
   paneAcpConfigOptionsLoading: boolean;
   paneCodexModelsLoadingMessage: string | null;
   paneCodexEffort: string;
   handlePaneModelChange: (nextModel: string) => void;
-  handlePaneClaudeModelEffortChange: (nextModel: string, effort: string | undefined) => void;
+  handlePaneClaudeModelEffortChange: (nextModel: string, effort: ClaudeEffort | undefined) => void;
   handlePanePlanModeChange: (enabled: boolean) => void;
   handlePanePermissionModeChange: (nextMode: string) => void;
   handlePaneCodexEffortChange: (effort: string) => void;

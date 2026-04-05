@@ -1,21 +1,19 @@
 import type { ClaudeEvent } from "./protocol";
-import type {
-  CCSessionInfo, PersistedSession, Project, UIMessage, Space,
-  SearchMessageResult, SearchSessionResult,
-  GitRepoInfo, GitStatus, GitBranch, GitLogEntry,
-  InstalledAgent, ModelInfo, McpServerConfig, McpServerStatus,
-  AppSettings,
-  ClaudeEffort,
-  MacBackgroundEffect,
-  PermissionUpdate,
-  ThemeOption,
-} from "./ui";
+import type { CCSessionInfo, ChatFolder, PersistedSession, Project, UIMessage, ClaudeEffort } from "./session";
+import type { Space } from "./spaces";
+import type { SearchMessageResult, SearchSessionResult } from "./search";
+import type { ModelInfo, McpServerConfig, McpServerStatus } from "./mcp";
+import type { PermissionUpdate } from "./permissions";
+import type { GitRepoInfo, GitStatus, GitBranch, GitLogEntry } from "@shared/types/git";
+import type { InstalledAgent } from "@shared/types/registry";
+import type { AppSettings, MacBackgroundEffect, ThemeOption } from "@shared/types/settings";
 import type {
   ACPSessionEvent,
   ACPPermissionEvent,
   ACPTurnCompleteEvent,
   ACPConfigOption,
   ACPAuthenticateResult,
+  ACPAvailableCommand,
   ACPAuthMethod,
   ACPStartResult,
   ACPStatusInfo,
@@ -24,6 +22,9 @@ import type { EngineId, AppPermissionBehavior } from "./engine";
 import type { CodexSessionEvent, CodexServerRequest, CodexExitEvent } from "./codex";
 import type { Model as CodexModel } from "./codex-protocol/v2/Model";
 import type { CollaborationMode } from "./codex-protocol/CollaborationMode";
+import type { SkillsListEntry } from "./codex-protocol/v2/SkillsListEntry";
+import type { AppInfo } from "./codex-protocol/v2/AppInfo";
+import type { SessionMeta as SessionListItem } from "@shared/lib/session-persistence";
 import type {
   JiraProjectConfig,
   JiraBoard,
@@ -41,24 +42,10 @@ import type {
   JiraTransitionIssueParams,
 } from "@shared/types/jira";
 
-interface SessionListItem {
-  id: string;
-  projectId: string;
-  title: string;
-  createdAt: number;
-  /** Timestamp of the most recent message — used for sidebar sort order */
-  lastMessageAt: number;
-  model?: string;
-  planMode?: boolean;
-  totalCost: number;
-  engine?: EngineId;
-  codexThreadId?: string;
-  /** Which folder this chat belongs to (undefined = root level). */
-  folderId?: string;
-  /** Whether this chat is pinned to the top of the sidebar. */
-  pinned?: boolean;
-  /** Git branch at session creation time. */
-  branch?: string;
+/** Standard IPC result envelope — most IPC calls return this shape. */
+interface IpcResult {
+  ok?: boolean;
+  error?: string;
 }
 
 type CodexImageInput = { type: "image"; url: string } | { type: "localImage"; path: string };
@@ -70,7 +57,7 @@ declare global {
       getMacBackgroundEffectSupport: () => Promise<{ liquidGlass: boolean; vibrancy: boolean }>;
       setThemeSource: (themeSource: ThemeOption) => void;
       setMacBackgroundEffect: (effect: MacBackgroundEffect) => void;
-      relaunchApp: () => Promise<{ ok?: boolean; error?: string }>;
+      relaunchApp: () => Promise<IpcResult>;
       setMinWidth: (width: number) => void;
       glass: {
         setTintColor: (tintColor: string | null) => void;
@@ -92,10 +79,10 @@ declare global {
       send: (
         sessionId: string,
         message: { type: string; message: { role: string; content: string | Array<{ type: string; [key: string]: unknown }> } },
-      ) => Promise<{ ok?: boolean; error?: string }>;
+      ) => Promise<IpcResult>;
       stop: (sessionId: string, reason?: string) => Promise<{ ok: boolean }>;
-      interrupt: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
-      stopTask: (sessionId: string, taskId: string) => Promise<{ ok?: boolean; error?: string }>;
+      interrupt: (sessionId: string) => Promise<IpcResult>;
+      stopTask: (sessionId: string, taskId: string) => Promise<IpcResult>;
       readAgentOutput: (outputFile: string) => Promise<{ messages?: unknown[]; error?: string }>;
       supportedModels: (sessionId: string) => Promise<{ models: ModelInfo[]; error?: string }>;
       slashCommands: (sessionId: string) => Promise<{
@@ -105,22 +92,22 @@ declare global {
       modelsCacheGet: () => Promise<{ models: ModelInfo[]; updatedAt?: number; error?: string }>;
       modelsCacheRevalidate: (options?: { cwd?: string }) => Promise<{ models: ModelInfo[]; updatedAt?: number; error?: string }>;
       mcpStatus: (sessionId: string) => Promise<{ servers: McpServerStatus[]; error?: string }>;
-      mcpReconnect: (sessionId: string, serverName: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
-      revertFiles: (sessionId: string, checkpointId: string) => Promise<{ ok?: boolean; error?: string }>;
-      restartSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string, effort?: ClaudeEffort, model?: string) => Promise<{ ok?: boolean; error?: string; restarted?: boolean }>;
+      mcpReconnect: (sessionId: string, serverName: string) => Promise<IpcResult & { restarted?: boolean }>;
+      revertFiles: (sessionId: string, checkpointId: string) => Promise<IpcResult>;
+      restartSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string, effort?: ClaudeEffort, model?: string) => Promise<IpcResult & { restarted?: boolean }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
-      renameFile: (oldPath: string, newPath: string) => Promise<{ ok?: boolean; error?: string }>;
-      trashItem: (filePath: string) => Promise<{ ok?: boolean; error?: string }>;
-      newFile: (filePath: string) => Promise<{ ok?: boolean; error?: string }>;
-      newFolder: (folderPath: string) => Promise<{ ok?: boolean; error?: string }>;
-      writeClipboardText: (text: string) => Promise<{ ok?: boolean; error?: string }>;
+      renameFile: (oldPath: string, newPath: string) => Promise<IpcResult>;
+      trashItem: (filePath: string) => Promise<IpcResult>;
+      newFile: (filePath: string) => Promise<IpcResult>;
+      newFolder: (folderPath: string) => Promise<IpcResult>;
+      writeClipboardText: (text: string) => Promise<IpcResult>;
       setBrowserColorScheme: (
         targetWebContentsId: number,
         colorScheme: "light" | "dark",
-      ) => Promise<{ ok?: boolean; error?: string }>;
-      openInEditor: (filePath: string, line?: number, editor?: string) => Promise<{ ok?: boolean; editor?: string; error?: string }>;
-      openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
-      showItemInFolder: (filePath: string) => Promise<{ ok?: boolean; error?: string }>;
+      ) => Promise<IpcResult>;
+      openInEditor: (filePath: string, line?: number, editor?: string) => Promise<IpcResult & { editor?: string }>;
+      openExternal: (url: string) => Promise<IpcResult>;
+      showItemInFolder: (filePath: string) => Promise<IpcResult>;
       generateTitle: (
         message: string,
         cwd?: string,
@@ -150,36 +137,36 @@ declare global {
         toolInput: Record<string, unknown>,
         newPermissionMode?: string,
         updatedPermissions?: unknown[],
-      ) => Promise<{ ok?: boolean; error?: string }>;
+      ) => Promise<IpcResult>;
       setPermissionMode: (
         sessionId: string,
         permissionMode: string,
-      ) => Promise<{ ok?: boolean; error?: string }>;
+      ) => Promise<IpcResult>;
       setModel: (
         sessionId: string,
         model: string,
-      ) => Promise<{ ok?: boolean; error?: string }>;
+      ) => Promise<IpcResult>;
       setThinking: (
         sessionId: string,
         thinkingEnabled: boolean,
-      ) => Promise<{ ok?: boolean; error?: string }>;
+      ) => Promise<IpcResult>;
       version: () => Promise<{ version?: string | null; error?: string }>;
       binaryStatus: () => Promise<{ installed: boolean; installing: boolean }>;
       projects: {
         list: () => Promise<Project[]>;
         create: (spaceId?: string) => Promise<Project | null>;
         createDev: (name: string, spaceId?: string) => Promise<Project | null>;
-        delete: (projectId: string) => Promise<{ ok?: boolean; error?: string }>;
-        rename: (projectId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
-        updateSpace: (projectId: string, spaceId: string) => Promise<{ ok?: boolean; error?: string }>;
-        updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => Promise<{ ok?: boolean; error?: string }>;
-        reorder: (projectId: string, targetProjectId: string) => Promise<{ ok?: boolean; error?: string }>;
+        delete: (projectId: string) => Promise<IpcResult>;
+        rename: (projectId: string, name: string) => Promise<IpcResult>;
+        updateSpace: (projectId: string, spaceId: string) => Promise<IpcResult>;
+        updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => Promise<IpcResult>;
+        reorder: (projectId: string, targetProjectId: string) => Promise<IpcResult>;
       };
       sessions: {
-        save: (data: PersistedSession) => Promise<{ ok?: boolean; error?: string }>;
+        save: (data: PersistedSession) => Promise<IpcResult>;
         load: (projectId: string, sessionId: string) => Promise<PersistedSession | null>;
         list: (projectId: string) => Promise<SessionListItem[]>;
-        delete: (projectId: string, sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        delete: (projectId: string, sessionId: string) => Promise<IpcResult>;
         search: (projectIds: string[], query: string) => Promise<{
           messageResults: SearchMessageResult[];
           sessionResults: SearchSessionResult[];
@@ -188,18 +175,18 @@ declare global {
           pinned?: boolean;
           folderId?: string | null;
           branch?: string;
-        }) => Promise<{ ok?: boolean; error?: string }>;
+        }) => Promise<IpcResult>;
       };
       folders: {
-        list: (projectId: string) => Promise<import("./ui").ChatFolder[]>;
-        create: (projectId: string, name: string) => Promise<import("./ui").ChatFolder>;
-        delete: (projectId: string, folderId: string) => Promise<{ ok?: boolean; error?: string }>;
-        rename: (projectId: string, folderId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
-        pin: (projectId: string, folderId: string, pinned: boolean) => Promise<{ ok?: boolean; error?: string }>;
+        list: (projectId: string) => Promise<ChatFolder[]>;
+        create: (projectId: string, name: string) => Promise<ChatFolder>;
+        delete: (projectId: string, folderId: string) => Promise<IpcResult>;
+        rename: (projectId: string, folderId: string, name: string) => Promise<IpcResult>;
+        pin: (projectId: string, folderId: string, pinned: boolean) => Promise<IpcResult>;
       };
       spaces: {
         list: () => Promise<Space[]>;
-        save: (spaces: Space[]) => Promise<{ ok?: boolean; error?: string }>;
+        save: (spaces: Space[]) => Promise<IpcResult>;
       };
       ccSessions: {
         list: (projectPath: string) => Promise<CCSessionInfo[]>;
@@ -212,8 +199,8 @@ declare global {
       files: {
         list: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
         listAll: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
-        watch: (cwd: string) => Promise<{ ok?: boolean; error?: string }>;
-        unwatch: (cwd: string) => Promise<{ ok?: boolean; error?: string }>;
+        watch: (cwd: string) => Promise<IpcResult>;
+        unwatch: (cwd: string) => Promise<IpcResult>;
         calculateDeepSize: (
           cwd: string,
           paths: string[],
@@ -238,22 +225,22 @@ declare global {
       };
       git: {
         discoverRepos: (projectPath: string) => Promise<GitRepoInfo[]>;
-        status: (cwd: string) => Promise<GitStatus & { error?: string }>;
-        stage: (cwd: string, files: string[]) => Promise<{ ok?: boolean; error?: string }>;
-        unstage: (cwd: string, files: string[]) => Promise<{ ok?: boolean; error?: string }>;
-        stageAll: (cwd: string) => Promise<{ ok?: boolean; error?: string }>;
-        unstageAll: (cwd: string) => Promise<{ ok?: boolean; error?: string }>;
-        discard: (cwd: string, files: string[]) => Promise<{ ok?: boolean; error?: string }>;
-        commit: (cwd: string, message: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
+        status: (cwd: string) => Promise<GitStatus | { error: string }>;
+        stage: (cwd: string, files: string[]) => Promise<IpcResult>;
+        unstage: (cwd: string, files: string[]) => Promise<IpcResult>;
+        stageAll: (cwd: string) => Promise<IpcResult>;
+        unstageAll: (cwd: string) => Promise<IpcResult>;
+        discard: (cwd: string, files: string[]) => Promise<IpcResult>;
+        commit: (cwd: string, message: string) => Promise<IpcResult & { output?: string }>;
         branches: (cwd: string) => Promise<GitBranch[] | { error: string }>;
-        checkout: (cwd: string, branch: string) => Promise<{ ok?: boolean; error?: string }>;
-        createBranch: (cwd: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
-        createWorktree: (cwd: string, path: string, branch: string, fromRef?: string) => Promise<{ ok?: boolean; path?: string; output?: string; error?: string; setupResults?: Array<{ command: string; ok: boolean; output?: string; error?: string }> }>;
-        removeWorktree: (cwd: string, path: string, force?: boolean) => Promise<{ ok?: boolean; output?: string; error?: string }>;
-        pruneWorktrees: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
-        push: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
-        pull: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
-        fetch: (cwd: string) => Promise<{ ok?: boolean; output?: string; error?: string }>;
+        checkout: (cwd: string, branch: string) => Promise<IpcResult>;
+        createBranch: (cwd: string, name: string) => Promise<IpcResult>;
+        createWorktree: (cwd: string, path: string, branch: string, fromRef?: string) => Promise<IpcResult & { path?: string; output?: string; setupResults?: Array<{ command: string; ok: boolean; output?: string; error?: string }> }>;
+        removeWorktree: (cwd: string, path: string, force?: boolean) => Promise<IpcResult & { output?: string }>;
+        pruneWorktrees: (cwd: string) => Promise<IpcResult & { output?: string }>;
+        push: (cwd: string) => Promise<IpcResult & { output?: string }>;
+        pull: (cwd: string) => Promise<IpcResult & { output?: string }>;
+        fetch: (cwd: string) => Promise<IpcResult & { output?: string }>;
         diffFile: (cwd: string, file: string, staged: boolean) => Promise<{ diff?: string; error?: string }>;
         diffStat: (cwd: string) => Promise<{ additions: number; deletions: number }>;
         log: (cwd: string, count?: number) => Promise<GitLogEntry[] | { error: string }>;
@@ -282,8 +269,8 @@ declare global {
           exitCode?: number | null;
           error?: string;
         }>;
-        write: (terminalId: string, data: string) => Promise<{ ok?: boolean; error?: string }>;
-        resize: (terminalId: string, cols: number, rows: number) => Promise<{ ok?: boolean; error?: string }>;
+        write: (terminalId: string, data: string) => Promise<IpcResult>;
+        resize: (terminalId: string, cols: number, rows: number) => Promise<IpcResult>;
         destroy: (terminalId: string) => Promise<{ ok?: boolean }>;
         destroySpace: (spaceId: string) => Promise<{ ok?: boolean }>;
         onData: (callback: (data: { terminalId: string; data: string; seq: number }) => void) => () => void;
@@ -293,16 +280,16 @@ declare global {
         log: (label: string, data: unknown) => void;
         start: (options: { agentId: string; cwd: string; mcpServers?: McpServerConfig[] }) => Promise<ACPStartResult>;
         authenticate: (sessionId: string, methodId: string) => Promise<ACPAuthenticateResult>;
-        prompt: (sessionId: string, text: string, images?: unknown[]) => Promise<{ ok?: boolean; error?: string }>;
-        stop: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
-        reloadSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string) => Promise<{ ok?: boolean; supportsLoad?: boolean; error?: string }>;
+        prompt: (sessionId: string, text: string, images?: unknown[]) => Promise<IpcResult>;
+        stop: (sessionId: string) => Promise<IpcResult>;
+        reloadSession: (sessionId: string, mcpServers?: McpServerConfig[], cwd?: string) => Promise<IpcResult & { supportsLoad?: boolean }>;
         reviveSession: (options: { agentId: string; cwd: string; agentSessionId?: string; mcpServers?: McpServerConfig[] }) => Promise<{ sessionId?: string; agentSessionId?: string; usedLoad?: boolean; configOptions?: ACPConfigOption[]; mcpStatuses?: ACPStatusInfo[]; error?: string }>;
-        cancel: (sessionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        cancel: (sessionId: string) => Promise<IpcResult>;
         abortPendingStart: () => Promise<{ ok?: boolean }>;
-        respondPermission: (sessionId: string, requestId: string, optionId: string) => Promise<{ ok?: boolean; error?: string }>;
+        respondPermission: (sessionId: string, requestId: string, optionId: string) => Promise<IpcResult>;
         setConfig: (sessionId: string, configId: string, value: string) => Promise<{ configOptions?: ACPConfigOption[]; error?: string }>;
         getConfigOptions: (sessionId: string) => Promise<{ configOptions?: ACPConfigOption[] }>;
-        getAvailableCommands: (sessionId: string) => Promise<{ commands?: import("./acp").ACPAvailableCommand[] }>;
+        getAvailableCommands: (sessionId: string) => Promise<{ commands?: ACPAvailableCommand[] }>;
         onEvent: (callback: (data: ACPSessionEvent) => void) => () => void;
         onPermissionRequest: (callback: (data: ACPPermissionEvent) => void) => () => void;
         onTurnComplete: (callback: (data: ACPTurnCompleteEvent) => void) => () => void;
@@ -325,25 +312,25 @@ declare global {
         stop: (sessionId: string) => Promise<void>;
         interrupt: (sessionId: string) => Promise<{ error?: string }>;
         respondApproval: (sessionId: string, rpcId: string | number, decision: string, acceptSettings?: unknown) =>
-          Promise<{ ok?: boolean; error?: string }>;
+          Promise<IpcResult>;
         respondUserInput: (
           sessionId: string,
           rpcId: string | number,
           answers: Record<string, { answers: string[] }>,
-        ) => Promise<{ ok?: boolean; error?: string }>;
+        ) => Promise<IpcResult>;
         respondServerRequestError: (
           sessionId: string,
           rpcId: string | number,
           code: number,
           message: string,
-        ) => Promise<{ ok?: boolean; error?: string }>;
+        ) => Promise<IpcResult>;
         compact: (sessionId: string) => Promise<{ error?: string }>;
         listSkills: (sessionId: string) => Promise<{
-          skills: Array<import("./codex-protocol/v2/SkillsListEntry").SkillsListEntry>;
+          skills: SkillsListEntry[];
           error?: string;
         }>;
         listApps: (sessionId: string) => Promise<{
-          apps: Array<import("./codex-protocol/v2/AppInfo").AppInfo>;
+          apps: AppInfo[];
           error?: string;
         }>;
         listModels: () => Promise<{ models: CodexModel[]; error?: string }>;
@@ -360,16 +347,16 @@ declare global {
       };
       mcp: {
         list: (projectId: string) => Promise<McpServerConfig[]>;
-        add: (projectId: string, server: McpServerConfig) => Promise<{ ok?: boolean; error?: string }>;
-        remove: (projectId: string, name: string) => Promise<{ ok?: boolean; error?: string }>;
-        authenticate: (serverName: string, serverUrl: string) => Promise<{ ok?: boolean; error?: string }>;
+        add: (projectId: string, server: McpServerConfig) => Promise<IpcResult>;
+        remove: (projectId: string, name: string) => Promise<IpcResult>;
+        authenticate: (serverName: string, serverUrl: string) => Promise<IpcResult>;
         authStatus: (serverName: string) => Promise<{ hasToken: boolean; expiresAt?: number }>;
         probe: (servers: McpServerConfig[]) => Promise<Array<{ name: string; status: "connected" | "needs-auth" | "failed"; error?: string }>>;
       };
       agents: {
         list: () => Promise<InstalledAgent[]>;
-        save: (agent: InstalledAgent) => Promise<{ ok?: boolean; error?: string }>;
-        delete: (id: string) => Promise<{ ok?: boolean; error?: string }>;
+        save: (agent: InstalledAgent) => Promise<IpcResult>;
+        delete: (id: string) => Promise<IpcResult>;
         updateCachedConfig: (agentId: string, configOptions: ACPConfigOption[]) => Promise<{ ok?: boolean }>;
         /** Batch-check if binary-only agents are installed on the system PATH. */
         checkBinaries: (
@@ -380,28 +367,30 @@ declare global {
       };
       settings: {
         get: () => Promise<AppSettings>;
-        set: (patch: Partial<AppSettings>) => Promise<{ ok?: boolean; error?: string }>;
+        set: (patch: Partial<AppSettings>) => Promise<IpcResult>;
+        /** Subscribe to settings changes pushed from the main process. */
+        onChanged: (callback: (settings: AppSettings) => void) => () => void;
       };
       jira: {
         getConfig: (projectId: string) => Promise<JiraProjectConfig | null>;
-        saveConfig: (projectId: string, config: JiraProjectConfig) => Promise<void>;
-        deleteConfig: (projectId: string) => Promise<void>;
+        saveConfig: (projectId: string, config: JiraProjectConfig) => Promise<IpcResult>;
+        deleteConfig: (projectId: string) => Promise<IpcResult>;
         authenticate: (
           instanceUrl: string,
           method: "oauth" | "apitoken",
           apiToken?: string,
           email?: string
-        ) => Promise<{ ok?: boolean; error?: string }>;
+        ) => Promise<IpcResult>;
         authStatus: (instanceUrl: string) => Promise<{ hasToken: boolean }>;
-        logout: (instanceUrl: string) => Promise<void>;
-        getProjects: (instanceUrl: string) => Promise<JiraProjectSummary[]>;
-        getBoards: (params: JiraGetBoardsParams) => Promise<JiraBoard[]>;
-        getBoardConfiguration: (params: JiraGetSprintsParams) => Promise<JiraBoardConfiguration>;
-        getSprints: (params: JiraGetSprintsParams) => Promise<JiraSprint[]>;
-        getIssues: (params: JiraGetIssuesParams) => Promise<JiraIssue[]>;
-        getComments: (params: JiraGetCommentsParams) => Promise<JiraComment[]>;
-        getTransitions: (params: JiraGetTransitionsParams) => Promise<JiraTransition[]>;
-        transitionIssue: (params: JiraTransitionIssueParams) => Promise<{ ok: true }>;
+        logout: (instanceUrl: string) => Promise<IpcResult>;
+        getProjects: (instanceUrl: string) => Promise<JiraProjectSummary[] | { error: string }>;
+        getBoards: (params: JiraGetBoardsParams) => Promise<JiraBoard[] | { error: string }>;
+        getBoardConfiguration: (params: JiraGetSprintsParams) => Promise<JiraBoardConfiguration | { error: string }>;
+        getSprints: (params: JiraGetSprintsParams) => Promise<JiraSprint[] | { error: string }>;
+        getIssues: (params: JiraGetIssuesParams) => Promise<JiraIssue[] | { error: string }>;
+        getComments: (params: JiraGetCommentsParams) => Promise<JiraComment[] | { error: string }>;
+        getTransitions: (params: JiraGetTransitionsParams) => Promise<JiraTransition[] | { error: string }>;
+        transitionIssue: (params: JiraTransitionIssueParams) => Promise<IpcResult>;
       };
       analytics: {
         /** Fire-and-forget analytics event via the main process PostHog client. */

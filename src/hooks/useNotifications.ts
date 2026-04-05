@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { PermissionRequest } from "@/types";
-import type { NotificationSettings, NotificationTrigger } from "@/types/ui";
+import type { PermissionRequest, NotificationSettings, NotificationTrigger } from "@/types";
 import {
   advanceSessionCompletionTracker,
   consumeSuppressedSessionCompletion,
