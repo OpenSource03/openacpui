@@ -48,13 +48,13 @@ describe("split layout utilities", () => {
 
   it("calculates split pane capacity from width", () => {
     expect(getMaxVisibleSplitPaneCount(0)).toBe(1);
-    expect(getMaxVisibleSplitPaneCount(400)).toBe(1);
-    expect(getMaxVisibleSplitPaneCount(804)).toBe(2);
-    expect(getMaxVisibleSplitPaneCount(1208)).toBe(3);
+    expect(getMaxVisibleSplitPaneCount(458)).toBe(1);
+    expect(getMaxVisibleSplitPaneCount(920)).toBe(2);
+    expect(getMaxVisibleSplitPaneCount(1382)).toBe(3);
   });
 
   it("includes split pane count in the app minimum width", () => {
-    expect(getRequiredSplitContentWidth(3)).toBe(1208);
+    expect(getRequiredSplitContentWidth(3)).toBe(1382);
 
     expect(getAppMinimumWidth({
       sidebarOpen: true,
@@ -65,7 +65,7 @@ describe("split layout utilities", () => {
       isSplitViewEnabled: false,
       splitPaneCount: 1,
       isWindows: false,
-    })).toBe(1542);
+    })).toBe(1532);
 
     expect(getAppMinimumWidth({
       sidebarOpen: true,
@@ -75,7 +75,8 @@ describe("split layout utilities", () => {
       hasToolsColumn: false,
       isSplitViewEnabled: true,
       splitPaneCount: 3,
+      splitTopRowItemKinds: ["chat", "chat", "chat"],
       isWindows: false,
-    })).toBe(1500);
+    })).toBe(1674);
   });
 });

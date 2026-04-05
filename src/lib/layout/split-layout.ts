@@ -1,7 +1,6 @@
 import {
   APP_SIDEBAR_WIDTH,
   ISLAND_LAYOUT_MARGIN,
-  MIN_CHAT_WIDTH_SPLIT,
   MIN_RIGHT_PANEL_WIDTH,
   MIN_TOOLS_PANEL_WIDTH,
   SPLIT_HANDLE_WIDTH,
@@ -10,6 +9,11 @@ import {
   getResizeHandleWidth,
   getToolPickerWidth,
 } from "@/lib/layout/constants";
+import {
+  getChatPaneMinWidthPx,
+  getRequiredTopRowWidth,
+  type TopRowLayoutItemKind,
+} from "@/lib/layout/workspace-constraints";
 
 export type SplitAddRejectionReason =
   | "missing-session"
@@ -32,15 +36,17 @@ export interface AppMinimumWidthInput {
   hasToolsColumn: boolean;
   isSplitViewEnabled: boolean;
   splitPaneCount: number;
+  splitTopRowItemKinds?: TopRowLayoutItemKind[];
   isWindows: boolean;
 }
 
 export function getRequiredSplitContentWidth(paneCount: number): number {
+  const minSplitChatWidth = getChatPaneMinWidthPx("split");
   if (paneCount <= 1) {
-    return MIN_CHAT_WIDTH_SPLIT;
+    return minSplitChatWidth;
   }
 
-  return (MIN_CHAT_WIDTH_SPLIT * paneCount) + (SPLIT_HANDLE_WIDTH * (paneCount - 1));
+  return (minSplitChatWidth * paneCount) + (SPLIT_HANDLE_WIDTH * (paneCount - 1));
 }
 
 export function getMaxVisibleSplitPaneCount(availableWidth: number): number {
@@ -48,7 +54,7 @@ export function getMaxVisibleSplitPaneCount(availableWidth: number): number {
     return 1;
   }
 
-  const paneWidthWithHandle = MIN_CHAT_WIDTH_SPLIT + SPLIT_HANDLE_WIDTH;
+  const paneWidthWithHandle = getChatPaneMinWidthPx("split") + SPLIT_HANDLE_WIDTH;
   return Math.max(1, Math.floor((availableWidth + SPLIT_HANDLE_WIDTH) / paneWidthWithHandle));
 }
 
@@ -86,6 +92,7 @@ export function getAppMinimumWidth({
   hasToolsColumn,
   isSplitViewEnabled,
   splitPaneCount,
+  splitTopRowItemKinds,
   isWindows,
 }: AppMinimumWidthInput): number {
   const sidebarWidth = sidebarOpen ? APP_SIDEBAR_WIDTH : 0;
@@ -93,13 +100,19 @@ export function getAppMinimumWidth({
   const windowsFrameWidth = isWindows ? WINDOWS_FRAME_BUFFER_WIDTH : 0;
 
   if (isSplitViewEnabled && splitPaneCount > 1) {
+    const splitContentWidth = splitTopRowItemKinds && splitTopRowItemKinds.length > 0
+      ? getRequiredTopRowWidth(splitTopRowItemKinds, "split")
+      : getRequiredSplitContentWidth(splitPaneCount);
     return sidebarWidth
       + outerMarginWidth
-      + getRequiredSplitContentWidth(splitPaneCount)
+      + splitContentWidth
       + windowsFrameWidth;
   }
 
-  let minimumWidth = sidebarWidth + outerMarginWidth + getMinChatWidth(isIslandLayout) + windowsFrameWidth;
+  const minSingleChatWidth = hasActiveSession
+    ? getChatPaneMinWidthPx("single")
+    : getMinChatWidth(isIslandLayout);
+  let minimumWidth = sidebarWidth + outerMarginWidth + minSingleChatWidth + windowsFrameWidth;
   if (!hasActiveSession) {
     return minimumWidth;
   }

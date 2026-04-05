@@ -6,6 +6,7 @@ import {
   getResizeHandleWidth,
   getToolPickerWidth,
 } from "@/lib/layout/constants";
+import { getChatPaneMinWidthPx } from "@/lib/layout/workspace-constraints";
 
 // ── Layout constants ──
 const MIN_PANEL_WIDTH = MIN_RIGHT_PANEL_WIDTH;
@@ -27,7 +28,7 @@ export function usePanelResize({
   activeProjectId,
 }: UsePanelResizeOptions) {
   const [isResizing, setIsResizing] = useState(false);
-  const minChatWidth = getMinChatWidth(isIsland);
+  const minChatWidth = activeSessionId ? getChatPaneMinWidthPx("single") : getMinChatWidth(isIsland);
 
   // ToolPicker strip width (flat divider is an overlay, excluded from width math)
   const pickerW = getToolPickerWidth(isIsland);

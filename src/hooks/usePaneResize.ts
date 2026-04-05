@@ -10,6 +10,7 @@ import {
   MIN_PANE_WIDTH_FRACTION,
   equalWidthFractions,
 } from "@/lib/layout/constants";
+import { solveAdjacentResize } from "@/lib/layout/workspace-constraints";
 
 interface UsePaneResizeOptions {
   /** Width fractions for all panes (length = pane count). */
@@ -18,12 +19,18 @@ interface UsePaneResizeOptions {
   setWidthFractions: (fractions: number[]) => void;
   /** Ref to the container element encompassing all panes. */
   containerRef: React.RefObject<HTMLDivElement | null>;
+  /** Optional per-pane minimum widths in pixels. */
+  minWidthsPx?: number[];
+  /** Optional handle width to subtract from total content width. */
+  handleWidthPx?: number;
 }
 
 export function usePaneResize({
   widthFractions,
   setWidthFractions,
   containerRef,
+  minWidthsPx,
+  handleWidthPx = 0,
 }: UsePaneResizeOptions) {
   const [isResizing, setIsResizing] = useState(false);
   const startXRef = useRef(0);
@@ -49,8 +56,25 @@ export function usePaneResize({
 
       const handleMove = (moveEvent: MouseEvent) => {
         const deltaX = moveEvent.clientX - startXRef.current;
-        const deltaFraction = deltaX / containerWidthRef.current;
         const idx = handleIndexRef.current;
+        const minWidths = minWidthsPx;
+
+        if (minWidths && minWidths.length === startFractionsRef.current.length) {
+          const constrained = solveAdjacentResize(
+            startFractionsRef.current,
+            idx,
+            deltaX,
+            containerWidthRef.current,
+            minWidths,
+            handleWidthPx,
+          );
+          if (constrained) {
+            setWidthFractions(constrained);
+          }
+          return;
+        }
+
+        const deltaFraction = deltaX / containerWidthRef.current;
         const fractions = [...startFractionsRef.current];
 
         // Adjust the two adjacent panes
@@ -90,7 +114,7 @@ export function usePaneResize({
       document.addEventListener("mousemove", handleMove);
       document.addEventListener("mouseup", handleUp);
     },
-    [widthFractions, setWidthFractions, containerRef],
+    [containerRef, handleWidthPx, minWidthsPx, setWidthFractions, widthFractions],
   );
 
   /** Reset all panes to equal widths. */

@@ -140,6 +140,7 @@ export function useAppOrchestrator() {
       hasToolsColumn: contextualState.hasToolsColumn,
       isSplitViewEnabled: splitView.enabled && splitView.paneCount > 1,
       splitPaneCount: splitView.paneCount,
+      splitTopRowItemKinds: splitView.topRowItems.map((item) => item.kind),
       isWindows,
     });
     window.claude.setMinWidth(Math.max(minWidth, 600));
@@ -151,6 +152,7 @@ export function useAppOrchestrator() {
     sidebar.isOpen,
     splitView.enabled,
     splitView.paneCount,
+    splitView.topRowItems,
   ]);
 
   // Sync model from loaded session (canonical runtime names -> picker values)

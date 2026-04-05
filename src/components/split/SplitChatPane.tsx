@@ -25,8 +25,8 @@ import { BackgroundAgentsPanel } from "@/components/BackgroundAgentsPanel";
 import { SplitPaneToolStrip } from "@/components/split/SplitPaneToolStrip";
 import type { CodexModelSummary } from "@/hooks/session/types";
 import type { GrabbedElement } from "@/types";
-import { MIN_CHAT_WIDTH_SPLIT } from "@/lib/layout/constants";
 import type { SplitViewState } from "@/hooks/useSplitView";
+import { getChatPaneMinWidthPx } from "@/lib/layout/workspace-constraints";
 
 export interface SplitChatPaneProps {
   // Identity
@@ -40,6 +40,7 @@ export interface SplitChatPaneProps {
   // Layout
   widthPercent: number;
   handleSharePx: number;
+  minChatWidth?: number;
   isIsland: boolean;
   shouldAnimate: boolean;
   chatFadeStrength: number;
@@ -126,6 +127,7 @@ function SplitChatPaneInner({
   isActiveSessionPane,
   widthPercent,
   handleSharePx,
+  minChatWidth,
   isIsland,
   shouldAnimate,
   chatFadeStrength,
@@ -198,7 +200,7 @@ function SplitChatPaneInner({
       }`}
       style={{
         width: `calc(${widthPercent}% - ${handleSharePx}px)`,
-        minWidth: MIN_CHAT_WIDTH_SPLIT,
+        minWidth: minChatWidth ?? getChatPaneMinWidthPx("split"),
         flexShrink: 0,
         "--chat-fade-strength": String(chatFadeStrength),
       } as React.CSSProperties}

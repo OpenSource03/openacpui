@@ -8,7 +8,7 @@
 
 import { equalWidthFractions } from "@/lib/layout/constants";
 import type { ToolId, PanelToolId } from "@/types/tools";
-import type { ToolColumn, TopColumnLocation } from "@/types";
+import type { ToolColumn, ToolIslandMemory, TopColumnLocation } from "@/types";
 
 // ── Panel tool runtime values ──
 
@@ -142,4 +142,52 @@ export function findTopInsertIndexAfterSource(itemIds: string[], sourceSessionId
  */
 export function makeToolMemoryKey(sourceSessionId: string, toolId: string): string {
   return `${sourceSessionId}:${toolId}`;
+}
+
+/**
+ * Ensure a newly-created top-row column ID does not collide with a column that
+ * already remains in the layout after the dragged island is removed.
+ */
+export function ensureUniqueColumnId(
+  baseColumnId: string,
+  existingColumnsById: Record<string, ToolColumn>,
+  islandId: string,
+): string {
+  if (!existingColumnsById[baseColumnId]) {
+    return baseColumnId;
+  }
+
+  const islandScopedId = `${baseColumnId}:${islandId}`;
+  if (!existingColumnsById[islandScopedId]) {
+    return islandScopedId;
+  }
+
+  let suffix = 2;
+  let nextId = `${islandScopedId}:${suffix}`;
+  while (existingColumnsById[nextId]) {
+    suffix += 1;
+    nextId = `${islandScopedId}:${suffix}`;
+  }
+
+  return nextId;
+}
+
+export function resolveRememberedTopStackPlacement(
+  memory: ToolIslandMemory | null | undefined,
+  topToolColumnsById: Record<string, ToolColumn>,
+): { columnId: string; stackIndex: number } | null {
+  const columnId = memory?.lastTopColumnId ?? null;
+  if (!columnId) {
+    return null;
+  }
+
+  const column = topToolColumnsById[columnId];
+  if (!column) {
+    return null;
+  }
+
+  return {
+    columnId,
+    stackIndex: normalizeInsertIndex(memory?.lastTopStackIndex ?? column.islandIds.length, column.islandIds.length),
+  };
 }

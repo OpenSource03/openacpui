@@ -9,7 +9,8 @@
 import React from "react";
 import { motion } from "motion/react";
 import { normalizeRatios } from "@/hooks/useSettings";
-import { equalWidthFractions, MIN_CHAT_WIDTH_SPLIT } from "@/lib/layout/constants";
+import { equalWidthFractions, MIN_TOOLS_PANEL_WIDTH } from "@/lib/layout/constants";
+import { getChatPaneMinWidthPx } from "@/lib/layout/workspace-constraints";
 import { getStoredProjectGitCwd } from "@/lib/session/space-projects";
 import { getHorizontalInsertSide, getToolColumnDropIntent } from "@/lib/workspace/drag";
 import { PanelDockControls } from "@/components/PanelDockControls";
@@ -305,7 +306,7 @@ function renderToolColumn(
       className="flex min-h-0 min-w-0 flex-col"
       style={{
         width: `calc(${widthPercent}% - ${handleSharePx}px)`,
-        minWidth: MIN_CHAT_WIDTH_SPLIT,
+        minWidth: MIN_TOOLS_PANEL_WIDTH,
         flexShrink: 0,
       } as React.CSSProperties}
     >
@@ -472,6 +473,7 @@ function SplitTopRowItemInner(props: SplitTopRowItemProps) {
       isActiveSessionPane,
       widthPercent,
       handleSharePx,
+      minChatWidth: getChatPaneMinWidthPx("split"),
       isIsland,
       shouldAnimate: shouldAnimateTopRowLayout,
       chatFadeStrength,

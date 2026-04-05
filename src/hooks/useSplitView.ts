@@ -93,8 +93,36 @@ export interface SplitViewState {
 
 // ── Config (split view uses equal-width fractions) ──
 
+function moveSplitWidthFraction(widthFractions: number[], fromIndex: number, toIndex: number): number[] {
+  if (widthFractions.length <= 1 || fromIndex === toIndex) {
+    return widthFractions;
+  }
+
+  const safeFromIndex = Math.max(0, Math.min(fromIndex, widthFractions.length - 1));
+  const safeToIndex = Math.max(0, Math.min(toIndex, widthFractions.length - 1));
+  if (safeFromIndex === safeToIndex) {
+    return widthFractions;
+  }
+
+  const next = [...widthFractions];
+  const [moved] = next.splice(safeFromIndex, 1);
+  if (moved == null) {
+    return widthFractions;
+  }
+  next.splice(safeToIndex, 0, moved);
+  return next;
+}
+
 const splitConfig: UseToolIslandsConfig = {
-  computeWidthFractions: (change) => equalWidthFractions(change.nextItemCount),
+  computeTopRowLayout: (change, current) => ({
+    widthFractions: change.kind === "column-moved"
+      ? moveSplitWidthFraction(
+        current.widthFractions,
+        change.fromIndex ?? change.changeIndex,
+        change.changeIndex,
+      )
+      : equalWidthFractions(change.nextItemCount),
+  }),
 
   makeIslandId: (_toolId, _sessionId, existingId) => existingId ?? crypto.randomUUID(),
 

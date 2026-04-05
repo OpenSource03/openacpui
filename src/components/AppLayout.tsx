@@ -66,10 +66,16 @@ import {
 } from "@/hooks/useMainToolWorkspace";
 import type { PanelToolId } from "@/types";
 import {
-  MIN_CHAT_WIDTH_SPLIT,
+  MIN_TOOLS_PANEL_WIDTH,
   SPLIT_HANDLE_WIDTH,
 } from "@/lib/layout/constants";
 import { getMaxVisibleSplitPaneCount } from "@/lib/layout/split-layout";
+import {
+  buildConstrainedFractionsFromMinimums,
+  canFitTopRowLayout,
+  getChatPaneMinWidthPx,
+  type TopRowLayoutItemKind,
+} from "@/lib/layout/workspace-constraints";
 import {
   isNearBottomDockZone,
 } from "@/lib/workspace/drag";
@@ -270,6 +276,8 @@ export function AppLayout() {
     widthFractions: splitView.widthFractions,
     setWidthFractions: splitView.setWidthFractions,
     containerRef: splitContainerRef,
+    minWidthsPx: splitView.topRowItems.map((item) => item.kind === "chat" ? getChatPaneMinWidthPx("split") : MIN_TOOLS_PANEL_WIDTH),
+    handleWidthPx: SPLIT_HANDLE_WIDTH,
   });
 
   const mainWorkspaceProjectId = activeSpaceProject?.id ?? activeProjectId ?? null;
@@ -288,6 +296,8 @@ export function AppLayout() {
     widthFractions: mainToolWorkspace.bottomWidthFractions,
     setWidthFractions: mainToolWorkspace.setBottomWidthFractions,
     containerRef: mainBottomRowRef,
+    minWidthsPx: mainToolWorkspace.bottomToolIslands.map(() => MIN_TOOLS_PANEL_WIDTH),
+    handleWidthPx: SPLIT_HANDLE_WIDTH,
   });
 
   const isSplitActive = splitView.enabled;
@@ -528,7 +538,7 @@ export function AppLayout() {
       return splitTopRowItems.map<TopRowRenderEntry>((item) => ({ kind: "item", item }));
     }
 
-    const draggedIslandId = splitDraggedIsland?.id ?? null;
+    const draggedIslandId = splitToolDrag?.islandId ?? splitDraggedIsland?.id ?? null;
     const baseItems: TopRowRenderEntry[] = draggedIslandId
       ? splitTopRowItems.reduce<TopRowRenderEntry[]>((entries, item) => {
         if (item.kind !== "tool-column") {
@@ -568,8 +578,11 @@ export function AppLayout() {
     const next: TopRowRenderEntry[] = [...baseItems];
     const insertIndex = Math.max(0, Math.min(splitToolDrag.targetIndex, next.length));
     next.splice(insertIndex, 0, { kind: "preview" });
-    return next;
-  }, [splitDraggedIsland, splitToolDrag, splitTopRowItems]);
+    const previewKinds = next.map((entry) => entry.kind === "preview" ? "tool-column" : entry.item.kind);
+    return canFitTopRowLayout(previewKinds, availableSplitWidth, "split")
+      ? next
+      : baseItems;
+  }, [availableSplitWidth, splitDraggedIsland, splitToolDrag, splitTopRowItems]);
   const bottomRowRenderEntries = useMemo<Array<
     | { kind: "item"; island: (typeof splitBottomToolIslands)[number] }
     | { kind: "preview" }
@@ -578,7 +591,7 @@ export function AppLayout() {
       return splitBottomToolIslands.map((island) => ({ kind: "item", island }));
     }
 
-    const draggedIslandId = splitDraggedIsland?.id ?? null;
+    const draggedIslandId = splitToolDrag?.islandId ?? splitDraggedIsland?.id ?? null;
     const baseIslands = draggedIslandId
       ? splitBottomToolIslands.filter((island) => island.id !== draggedIslandId)
       : splitBottomToolIslands;
@@ -599,11 +612,31 @@ export function AppLayout() {
   const previewTopRowCount = toolPreviewAffectsTopRowLayout
     ? Math.max(topRowRenderEntries.length, 1)
     : (previewDropPosition === null ? splitView.paneCount : splitView.paneCount + 1);
+  const previewTopRowKinds = useMemo<TopRowLayoutItemKind[]>(() => {
+    if (toolPreviewAffectsTopRowLayout) {
+      return topRowRenderEntries.map((entry) => entry.kind === "preview" ? "tool-column" : entry.item.kind);
+    }
+    if (previewDropPosition === null) {
+      return splitTopRowItems.map((item) => item.kind);
+    }
+    return Array.from({ length: previewTopRowCount }, () => "chat");
+  }, [previewDropPosition, previewTopRowCount, splitTopRowItems, toolPreviewAffectsTopRowLayout, topRowRenderEntries]);
   const previewTopRowFractions = useMemo(
-    () => toolPreviewAffectsTopRowLayout
-      ? equalWidthFractions(previewTopRowCount)
-      : (previewDropPosition === null ? splitView.widthFractions : equalWidthFractions(previewTopRowCount)),
-    [previewDropPosition, previewTopRowCount, splitView.widthFractions, toolPreviewAffectsTopRowLayout],
+    () => buildConstrainedFractionsFromMinimums(
+      previewTopRowKinds,
+      availableSplitWidth,
+      "split",
+      previewDropPosition === null && !toolPreviewAffectsTopRowLayout ? splitView.widthFractions : undefined,
+      SPLIT_HANDLE_WIDTH,
+    ) ?? equalWidthFractions(previewTopRowCount),
+    [
+      availableSplitWidth,
+      previewDropPosition,
+      previewTopRowCount,
+      previewTopRowKinds,
+      splitView.widthFractions,
+      toolPreviewAffectsTopRowLayout,
+    ],
   );
   const bottomRowPreviewAffectsLayout = !!splitToolDrag && (
     splitToolDrag.targetArea === "bottom"
@@ -622,6 +655,8 @@ export function AppLayout() {
     widthFractions: splitView.bottomWidthFractions,
     setWidthFractions: splitView.setBottomWidthFractions,
     containerRef: splitBottomRowRef,
+    minWidthsPx: splitBottomToolIslands.map(() => MIN_TOOLS_PANEL_WIDTH),
+    handleWidthPx: SPLIT_HANDLE_WIDTH,
   });
   const splitBottomHeightResize = useBottomHeightResize(splitView.bottomHeight, splitView.setBottomHeight);
   const mainBottomHeightResize = useBottomHeightResize(mainToolWorkspace.bottomHeight, mainToolWorkspace.setBottomHeight);
@@ -730,9 +765,7 @@ export function AppLayout() {
     mainToolRelativeFractions,
     maxMainTopToolColumns,
     canAddMainTopColumn,
-    effectiveMainChatFraction,
     effectiveMainToolAreaFraction,
-    mainMinChatFraction,
     canFitToolAsNewColumn,
   } = mainLayout;
   mainCombinedWorkspaceWidthRef.current = mainCombinedWorkspaceWidth;
@@ -747,10 +780,10 @@ export function AppLayout() {
     mainToolWorkspace,
     mainTopToolColumnCount,
     mainCombinedWorkspaceWidth,
-    mainMinChatFraction,
-    effectiveMainChatFraction,
-    effectiveMainToolAreaFraction,
     mainToolRelativeFractions,
+    mainWorkspaceChatMinWidth,
+    mainToolAreaWidth,
+    outerHandleWidth: handleW,
   });
   const isMainToolAreaResizing = mainToolAreaResize.isResizing;
 
@@ -770,7 +803,7 @@ export function AppLayout() {
     const { widthPercent, handleSharePx } = getPreviewPaneMetrics(singlePanePreviewPosition);
     return {
       width: `calc(${widthPercent}% - ${handleSharePx}px)`,
-      minWidth: MIN_CHAT_WIDTH_SPLIT,
+      minWidth: getChatPaneMinWidthPx("split"),
     } as React.CSSProperties;
   }, [getPreviewPaneMetrics, singlePanePreviewPosition]);
 
@@ -1094,12 +1127,12 @@ export function AppLayout() {
                     const dropZoneMetrics = getPreviewPaneMetrics(dropZonePreviewIndex);
                     const dropZoneStyle = {
                       width: `calc(${dropZoneMetrics.widthPercent}% - ${dropZoneMetrics.handleSharePx}px + ${SPLIT_HANDLE_WIDTH}px)`,
-                      minWidth: MIN_CHAT_WIDTH_SPLIT,
+                      minWidth: getChatPaneMinWidthPx("split"),
                     } as React.CSSProperties;
                     const previewPaneMetrics = getPreviewPaneMetrics(displayIndex);
                     const previewPaneStyle = {
                       width: `calc(${previewPaneMetrics.widthPercent}% - ${previewPaneMetrics.handleSharePx}px)`,
-                      minWidth: MIN_CHAT_WIDTH_SPLIT,
+                      minWidth: MIN_TOOLS_PANEL_WIDTH,
                     } as React.CSSProperties;
                     const insertBeforeIndex = topRowRenderEntries
                       .slice(0, displayIndex)
@@ -1596,6 +1629,7 @@ export function AppLayout() {
                 shouldAnimateTopRowLayout,
                 showSinglePaneSplitPreview,
                 toolAreaWidth: mainToolAreaWidth,
+                toolRelativeFractions: mainToolRelativeFractions,
                 isOuterResizeActive: isMainToolAreaResizing,
                 canAddMainTopColumn,
                 onOuterResizeStart: mainToolAreaResize.handleResizeStart,

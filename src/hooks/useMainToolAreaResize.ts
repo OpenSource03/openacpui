@@ -9,16 +9,16 @@
 
 import { useCallback, useState } from "react";
 import type { MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
-import { MIN_TOOLS_PANEL_WIDTH } from "@/lib/layout/constants";
+import { resolveMainToolAreaLeadingColumnResize } from "@/lib/workspace/main-tool-widths";
 
 export interface UseMainToolAreaResizeInput {
   mainToolWorkspace: MainToolWorkspaceState;
   mainTopToolColumnCount: number;
   mainCombinedWorkspaceWidth: number;
-  mainMinChatFraction: number;
-  effectiveMainChatFraction: number;
-  effectiveMainToolAreaFraction: number;
   mainToolRelativeFractions: number[];
+  mainWorkspaceChatMinWidth: number;
+  mainToolAreaWidth: number;
+  outerHandleWidth: number;
 }
 
 export interface UseMainToolAreaResizeReturn {
@@ -33,10 +33,10 @@ export function useMainToolAreaResize(
     mainToolWorkspace,
     mainTopToolColumnCount,
     mainCombinedWorkspaceWidth,
-    mainMinChatFraction,
-    effectiveMainChatFraction,
-    effectiveMainToolAreaFraction,
     mainToolRelativeFractions,
+    mainWorkspaceChatMinWidth,
+    mainToolAreaWidth,
+    outerHandleWidth,
   } = input;
 
   const [isResizing, setIsResizing] = useState(false);
@@ -48,48 +48,20 @@ export function useMainToolAreaResize(
       event.preventDefault();
       setIsResizing(true);
       const startX = event.clientX;
-      const startFractions = [
-        effectiveMainChatFraction,
-        ...mainToolRelativeFractions.map(
-          (fraction) => fraction * effectiveMainToolAreaFraction,
-        ),
-      ];
-      const firstToolFraction = startFractions[1] ?? 0;
-      const otherToolFractions = startFractions.slice(2);
-      const otherToolFractionTotal = otherToolFractions.reduce(
-        (sum, fraction) => sum + fraction,
-        0,
-      );
-      const minFirstToolFraction = Math.min(
-        0.92,
-        MIN_TOOLS_PANEL_WIDTH / mainCombinedWorkspaceWidth,
-      );
-      const maxFirstToolFraction = Math.max(
-        minFirstToolFraction,
-        1 - otherToolFractionTotal - mainMinChatFraction,
-      );
+      const startToolAreaWidth = mainToolAreaWidth;
 
       const handleMove = (moveEvent: MouseEvent) => {
-        const deltaFraction =
-          (startX - moveEvent.clientX) / mainCombinedWorkspaceWidth;
-        const nextFirstToolFraction = Math.max(
-          minFirstToolFraction,
-          Math.min(maxFirstToolFraction, firstToolFraction + deltaFraction),
-        );
-        const nextChatFraction = Math.max(
-          0,
-          1 - otherToolFractionTotal - nextFirstToolFraction,
-        );
-        const nextToolAreaFraction = Math.max(0, 1 - nextChatFraction);
-        // Fractions are already clamped above — bypass double-clamping via setWidthFractionsDirect
-        mainToolWorkspace.setWidthFractionsDirect([
-          nextChatFraction,
-          nextFirstToolFraction,
-          ...otherToolFractions,
-        ]);
-        mainToolWorkspace.setPreferredTopAreaWidthPx(
-          nextToolAreaFraction * mainCombinedWorkspaceWidth,
-        );
+        const deltaPx = startX - moveEvent.clientX;
+        const nextLayout = resolveMainToolAreaLeadingColumnResize({
+          startToolAreaWidth,
+          desiredToolAreaWidth: startToolAreaWidth + deltaPx,
+          workspaceWidth: mainCombinedWorkspaceWidth,
+          minChatWidth: mainWorkspaceChatMinWidth,
+          toolRelativeFractions: mainToolRelativeFractions,
+          outerHandleWidth,
+        });
+        mainToolWorkspace.setWidthFractionsDirect(nextLayout.widthFractions);
+        mainToolWorkspace.setPreferredTopAreaWidthPx(nextLayout.preferredTopAreaWidthPx);
       };
 
       const handleUp = () => {
@@ -102,13 +74,13 @@ export function useMainToolAreaResize(
       document.addEventListener("mouseup", handleUp);
     },
     [
-      effectiveMainChatFraction,
-      effectiveMainToolAreaFraction,
       mainCombinedWorkspaceWidth,
-      mainMinChatFraction,
       mainToolRelativeFractions,
+      mainToolAreaWidth,
       mainToolWorkspace,
       mainTopToolColumnCount,
+      mainWorkspaceChatMinWidth,
+      outerHandleWidth,
     ],
   );
 

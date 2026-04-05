@@ -9,17 +9,21 @@ import { useCallback, useMemo } from "react";
 import { normalizeRatios } from "@/hooks/useSettings";
 import type { MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
 import type { ToolDragState, ToolIsland } from "@/types";
-import type { ToolId } from "@/types/tools";
+import type { PanelToolId, ToolId } from "@/types/tools";
 import {
   DEFAULT_TOOL_PREFERRED_WIDTH,
-  MIN_CHAT_WIDTH_SPLIT,
+  getMinChatWidth,
   MIN_TOOLS_PANEL_WIDTH,
   SPLIT_HANDLE_WIDTH,
   TOOL_PREFERRED_WIDTHS,
 } from "@/lib/layout/constants";
-import { getMinChatWidth } from "@/lib/layout/constants";
-import { resolveMainToolAreaWidth } from "@/lib/workspace/main-tool-widths";
+import {
+  projectMainToolWidthChange,
+  resolveProjectedMainToolWidthChange,
+  resolveMainToolAreaWidth,
+} from "@/lib/workspace/main-tool-widths";
 import { getRequiredToolIslandsWidth } from "@/lib/workspace/drag";
+import { getChatPaneMinWidthPx } from "@/lib/layout/workspace-constraints";
 
 export interface MainToolAreaLayoutInput {
   mainToolWorkspace: MainToolWorkspaceState;
@@ -59,7 +63,6 @@ export function useMainToolAreaLayout(input: MainToolAreaLayoutInput): MainToolA
     mainDraggedIsland,
     availableSplitWidth,
     hasActiveSession,
-    isIsland,
     showToolPicker,
     hasRightPanel,
     pickerW,
@@ -67,13 +70,37 @@ export function useMainToolAreaLayout(input: MainToolAreaLayoutInput): MainToolA
     rightPanelWidth,
   } = input;
 
-  const minChatWidth = getMinChatWidth(isIsland);
   const mainTopToolColumnCount = mainToolWorkspace.topRowItems.length;
-
-  // Use the reduced split min-width whenever there's an active session, since tool islands
-  // can be added at any time. This avoids a layout jump when the first tool column
-  // is opened or the last one is closed.
-  const mainWorkspaceChatMinWidth = hasActiveSession ? MIN_CHAT_WIDTH_SPLIT : minChatWidth;
+  const mainWorkspaceChatMinWidth = hasActiveSession ? getChatPaneMinWidthPx("single") : getMinChatWidth(input.isIsland);
+  const draggedTopColumnIslandCount = useMemo(() => {
+    if (!mainDraggedIsland || mainDraggedIsland.dock !== "top") return 0;
+    for (const item of mainToolWorkspace.topRowItems) {
+      if (item.islands.some((island) => island.id === mainDraggedIsland.id)) {
+        return item.islands.length;
+      }
+    }
+    return 0;
+  }, [mainDraggedIsland, mainToolWorkspace.topRowItems]);
+  const draggedTopColumnId = useMemo(() => {
+    if (!mainDraggedIsland || mainDraggedIsland.dock !== "top") return null;
+    for (let index = 0; index < mainToolWorkspace.topRowItems.length; index++) {
+      const item = mainToolWorkspace.topRowItems[index]!;
+      if (item.islands.some((island) => island.id === mainDraggedIsland.id)) {
+        return item.column.id;
+      }
+    }
+    return null;
+  }, [mainDraggedIsland, mainToolWorkspace.topRowItems]);
+  const draggedTopColumnIndex = useMemo(() => {
+    if (!mainDraggedIsland || mainDraggedIsland.dock !== "top") return null;
+    for (let index = 0; index < mainToolWorkspace.topRowItems.length; index++) {
+      const item = mainToolWorkspace.topRowItems[index]!;
+      if (item.islands.some((island) => island.id === mainDraggedIsland.id)) {
+        return index;
+      }
+    }
+    return null;
+  }, [mainDraggedIsland, mainToolWorkspace.topRowItems]);
 
   const mainHasToolWorkspace =
     mainTopToolColumnCount > 0 ||
@@ -94,20 +121,39 @@ export function useMainToolAreaLayout(input: MainToolAreaLayoutInput): MainToolA
     mainToolDrag?.targetArea === "top" ||
     mainToolDrag?.targetArea === "top-stack";
 
+  const topInsertCreatesColumn = !!mainToolDrag && (
+    !mainDraggedIsland
+    || mainDraggedIsland.dock !== "top"
+    || draggedTopColumnIslandCount > 1
+  );
+  const dragCreatesTopColumn = mainToolDrag?.targetArea === "top" && (
+    topInsertCreatesColumn
+  );
+  const dragMovesTopColumn = mainToolDrag?.targetArea === "top"
+    && !!mainDraggedIsland
+    && mainDraggedIsland.dock === "top"
+    && draggedTopColumnIslandCount === 1
+    && draggedTopColumnIndex != null;
+  const dragRemovesTopColumn = !!mainDraggedIsland
+    && mainDraggedIsland.dock === "top"
+    && draggedTopColumnIslandCount === 1
+    && (
+      (mainToolDrag?.targetArea === "top-stack"
+        && !!mainToolDrag.targetColumnId
+        && mainToolDrag.targetColumnId !== draggedTopColumnId)
+      || mainToolDrag?.targetArea === "bottom"
+    );
+
   const mainTopPreviewColumnCount =
     mainTopToolColumnCount +
-    (mainToolDrag?.targetArea === "top" && mainDraggedIsland?.dock !== "top" ? 1 : 0);
+    (dragCreatesTopColumn ? 1 : 0) -
+    (dragRemovesTopColumn ? 1 : 0);
 
   const mainRequiredToolWidth = mainShowTopToolArea
     ? getRequiredToolIslandsWidth(Math.max(mainTopPreviewColumnCount, 1))
     : 0;
 
-  const {
-    toolAreaWidth: mainToolAreaWidth,
-    toolAreaFraction: effectiveMainToolAreaFraction,
-    chatFraction: effectiveMainChatFraction,
-    minChatFraction: mainMinChatFraction,
-  } = resolveMainToolAreaWidth({
+  const resolvedMainToolArea = resolveMainToolAreaWidth({
     preferredTopAreaWidthPx: mainToolWorkspace.preferredTopAreaWidthPx,
     widthFractions: mainToolWorkspace.widthFractions,
     workspaceWidth: mainCombinedWorkspaceWidth,
@@ -115,13 +161,152 @@ export function useMainToolAreaLayout(input: MainToolAreaLayoutInput): MainToolA
     requiredToolWidth: mainShowTopToolArea ? mainRequiredToolWidth : 0,
     showToolArea: mainShowTopToolArea,
   });
+  const addColumnProjection = useMemo(() => {
+    if (!mainToolDrag || !topInsertCreatesColumn || mainCombinedWorkspaceWidth <= 0) {
+      return null;
+    }
+
+    const rememberedWidthFraction = mainToolDrag.toolId in TOOL_PREFERRED_WIDTHS
+      ? mainToolWorkspace.getRememberedWidthFraction(mainToolDrag.toolId as PanelToolId)
+      : null;
+    const projection = projectMainToolWidthChange({
+      preferredTopAreaWidthPx: mainToolWorkspace.preferredTopAreaWidthPx,
+      widthFractions: mainToolWorkspace.widthFractions,
+      workspaceWidth: mainCombinedWorkspaceWidth,
+      minChatWidth: mainWorkspaceChatMinWidth,
+      change: {
+        kind: "column-added",
+        prevItemCount: mainTopToolColumnCount,
+        nextItemCount: mainTopToolColumnCount + 1,
+        changeIndex: 0,
+        toolHint: {
+          toolId: mainToolDrag.toolId,
+          lastWidthFraction: rememberedWidthFraction ?? undefined,
+        },
+      },
+    });
+
+    return resolveProjectedMainToolWidthChange({
+      projection,
+      workspaceWidth: mainCombinedWorkspaceWidth,
+      minChatWidth: mainWorkspaceChatMinWidth,
+      nextToolColumnCount: mainTopToolColumnCount + 1,
+    });
+  }, [
+    topInsertCreatesColumn,
+    mainCombinedWorkspaceWidth,
+    mainToolDrag,
+    mainToolWorkspace.getRememberedWidthFraction,
+    mainToolWorkspace.preferredTopAreaWidthPx,
+    mainToolWorkspace.widthFractions,
+    mainTopToolColumnCount,
+    mainWorkspaceChatMinWidth,
+  ]);
+  const previewInsertIndex = Math.max(0, Math.min(mainToolDrag?.targetIndex ?? mainTopToolColumnCount, mainTopToolColumnCount));
+  const previewProjection = useMemo(() => {
+    if (mainCombinedWorkspaceWidth <= 0) {
+      return null;
+    }
+
+    if (dragCreatesTopColumn && mainToolDrag?.targetArea === "top") {
+      const rememberedWidthFraction = mainToolDrag.toolId in TOOL_PREFERRED_WIDTHS
+        ? mainToolWorkspace.getRememberedWidthFraction(mainToolDrag.toolId as PanelToolId)
+        : null;
+      const projection = projectMainToolWidthChange({
+        preferredTopAreaWidthPx: mainToolWorkspace.preferredTopAreaWidthPx,
+        widthFractions: mainToolWorkspace.widthFractions,
+        workspaceWidth: mainCombinedWorkspaceWidth,
+        minChatWidth: mainWorkspaceChatMinWidth,
+        change: {
+          kind: "column-added",
+          prevItemCount: mainTopToolColumnCount,
+          nextItemCount: mainTopToolColumnCount + 1,
+          changeIndex: previewInsertIndex,
+          toolHint: {
+            toolId: mainToolDrag.toolId,
+            lastWidthFraction: rememberedWidthFraction ?? undefined,
+          },
+        },
+      });
+      return resolveProjectedMainToolWidthChange({
+        projection,
+        workspaceWidth: mainCombinedWorkspaceWidth,
+        minChatWidth: mainWorkspaceChatMinWidth,
+        nextToolColumnCount: mainTopToolColumnCount + 1,
+      });
+    }
+
+    if (dragMovesTopColumn && draggedTopColumnIndex != null) {
+      const projection = projectMainToolWidthChange({
+        preferredTopAreaWidthPx: mainToolWorkspace.preferredTopAreaWidthPx,
+        widthFractions: mainToolWorkspace.widthFractions,
+        workspaceWidth: mainCombinedWorkspaceWidth,
+        minChatWidth: mainWorkspaceChatMinWidth,
+        change: {
+          kind: "column-moved",
+          prevItemCount: mainTopToolColumnCount,
+          nextItemCount: mainTopToolColumnCount,
+          changeIndex: previewInsertIndex,
+          fromIndex: draggedTopColumnIndex,
+        },
+      });
+      return resolveProjectedMainToolWidthChange({
+        projection,
+        workspaceWidth: mainCombinedWorkspaceWidth,
+        minChatWidth: mainWorkspaceChatMinWidth,
+        nextToolColumnCount: mainTopToolColumnCount,
+      });
+    }
+
+    if (dragRemovesTopColumn) {
+      const projection = projectMainToolWidthChange({
+        preferredTopAreaWidthPx: mainToolWorkspace.preferredTopAreaWidthPx,
+        widthFractions: mainToolWorkspace.widthFractions,
+        workspaceWidth: mainCombinedWorkspaceWidth,
+        minChatWidth: mainWorkspaceChatMinWidth,
+        change: {
+          kind: "column-removed",
+          prevItemCount: mainTopToolColumnCount,
+          nextItemCount: Math.max(0, mainTopToolColumnCount - 1),
+          changeIndex: draggedTopColumnIndex ?? 0,
+        },
+      });
+      return resolveProjectedMainToolWidthChange({
+        projection,
+        workspaceWidth: mainCombinedWorkspaceWidth,
+        minChatWidth: mainWorkspaceChatMinWidth,
+        nextToolColumnCount: Math.max(0, mainTopToolColumnCount - 1),
+      });
+    }
+
+    return null;
+  }, [
+    dragRemovesTopColumn,
+    dragCreatesTopColumn,
+    dragMovesTopColumn,
+    draggedTopColumnId,
+    draggedTopColumnIndex,
+    mainCombinedWorkspaceWidth,
+    mainToolDrag?.targetArea,
+    mainToolDrag?.targetColumnId,
+    mainToolDrag?.toolId,
+    mainToolWorkspace.getRememberedWidthFraction,
+    mainToolWorkspace.preferredTopAreaWidthPx,
+    mainToolWorkspace.widthFractions,
+    mainTopToolColumnCount,
+    mainWorkspaceChatMinWidth,
+    previewInsertIndex,
+  ]);
+  const effectiveMainToolAreaWidth = previewProjection?.toolAreaWidth ?? resolvedMainToolArea.toolAreaWidth;
 
   const mainToolRelativeFractions = useMemo(
     () =>
-      mainTopToolColumnCount > 0
-        ? normalizeRatios(mainToolWorkspace.widthFractions.slice(1), mainTopToolColumnCount)
+      previewProjection
+        ? previewProjection.toolRelativeFractions
+        : mainTopToolColumnCount > 0
+          ? normalizeRatios(mainToolWorkspace.widthFractions.slice(1), mainTopToolColumnCount)
         : [],
-    [mainToolWorkspace.widthFractions, mainTopToolColumnCount],
+    [mainToolWorkspace.widthFractions, mainTopToolColumnCount, previewProjection],
   );
 
   const maxMainTopToolColumns = Math.max(
@@ -131,9 +316,8 @@ export function useMainToolAreaLayout(input: MainToolAreaLayoutInput): MainToolA
     ),
   );
 
-  const isAddingMainTopColumn = !mainDraggedIsland || mainDraggedIsland.dock !== "top";
-  const canAddMainTopColumn = isAddingMainTopColumn
-    ? mainTopToolColumnCount < maxMainTopToolColumns
+  const canAddMainTopColumn = topInsertCreatesColumn
+    ? addColumnProjection != null
     : mainTopToolColumnCount <= maxMainTopToolColumns;
 
   /** Check if a specific tool can fit as a new column at its preferred width. */
@@ -141,10 +325,10 @@ export function useMainToolAreaLayout(input: MainToolAreaLayoutInput): MainToolA
     (toolId: ToolId): boolean => {
       const preferredPx = TOOL_PREFERRED_WIDTHS[toolId] ?? DEFAULT_TOOL_PREFERRED_WIDTH;
       const handleCost = mainTopToolColumnCount > 0 ? SPLIT_HANDLE_WIDTH : 0;
-      const totalNeeded = mainToolAreaWidth + handleCost + preferredPx;
+      const totalNeeded = effectiveMainToolAreaWidth + handleCost + preferredPx;
       return mainCombinedWorkspaceWidth - totalNeeded >= mainWorkspaceChatMinWidth;
     },
-    [mainToolAreaWidth, mainTopToolColumnCount, mainCombinedWorkspaceWidth, mainWorkspaceChatMinWidth],
+    [effectiveMainToolAreaWidth, mainTopToolColumnCount, mainCombinedWorkspaceWidth, mainWorkspaceChatMinWidth],
   );
 
   return {
@@ -154,13 +338,13 @@ export function useMainToolAreaLayout(input: MainToolAreaLayoutInput): MainToolA
     mainCombinedWorkspaceWidth,
     mainMaxToolAreaWidth,
     mainShowTopToolArea,
-    mainToolAreaWidth,
+    mainToolAreaWidth: effectiveMainToolAreaWidth,
     mainToolRelativeFractions,
     maxMainTopToolColumns,
     canAddMainTopColumn,
-    effectiveMainChatFraction,
-    effectiveMainToolAreaFraction,
-    mainMinChatFraction,
+    effectiveMainChatFraction: previewProjection?.chatFraction ?? resolvedMainToolArea.chatFraction,
+    effectiveMainToolAreaFraction: previewProjection?.toolAreaFraction ?? resolvedMainToolArea.toolAreaFraction,
+    mainMinChatFraction: resolvedMainToolArea.minChatFraction,
     canFitToolAsNewColumn,
   };
 }

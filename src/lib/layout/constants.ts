@@ -74,8 +74,8 @@ export const MAX_SPLIT_PANES = 4;
 /** Maximum number of extra panes (beyond the primary). */
 export const MAX_EXTRA_PANES = MAX_SPLIT_PANES - 1;
 
-/** Minimum chat pane width in split mode — reduced from 704px to fit multiple panes. */
-export const MIN_CHAT_WIDTH_SPLIT = 400;
+/** Minimum chat pane width in split mode. */
+export const MIN_CHAT_WIDTH_SPLIT = 458;
 
 /** Split handle width between panes. */
 export const SPLIT_HANDLE_WIDTH = ISLAND_PANEL_GAP;
@@ -107,10 +107,11 @@ export const SPLIT_DROP_ZONE_WIDTH = 200;
 /** Minimum window width for split view (sidebar + margin + N panes + handles). */
 export function getMinSplitViewWindowWidth(platform: string, paneCount = 2): number {
   const handles = Math.max(0, paneCount - 1) * SPLIT_HANDLE_WIDTH;
+  const splitPaneMinWidth = 458;
   const width =
     APP_SIDEBAR_WIDTH +
     ISLAND_LAYOUT_MARGIN +
-    MIN_CHAT_WIDTH_SPLIT * paneCount +
+    splitPaneMinWidth * paneCount +
     handles;
 
   return platform === "win32" ? width + WINDOWS_FRAME_BUFFER_WIDTH : width;

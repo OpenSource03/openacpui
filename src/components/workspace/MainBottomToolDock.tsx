@@ -62,7 +62,7 @@ export function MainBottomToolDock({
     | { kind: "preview" }
   > = (() => {
     const draggedIslandId = mainToolDrag?.targetArea !== null
-      ? (mainDraggedIsland?.id ?? null)
+      ? (mainToolDrag?.islandId ?? mainDraggedIsland?.id ?? null)
       : null;
     const baseIslands = draggedIslandId
       ? workspace.bottomToolIslands.filter((island) => island.id !== draggedIslandId)

@@ -22,6 +22,8 @@ import {
   makeToolColumnItemId,
   normalizeInsertIndex,
   removeIslandFromTopColumns,
+  ensureUniqueColumnId,
+  resolveRememberedTopStackPlacement,
 } from "@/lib/workspace/tool-island-utils";
 import type {
   PanelToolId,
@@ -63,21 +65,28 @@ export function emptyToolIslandsState(): ToolIslandsState {
 // ── Top-row change descriptor (passed to width fraction callback) ──
 
 export interface TopRowChange {
-  kind: "column-added" | "column-removed" | "count-changed";
+  kind: "column-added" | "column-removed" | "column-moved" | "count-changed";
   prevFractions: number[];
   prevItemCount: number;
   nextItemCount: number;
   /** Top-row index of the added/removed column (only meaningful for add/remove). */
   changeIndex: number;
+  /** Source top-row index for column moves. */
+  fromIndex?: number;
   /** Optional hint for the tool being added (only present for "column-added"). */
   toolHint?: { toolId: string; lastWidthFraction?: number };
+}
+
+export interface TopRowLayoutComputation {
+  widthFractions: number[];
+  preferredTopAreaWidthPx?: number | null;
 }
 
 // ── Config ──
 
 export interface UseToolIslandsConfig {
   /** Compute new width fractions when the top row changes. */
-  computeWidthFractions: (change: TopRowChange, current: ToolIslandsState) => number[];
+  computeTopRowLayout: (change: TopRowChange, current: ToolIslandsState) => TopRowLayoutComputation;
 
   /** Generate a unique island ID for a tool+session combo. */
   makeIslandId: (toolId: PanelToolId, sourceSessionId: string, existingId: string | null) => string;
@@ -270,25 +279,30 @@ export function useToolIslands(
 
   // ── Helper: compute next width fractions ──
 
-  const computeNextFractions = (
+  const computeNextTopRowLayout = (
     current: ToolIslandsState,
     prevItemCount: number,
     nextItemIds: string[],
-    changeKind: "column-added" | "column-removed" | "count-changed",
+    changeKind: "column-added" | "column-removed" | "column-moved" | "count-changed",
     changeIndex: number,
     toolHint?: TopRowChange["toolHint"],
-  ): number[] => {
+    fromIndex?: number,
+  ): TopRowLayoutComputation => {
     const nextItemCount = nextItemIds.length;
     if (changeKind === "count-changed" && nextItemCount === prevItemCount) {
       // No actual count change — preserve existing fractions
-      return current.widthFractions;
+      return {
+        widthFractions: current.widthFractions,
+        preferredTopAreaWidthPx: current.preferredTopAreaWidthPx,
+      };
     }
-    return configRef.current.computeWidthFractions({
+    return configRef.current.computeTopRowLayout({
       kind: changeKind,
       prevFractions: current.widthFractions,
       prevItemCount,
       nextItemCount,
       changeIndex,
+      fromIndex,
       toolHint,
     }, current);
   };
@@ -317,25 +331,51 @@ export function useToolIslands(
         const nextBottomToolIslandIds = current.bottomToolIslandIds.filter((entry) => entry !== islandId);
         let nextTopRowItemIds = topRemoval.nextTopRowItemIds;
         const nextTopToolColumnsById = { ...topRemoval.nextTopToolColumnsById };
+        const currentTopWidthFraction = topRemoval.location
+          ? cfg.getColumnWidthFraction?.(current, topRemoval.location.topRowIndex)
+          : undefined;
         let nextTopIndex = topRemoval.location?.topRowIndex ?? memory?.lastTopIndex ?? null;
         let nextBottomIndex = findBottomToolIndex(current.bottomToolIslandIds, islandId) ?? memory?.lastBottomIndex ?? null;
+        let nextTopColumnId = topRemoval.location?.columnId ?? memory?.lastTopColumnId ?? null;
+        let nextTopStackIndex = topRemoval.location?.stackIndex ?? memory?.lastTopStackIndex ?? null;
 
         // Compute intermediate top-row count (after removal, before re-insertion)
         const prevTopCount = topRemoval.nextTopRowItemIds.length;
 
         if (resolvedDock === "top") {
-          const defaultInsert = cfg.findDefaultTopInsertIndex(nextTopRowItemIds, sourceSessionId);
-          nextTopIndex = normalizeInsertIndex(position ?? memory?.lastTopIndex ?? defaultInsert, nextTopRowItemIds.length);
+          const rememberedPlacement = position === undefined && !existing
+            ? resolveRememberedTopStackPlacement(memory, nextTopToolColumnsById)
+            : null;
+          if (rememberedPlacement) {
+            const resolvedColumn = nextTopToolColumnsById[rememberedPlacement.columnId];
+            if (!resolvedColumn) return current;
+            const nextIslandIds = [...resolvedColumn.islandIds];
+            nextIslandIds.splice(rememberedPlacement.stackIndex, 0, islandId);
+            nextTopToolColumnsById[rememberedPlacement.columnId] = {
+              ...resolvedColumn,
+              islandIds: nextIslandIds,
+              splitRatios: equalWidthFractions(nextIslandIds.length),
+            };
+            nextTopIndex = nextTopRowItemIds.indexOf(makeToolColumnItemId(rememberedPlacement.columnId));
+            nextTopColumnId = rememberedPlacement.columnId;
+            nextTopStackIndex = rememberedPlacement.stackIndex;
+          } else {
+            const defaultInsert = cfg.findDefaultTopInsertIndex(nextTopRowItemIds, sourceSessionId);
+            nextTopIndex = normalizeInsertIndex(position ?? memory?.lastTopIndex ?? defaultInsert, nextTopRowItemIds.length);
 
-          // Reuse column if the island was alone in one, otherwise create new
-          const columnId = cfg.makeColumnId(
-            toolId,
-            islandId,
-            topRemoval.location?.islandCount === 1 ? topRemoval.location.columnId : null,
-          );
-          nextTopToolColumnsById[columnId] = { id: columnId, islandIds: [islandId], splitRatios: [1] };
-          nextTopRowItemIds = [...nextTopRowItemIds];
-          nextTopRowItemIds.splice(nextTopIndex, 0, makeToolColumnItemId(columnId));
+            // Reuse column if the island was alone in one, otherwise create new
+            const proposedColumnId = cfg.makeColumnId(
+              toolId,
+              islandId,
+              topRemoval.location?.islandCount === 1 ? topRemoval.location.columnId : null,
+            );
+            const columnId = ensureUniqueColumnId(proposedColumnId, nextTopToolColumnsById, islandId);
+            nextTopToolColumnsById[columnId] = { id: columnId, islandIds: [islandId], splitRatios: [1] };
+            nextTopRowItemIds = [...nextTopRowItemIds];
+            nextTopRowItemIds.splice(nextTopIndex, 0, makeToolColumnItemId(columnId));
+            nextTopColumnId = columnId;
+            nextTopStackIndex = 0;
+          }
         } else {
           nextBottomIndex = normalizeInsertIndex(
             position ?? memory?.lastBottomIndex ?? nextBottomToolIslandIds.length,
@@ -347,16 +387,38 @@ export function useToolIslands(
         // Compute next width fractions
         const addedColumn = resolvedDock === "top" && nextTopRowItemIds.length > prevTopCount;
         const toolHint = addedColumn ? { toolId, lastWidthFraction: memory?.lastWidthFraction } : undefined;
-        const nextWidthFractions = addedColumn
-          ? computeNextFractions(current, prevTopCount, nextTopRowItemIds, "column-added", nextTopIndex ?? 0, toolHint)
-          : computeNextFractions(current, prevTopCount, nextTopRowItemIds, "count-changed", 0);
+        const movesExistingTopColumn = !!existing
+          && existing.dock === "top"
+          && topRemoval.location?.islandCount === 1
+          && resolvedDock === "top";
+        const nextTopRowLayout = movesExistingTopColumn
+          ? computeNextTopRowLayout(
+            current,
+            current.topRowItemIds.length,
+            nextTopRowItemIds,
+            "column-moved",
+            nextTopIndex ?? 0,
+            undefined,
+            topRemoval.location?.topRowIndex,
+          )
+          : addedColumn
+            ? computeNextTopRowLayout(
+              current,
+              prevTopCount,
+              nextTopRowItemIds,
+              "column-added",
+              nextTopIndex ?? 0,
+              toolHint,
+            )
+            : computeNextTopRowLayout(current, prevTopCount, nextTopRowItemIds, "count-changed", 0);
 
         openedIslandId = islandId;
         return {
           ...current,
           topRowItemIds: nextTopRowItemIds,
           topToolColumnsById: nextTopToolColumnsById,
-          widthFractions: nextWidthFractions,
+          widthFractions: nextTopRowLayout.widthFractions,
+          preferredTopAreaWidthPx: nextTopRowLayout.preferredTopAreaWidthPx ?? current.preferredTopAreaWidthPx,
           bottomToolIslandIds: nextBottomToolIslandIds,
           bottomWidthFractions: nextBottomToolIslandIds.length > 0
             ? equalWidthFractions(nextBottomToolIslandIds.length)
@@ -370,7 +432,9 @@ export function useToolIslands(
             [memoryKey]: {
               islandId, persistKey, lastDock: resolvedDock,
               lastTopIndex: nextTopIndex, lastBottomIndex: nextBottomIndex,
-              lastWidthFraction: memory?.lastWidthFraction,
+              lastTopColumnId: nextTopColumnId,
+              lastTopStackIndex: nextTopStackIndex,
+              lastWidthFraction: currentTopWidthFraction ?? memory?.lastWidthFraction,
             },
           },
         };
@@ -415,11 +479,23 @@ export function useToolIslands(
         const topRemoval = removeIslandFromTopColumns(current.topRowItemIds, current.topToolColumnsById, islandId);
         const nextBottomToolIslandIds = current.bottomToolIslandIds.filter((entry) => entry !== islandId);
         const nextTopToolColumnsById = { ...topRemoval.nextTopToolColumnsById };
+        const currentTopWidthFraction = topRemoval.location
+          ? cfg.getColumnWidthFraction?.(current, topRemoval.location.topRowIndex)
+          : undefined;
         const resolvedColumn = nextTopToolColumnsById[columnId];
         if (!resolvedColumn) return current;
 
         // Insert into the column's stack
-        const insertIndex = normalizeInsertIndex(position, resolvedColumn.islandIds.length);
+        const rememberedStackIndex = position === undefined
+          && !existing
+          && memory?.lastDock === "top"
+          && memory.lastTopColumnId === columnId
+          ? memory.lastTopStackIndex ?? undefined
+          : undefined;
+        const insertIndex = normalizeInsertIndex(
+          position ?? rememberedStackIndex,
+          resolvedColumn.islandIds.length,
+        );
         const nextIslandIds = [...resolvedColumn.islandIds];
         nextIslandIds.splice(insertIndex, 0, islandId);
         nextTopToolColumnsById[columnId] = {
@@ -431,9 +507,18 @@ export function useToolIslands(
         // Stacking within a column doesn't change the column count — preserve fractions
         const nextTopRowItemIds = topRemoval.nextTopRowItemIds;
         const prevTopCount = current.topRowItemIds.length;
-        const nextWidthFractions = nextTopRowItemIds.length === prevTopCount
-          ? current.widthFractions
-          : computeNextFractions(current, prevTopCount, nextTopRowItemIds, "count-changed", 0);
+        const nextTopRowLayout = nextTopRowItemIds.length === prevTopCount
+          ? {
+            widthFractions: current.widthFractions,
+            preferredTopAreaWidthPx: current.preferredTopAreaWidthPx,
+          }
+          : computeNextTopRowLayout(
+            current,
+            prevTopCount,
+            nextTopRowItemIds,
+            "column-removed",
+            topRemoval.location?.topRowIndex ?? 0,
+          );
 
         const targetTopIndex = nextTopRowItemIds.indexOf(makeToolColumnItemId(columnId));
         openedIslandId = islandId;
@@ -442,7 +527,8 @@ export function useToolIslands(
           ...current,
           topRowItemIds: nextTopRowItemIds,
           topToolColumnsById: nextTopToolColumnsById,
-          widthFractions: nextWidthFractions,
+          widthFractions: nextTopRowLayout.widthFractions,
+          preferredTopAreaWidthPx: nextTopRowLayout.preferredTopAreaWidthPx ?? current.preferredTopAreaWidthPx,
           bottomToolIslandIds: nextBottomToolIslandIds,
           bottomWidthFractions: nextBottomToolIslandIds.length > 0
             ? equalWidthFractions(nextBottomToolIslandIds.length)
@@ -459,7 +545,9 @@ export function useToolIslands(
               lastDock: "top",
               lastTopIndex: targetTopIndex >= 0 ? targetTopIndex : (memory?.lastTopIndex ?? null),
               lastBottomIndex: findBottomToolIndex(current.bottomToolIslandIds, islandId) ?? memory?.lastBottomIndex ?? null,
-              lastWidthFraction: memory?.lastWidthFraction,
+              lastTopColumnId: columnId,
+              lastTopStackIndex: insertIndex,
+              lastWidthFraction: currentTopWidthFraction ?? memory?.lastWidthFraction,
             },
           },
         };
@@ -509,15 +597,22 @@ export function useToolIslands(
 
         // Compute width fractions
         const columnWasRemoved = topLocation && topRemoval.nextTopRowItemIds.length < current.topRowItemIds.length;
-        const nextWidthFractions = columnWasRemoved
-          ? computeNextFractions(current, current.topRowItemIds.length, topRemoval.nextTopRowItemIds, "column-removed", topLocation.topRowIndex)
-          : computeNextFractions(current, current.topRowItemIds.length, topRemoval.nextTopRowItemIds, "count-changed", 0);
+        const nextTopRowLayout = columnWasRemoved
+          ? computeNextTopRowLayout(
+            current,
+            current.topRowItemIds.length,
+            topRemoval.nextTopRowItemIds,
+            "column-removed",
+            topLocation.topRowIndex,
+          )
+          : computeNextTopRowLayout(current, current.topRowItemIds.length, topRemoval.nextTopRowItemIds, "count-changed", 0);
 
         return {
           ...current,
           topRowItemIds: topRemoval.nextTopRowItemIds,
           topToolColumnsById: topRemoval.nextTopToolColumnsById,
-          widthFractions: nextWidthFractions,
+          widthFractions: nextTopRowLayout.widthFractions,
+          preferredTopAreaWidthPx: nextTopRowLayout.preferredTopAreaWidthPx ?? current.preferredTopAreaWidthPx,
           bottomToolIslandIds: nextBottomToolIslandIds,
           bottomWidthFractions: nextBottomToolIslandIds.length > 0
             ? equalWidthFractions(nextBottomToolIslandIds.length)
@@ -531,6 +626,8 @@ export function useToolIslands(
               lastDock: island.dock,
               lastTopIndex: topLocation?.topRowIndex ?? current.toolMemories[memoryKey]?.lastTopIndex ?? null,
               lastBottomIndex: bottomIndex ?? current.toolMemories[memoryKey]?.lastBottomIndex ?? null,
+              lastTopColumnId: topLocation?.columnId ?? current.toolMemories[memoryKey]?.lastTopColumnId ?? null,
+              lastTopStackIndex: topLocation?.stackIndex ?? current.toolMemories[memoryKey]?.lastTopStackIndex ?? null,
               lastWidthFraction: closingFraction ?? current.toolMemories[memoryKey]?.lastWidthFraction,
             },
           },

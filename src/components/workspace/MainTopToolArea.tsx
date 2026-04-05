@@ -15,6 +15,7 @@ interface MainTopToolAreaLayoutProps {
   shouldAnimateTopRowLayout: boolean;
   showSinglePaneSplitPreview: boolean;
   toolAreaWidth: number;
+  toolRelativeFractions: number[];
   isOuterResizeActive: boolean;
   canAddMainTopColumn: boolean;
   onOuterResizeStart: (event: React.MouseEvent) => void;
@@ -58,6 +59,7 @@ export function MainTopToolArea({
     shouldAnimateTopRowLayout,
     showSinglePaneSplitPreview,
     toolAreaWidth,
+    toolRelativeFractions,
     isOuterResizeActive,
     canAddMainTopColumn,
     onOuterResizeStart,
@@ -77,13 +79,13 @@ export function MainTopToolArea({
     onResetDrag,
   } = drag;
   const topItems = workspace.topRowItems;
-  const toolFractionsBase = workspace.widthFractions.slice(1);
-  const toolFractions = toolFractionsBase.length === topItems.length
-    ? normalizeRatios(toolFractionsBase, Math.max(topItems.length, 1))
+  const projectedToolFractions = toolRelativeFractions.length > 0
+    ? normalizeRatios(toolRelativeFractions, toolRelativeFractions.length)
     : equalWidthFractions(Math.max(topItems.length, 1));
+  const canShowTopInsertPreview = mainToolDrag?.targetArea === "top" && canAddMainTopColumn;
   const topEntries: Array<{ kind: "item"; item: (typeof topItems)[number] } | { kind: "preview" }> = (() => {
     const draggedIslandId = mainToolDrag?.targetArea !== null
-      ? (mainDraggedIsland?.id ?? null)
+      ? (mainToolDrag?.islandId ?? mainDraggedIsland?.id ?? null)
       : null;
     const baseItems: Array<{ kind: "item"; item: (typeof topItems)[number] }> = draggedIslandId
       ? topItems.flatMap((item) => {
@@ -104,7 +106,7 @@ export function MainTopToolArea({
       })
       : topItems.map((item) => ({ kind: "item" as const, item }));
 
-    if (mainToolDrag?.targetArea !== "top" || mainToolDrag.targetIndex === null) {
+    if (!canShowTopInsertPreview || mainToolDrag.targetIndex === null) {
       return baseItems;
     }
 
@@ -112,12 +114,10 @@ export function MainTopToolArea({
     next.splice(Math.max(0, Math.min(mainToolDrag.targetIndex, next.length)), 0, { kind: "preview" });
     return next;
   })();
-  // Recalculate fractions when a preview is shown (new column being inserted) OR
-  // when the source column was removed during drag (topEntries has fewer items than toolFractions).
-  const topPreviewFractions = topEntries.some((entry) => entry.kind === "preview") || topEntries.length !== toolFractions.length
-    ? equalWidthFractions(Math.max(topEntries.length, 1))
-    : toolFractions;
-  const showMainToolArea = topEntries.length > 0 || mainToolDrag?.targetArea === "top" || mainToolDrag?.targetArea === "top-stack";
+  const topPreviewFractions = topEntries.length === projectedToolFractions.length
+    ? projectedToolFractions
+    : equalWidthFractions(Math.max(topEntries.length, 1));
+  const showMainToolArea = topEntries.length > 0 || canShowTopInsertPreview || mainToolDrag?.targetArea === "top-stack";
 
   if (!showMainToolArea) return null;
 
@@ -141,7 +141,15 @@ export function MainTopToolArea({
         className="flex min-w-0 flex-1 flex-col overflow-hidden"
         onDragOver={(event) => {
           if (!mainToolDrag) return;
-          if (topEntries.length === 0 && canAddMainTopColumn) {
+          if (topEntries.length === 0) {
+            if (!canAddMainTopColumn) {
+              if (mainToolDrag.targetArea === "top") {
+                setMainToolDrag((current) => current && current.targetArea === "top"
+                  ? { ...current, targetArea: null, targetIndex: null, targetColumnId: null }
+                  : current);
+              }
+              return;
+            }
             event.preventDefault();
             setMainToolDrag((current) => current ? {
               ...current,
@@ -159,11 +167,16 @@ export function MainTopToolArea({
           }}
           className="flex min-h-0 min-w-0 flex-1"
         >
-          {topEntries.length === 0 && mainToolDrag?.targetArea === "top" && (
+          {topEntries.length === 0 && canShowTopInsertPreview && (
             <div
               className="flex min-h-0 flex-1"
               onDragOver={(event) => {
-                if (!canAddMainTopColumn) return;
+                if (!canAddMainTopColumn) {
+                  setMainToolDrag((current) => current && current.targetArea === "top"
+                    ? { ...current, targetArea: null, targetIndex: null, targetColumnId: null }
+                    : current);
+                  return;
+                }
                 event.preventDefault();
                 setMainToolDrag((current) => current ? { ...current, targetArea: "top", targetIndex: 0 } : current);
               }}
@@ -186,7 +199,12 @@ export function MainTopToolArea({
                   className="mx-1 flex min-h-0"
                   style={{ flex: `${fraction} 1 0%`, minWidth: 0 }}
                   onDragOver={(event) => {
-                    if (!canAddMainTopColumn) return;
+                    if (!canAddMainTopColumn) {
+                      setMainToolDrag((current) => current && current.targetArea === "top"
+                        ? { ...current, targetArea: null, targetIndex: null, targetColumnId: null }
+                        : current);
+                      return;
+                    }
                     event.preventDefault();
                     setMainToolDrag((current) => current ? { ...current, targetArea: "top", targetIndex: insertBeforeIndex } : current);
                   }}
@@ -220,7 +238,14 @@ export function MainTopToolArea({
                   style={{ flex: `${fraction} 1 0%`, minWidth: 0 }}
                   onDragOver={(event) => {
                     if (!mainToolDrag) return;
-                    if (!canAddMainTopColumn) return;
+                    if (!canAddMainTopColumn) {
+                      if (mainToolDrag.targetArea === "top") {
+                        setMainToolDrag((current) => current && current.targetArea === "top"
+                          ? { ...current, targetArea: null, targetIndex: null, targetColumnId: null }
+                          : current);
+                      }
+                      return;
+                    }
                     event.preventDefault();
                     const rect = event.currentTarget.getBoundingClientRect();
                     const insertSide = getHorizontalInsertSide(rect, event.clientX);
@@ -284,6 +309,15 @@ export function MainTopToolArea({
                               event.stopPropagation();
                               const rect = event.currentTarget.getBoundingClientRect();
                               const intent = getToolColumnDropIntent(rect, event.clientX, event.clientY);
+                              if (intent.area === "top" && !canAddMainTopColumn) {
+                                setMainToolDrag((current) => current ? {
+                                  ...current,
+                                  targetArea: null,
+                                  targetIndex: null,
+                                  targetColumnId: null,
+                                } : current);
+                                return;
+                              }
                               setMainToolDrag((current) => current ? {
                                 ...current,
                                 targetArea: intent.area,
@@ -311,6 +345,15 @@ export function MainTopToolArea({
                               event.stopPropagation();
                               const rect = event.currentTarget.getBoundingClientRect();
                               const intent = getToolColumnDropIntent(rect, event.clientX, event.clientY);
+                              if (intent.area === "top" && !canAddMainTopColumn) {
+                                setMainToolDrag((current) => current ? {
+                                  ...current,
+                                  targetArea: null,
+                                  targetIndex: null,
+                                  targetColumnId: null,
+                                } : current);
+                                return;
+                              }
                               setMainToolDrag((current) => current ? {
                                 ...current,
                                 targetArea: intent.area,

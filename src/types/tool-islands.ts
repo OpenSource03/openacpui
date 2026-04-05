@@ -32,6 +32,10 @@ export interface ToolIslandMemory {
   lastDock: ToolIslandDock;
   lastTopIndex: number | null;
   lastBottomIndex: number | null;
+  /** Column id this tool last occupied while docked in the top row. */
+  lastTopColumnId?: string | null;
+  /** Stack index this tool last occupied inside its top-row column. */
+  lastTopStackIndex?: number | null;
   /** Fraction this tool column occupied when it was last open in the top dock. */
   lastWidthFraction?: number;
 }

@@ -11,20 +11,20 @@
 import { type RefObject, useCallback, useEffect, useMemo } from "react";
 import type { ToolId } from "@/types/tools";
 import {
-  DEFAULT_TOOL_PREFERRED_WIDTH,
   MAX_BOTTOM_TOOLS_HEIGHT,
-  MIN_CHAT_WIDTH_SPLIT,
   MIN_BOTTOM_TOOLS_HEIGHT,
-  MIN_PANE_WIDTH_FRACTION,
-  TOOL_PREFERRED_WIDTHS,
   clampWidthFractions,
   equalWidthFractions,
 } from "@/lib/layout/constants";
 import {
+  buildDefaultMainToolWidthFractions,
   getTopToolAreaWidthPx,
+  projectMainToolWidthChange,
+  resolveCurrentToolAreaFraction,
   scaleTopRowFractionsToToolArea,
 } from "@/lib/workspace/main-tool-widths";
 import { isPanelTool, makeToolColumnItemId } from "@/lib/workspace/tool-island-utils";
+import { getChatPaneMinWidthPx } from "@/lib/layout/workspace-constraints";
 import type {
   PanelToolId,
   ToolColumn,
@@ -46,51 +46,7 @@ export type { TopRowItem as MainTopRowItem } from "@/types";
 
 // ── Constants ──
 
-/** Default fraction for a single tool column (chat gets the rest). */
-const DEFAULT_TOOL_COLUMN_FRACTION = 0.32;
-const MIN_CHAT_FRACTION = 0.35;
 const MAIN_SOURCE_SESSION = "__main__";
-
-// ── Width fraction strategy (chat absorbs the cost) ──
-
-function buildDefaultWidthFractions(toolColumnCount: number): number[] {
-  if (toolColumnCount <= 0) return [1];
-  const perTool = DEFAULT_TOOL_COLUMN_FRACTION;
-  const totalTools = perTool * toolColumnCount;
-  const chatFraction = Math.max(MIN_CHAT_FRACTION, 1 - totalTools);
-  const actualPerTool = (1 - chatFraction) / toolColumnCount;
-  return [chatFraction, ...Array.from({ length: toolColumnCount }, () => actualPerTool)];
-}
-
-function insertToolColumnFraction(
-  previousFractions: number[],
-  insertIndex: number,
-  desiredFraction: number = DEFAULT_TOOL_COLUMN_FRACTION,
-): number[] {
-  const prevChat = previousFractions[0] ?? 1;
-  const newChat = prevChat - desiredFraction;
-  if (newChat >= MIN_CHAT_FRACTION) {
-    const result = [...previousFractions];
-    result[0] = newChat;
-    result.splice(insertIndex + 1, 0, desiredFraction);
-    return result;
-  }
-  const toolCount = previousFractions.length; // prev had N, now N+1
-  return buildDefaultWidthFractions(toolCount);
-}
-
-function removeToolColumnFraction(previousFractions: number[], removedColumnIndex: number): number[] {
-  const fractionIndex = removedColumnIndex + 1; // +1 because index 0 is chat
-  if (fractionIndex <= 0 || fractionIndex >= previousFractions.length) {
-    return buildDefaultWidthFractions(Math.max(0, previousFractions.length - 2));
-  }
-  const removedFraction = previousFractions[fractionIndex] ?? 0;
-  const result = [...previousFractions];
-  result.splice(fractionIndex, 1);
-  result[0] = (result[0] ?? 0) + removedFraction;
-  if (result.length <= 1) return [1];
-  return result;
-}
 
 // ── Sanitization ──
 
@@ -102,7 +58,7 @@ function sanitizeColumnSplitRatios(splitRatios: number[], islandCount: number): 
 
 function sanitizeTopRowWidthFractions(widthFractions: number[], toolColumnCount: number): number[] {
   if (toolColumnCount <= 0) return [1];
-  if (widthFractions.length !== toolColumnCount + 1) return buildDefaultWidthFractions(toolColumnCount);
+  if (widthFractions.length !== toolColumnCount + 1) return buildDefaultMainToolWidthFractions(toolColumnCount);
   return clampWidthFractions(widthFractions);
 }
 
@@ -124,7 +80,8 @@ function sanitizeWorkspaceState(state: ToolIslandsState): ToolIslandsState {
     if (!column) continue;
 
     const nextIslandIds: string[] = [];
-    for (const islandId of column.islandIds) {
+    for (let stackIndex = 0; stackIndex < column.islandIds.length; stackIndex++) {
+      const islandId = column.islandIds[stackIndex]!;
       const island = state.toolIslandsById[islandId];
       if (!island || seenToolIds.has(island.toolId)) continue;
       seenToolIds.add(island.toolId);
@@ -137,6 +94,8 @@ function sanitizeWorkspaceState(state: ToolIslandsState): ToolIslandsState {
         lastDock: memory?.lastDock ?? "top",
         lastTopIndex: topIndex,
         lastBottomIndex: memory?.lastBottomIndex ?? null,
+        lastTopColumnId: columnId,
+        lastTopStackIndex: stackIndex,
         lastWidthFraction: memory?.lastWidthFraction,
       };
     }
@@ -166,6 +125,8 @@ function sanitizeWorkspaceState(state: ToolIslandsState): ToolIslandsState {
       lastDock: memory?.lastDock ?? "bottom",
       lastTopIndex: memory?.lastTopIndex ?? null,
       lastBottomIndex: bottomIndex,
+      lastTopColumnId: memory?.lastTopColumnId ?? null,
+      lastTopStackIndex: memory?.lastTopStackIndex ?? null,
       lastWidthFraction: memory?.lastWidthFraction,
     };
     bottomIndex += 1;
@@ -174,12 +135,12 @@ function sanitizeWorkspaceState(state: ToolIslandsState): ToolIslandsState {
   return {
     topRowItemIds: nextTopRowItemIds,
     topToolColumnsById: nextTopToolColumnsById,
-  widthFractions: sanitizeTopRowWidthFractions(state.widthFractions, nextTopRowItemIds.length),
-  preferredTopAreaWidthPx: state.preferredTopAreaWidthPx ?? null,
-  toolIslandsById: nextToolIslandsById,
-  toolMemories: nextToolMemories,
-  bottomToolIslandIds: nextBottomToolIslandIds,
-  bottomHeight: Math.max(MIN_BOTTOM_TOOLS_HEIGHT, Math.min(MAX_BOTTOM_TOOLS_HEIGHT, state.bottomHeight)),
+    widthFractions: sanitizeTopRowWidthFractions(state.widthFractions, nextTopRowItemIds.length),
+    preferredTopAreaWidthPx: state.preferredTopAreaWidthPx ?? null,
+    toolIslandsById: nextToolIslandsById,
+    toolMemories: nextToolMemories,
+    bottomToolIslandIds: nextBottomToolIslandIds,
+    bottomHeight: Math.max(MIN_BOTTOM_TOOLS_HEIGHT, Math.min(MAX_BOTTOM_TOOLS_HEIGHT, state.bottomHeight)),
     bottomWidthFractions: nextBottomToolIslandIds.length > 0 && state.bottomWidthFractions.length === nextBottomToolIslandIds.length
       ? clampWidthFractions(state.bottomWidthFractions)
       : equalWidthFractions(nextBottomToolIslandIds.length),
@@ -268,7 +229,15 @@ function migrateFromSettings(projectId: string | null, migration: MigrationInput
     toolIslandsById[islandId] = { id: islandId, toolId, sourceSessionId: MAIN_SOURCE_SESSION, dock: "top", persistKey };
     topToolColumnsById[columnId] = { id: columnId, islandIds: [islandId], splitRatios: [1] };
     topRowItemIds.push(makeToolColumnItemId(columnId));
-    toolMemories[toolId] = { islandId, persistKey, lastDock: "top", lastTopIndex: index, lastBottomIndex: null };
+    toolMemories[toolId] = {
+      islandId,
+      persistKey,
+      lastDock: "top",
+      lastTopIndex: index,
+      lastBottomIndex: null,
+      lastTopColumnId: columnId,
+      lastTopStackIndex: 0,
+    };
   });
 
   const bottomToolIslandIds: string[] = [];
@@ -282,6 +251,8 @@ function migrateFromSettings(projectId: string | null, migration: MigrationInput
       lastDock: "bottom",
       lastTopIndex: toolMemories[toolId]?.lastTopIndex ?? null,
       lastBottomIndex: index,
+      lastTopColumnId: toolMemories[toolId]?.lastTopColumnId ?? null,
+      lastTopStackIndex: toolMemories[toolId]?.lastTopStackIndex ?? null,
     };
     bottomToolIslandIds.push(islandId);
   });
@@ -289,7 +260,7 @@ function migrateFromSettings(projectId: string | null, migration: MigrationInput
   return {
     topRowItemIds,
     topToolColumnsById,
-    widthFractions: buildDefaultWidthFractions(topRowItemIds.length),
+    widthFractions: buildDefaultMainToolWidthFractions(topRowItemIds.length),
     preferredTopAreaWidthPx: null,
     toolIslandsById,
     toolMemories,
@@ -329,70 +300,23 @@ function persistState(projectId: string | null, state: ToolIslandsState): void {
 // ── Config builder ──
 
 function buildConfig(projectId: string | null, workspaceWidthRef: RefObject<number>): UseToolIslandsConfig {
-  const getMaxToolAreaFraction = (workspaceWidth: number): number => {
-    if (workspaceWidth <= 0) return 1 - MIN_CHAT_FRACTION;
-    return Math.max(0, 1 - Math.min(0.92, MIN_CHAT_WIDTH_SPLIT / workspaceWidth));
-  };
-
-  const getCurrentToolAreaFraction = (widthFractions: number[], preferredTopAreaWidthPx: number | null): number => {
-    const workspaceWidth = workspaceWidthRef.current;
-    if (workspaceWidth > 0) {
-      return Math.min(
-        getMaxToolAreaFraction(workspaceWidth),
-        Math.max(
-          0,
-          (preferredTopAreaWidthPx ?? getTopToolAreaWidthPx(widthFractions, workspaceWidth)) / workspaceWidth,
-        ),
-      );
-    }
-
-    return Math.max(0, 1 - (widthFractions[0] ?? 1));
-  };
-
   return {
-    computeWidthFractions: (change: TopRowChange, current) => {
-      const { kind, prevItemCount, nextItemCount, changeIndex, toolHint } = change;
-      const workspaceWidth = workspaceWidthRef.current;
-      const currentToolAreaFraction = getCurrentToolAreaFraction(
-        current.widthFractions,
-        current.preferredTopAreaWidthPx,
-      );
-
-      const rebasedFractions = current.widthFractions.length === prevItemCount + 1
-        ? scaleTopRowFractionsToToolArea(current.widthFractions, prevItemCount, currentToolAreaFraction)
-        : buildDefaultWidthFractions(prevItemCount);
-
-      if (kind === "column-added") {
-        // Priority 1: remembered fraction from last close
-        // Priority 2: preferred pixel width → fraction
-        // Priority 3: DEFAULT_TOOL_COLUMN_FRACTION fallback
-        let desiredFraction = DEFAULT_TOOL_COLUMN_FRACTION;
-        if (toolHint?.lastWidthFraction != null) {
-          desiredFraction = toolHint.lastWidthFraction;
-        } else if (toolHint?.toolId) {
-          const preferredPx = TOOL_PREFERRED_WIDTHS[toolHint.toolId] ?? DEFAULT_TOOL_PREFERRED_WIDTH;
-          if (workspaceWidth > 0) {
-            desiredFraction = Math.min(
-              getMaxToolAreaFraction(workspaceWidth),
-              Math.max(MIN_PANE_WIDTH_FRACTION, preferredPx / workspaceWidth),
-            );
-          }
-        }
-
-        return insertToolColumnFraction(rebasedFractions, changeIndex, desiredFraction);
-      }
-      if (kind === "column-removed") {
-        return removeToolColumnFraction(rebasedFractions, changeIndex);
-      }
-      // count-changed: preserve if length matches, otherwise rebuild
-      if (rebasedFractions.length === nextItemCount + 1) return rebasedFractions;
-      return buildDefaultWidthFractions(nextItemCount);
+    computeTopRowLayout: (change: TopRowChange, current) => {
+      return projectMainToolWidthChange({
+        preferredTopAreaWidthPx: current.preferredTopAreaWidthPx,
+        widthFractions: current.widthFractions,
+        workspaceWidth: workspaceWidthRef.current,
+        minChatWidth: getChatPaneMinWidthPx("single"),
+        change,
+      });
     },
 
     getColumnWidthFraction: (state, topRowIndex) => {
-      const toolAreaFraction = getCurrentToolAreaFraction(
+      const toolAreaFraction = resolveCurrentToolAreaFraction(
         state.widthFractions,
         state.preferredTopAreaWidthPx,
+        workspaceWidthRef.current,
+        getChatPaneMinWidthPx("single"),
       );
       return scaleTopRowFractionsToToolArea(
         state.widthFractions,
@@ -441,6 +365,7 @@ export interface MainToolWorkspaceState {
   closeToolIsland: (islandId: string) => void;
   getToolIsland: (toolId: PanelToolId) => ToolIsland | null;
   getRememberedDock: (toolId: PanelToolId) => ToolIslandDock | null;
+  getRememberedWidthFraction: (toolId: PanelToolId) => number | null;
 }
 
 // ── Picker integration (encapsulates the "find target column" heuristic) ──
@@ -593,6 +518,11 @@ export function useMainToolWorkspace(
     [toolIslands.getRememberedDock],
   );
 
+  const getRememberedWidthFraction = useCallback(
+    (toolId: PanelToolId) => toolIslands.state.toolMemories[toolId]?.lastWidthFraction ?? null,
+    [toolIslands.state.toolMemories],
+  );
+
   // Filter topRowItems to only tool-column items (main workspace has no chat items in topRow)
   const topRowItems = useMemo(
     () => toolIslands.topRowItems.filter(
@@ -604,7 +534,7 @@ export function useMainToolWorkspace(
   // Validate fractions against current column count
   const widthFractions = toolIslands.state.widthFractions.length === 1 + topRowItems.length
     ? toolIslands.state.widthFractions
-    : buildDefaultWidthFractions(topRowItems.length);
+    : buildDefaultMainToolWidthFractions(topRowItems.length);
 
   const bottomWidthFractions = toolIslands.state.bottomWidthFractions.length === toolIslands.bottomToolIslands.length
     ? toolIslands.state.bottomWidthFractions
@@ -650,5 +580,6 @@ export function useMainToolWorkspace(
     closeToolIsland: toolIslands.closeToolIsland,
     getToolIsland,
     getRememberedDock,
+    getRememberedWidthFraction,
   };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { MIN_PANE_WIDTH_FRACTION } from "@/lib/layout/constants";
+import { MIN_STACKED_TOOL_PANEL_HEIGHT } from "@/lib/layout/workspace-constraints";
 
 interface UseToolColumnResizeOptions {
   columnRefs: React.RefObject<Record<string, HTMLDivElement | null>>;
@@ -28,6 +28,7 @@ export function useToolColumnResize({
     const startY = event.clientY;
     const startFractions = [...splitRatios];
     const containerHeight = Math.max(container.getBoundingClientRect().height, 1);
+    const minPanelFraction = Math.min(0.92, MIN_STACKED_TOOL_PANEL_HEIGHT / containerHeight);
 
     const handleMove = (moveEvent: MouseEvent) => {
       const deltaFraction = (moveEvent.clientY - startY) / containerHeight;
@@ -36,19 +37,19 @@ export function useToolColumnResize({
       let topNew = nextFractions[handleIndex]! + deltaFraction;
       let bottomNew = nextFractions[handleIndex + 1]! - deltaFraction;
 
-      if (topNew < MIN_PANE_WIDTH_FRACTION) {
-        const overflow = MIN_PANE_WIDTH_FRACTION - topNew;
-        topNew = MIN_PANE_WIDTH_FRACTION;
+      if (topNew < minPanelFraction) {
+        const overflow = minPanelFraction - topNew;
+        topNew = minPanelFraction;
         bottomNew -= overflow;
       }
-      if (bottomNew < MIN_PANE_WIDTH_FRACTION) {
-        const overflow = MIN_PANE_WIDTH_FRACTION - bottomNew;
-        bottomNew = MIN_PANE_WIDTH_FRACTION;
+      if (bottomNew < minPanelFraction) {
+        const overflow = minPanelFraction - bottomNew;
+        bottomNew = minPanelFraction;
         topNew -= overflow;
       }
 
-      topNew = Math.max(MIN_PANE_WIDTH_FRACTION, topNew);
-      bottomNew = Math.max(MIN_PANE_WIDTH_FRACTION, bottomNew);
+      topNew = Math.max(minPanelFraction, topNew);
+      bottomNew = Math.max(minPanelFraction, bottomNew);
 
       nextFractions[handleIndex] = topNew;
       nextFractions[handleIndex + 1] = bottomNew;

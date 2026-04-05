@@ -11,6 +11,7 @@
 import { useRef } from "react";
 import { usePaneResize } from "@/hooks/usePaneResize";
 import type { MainToolWorkspaceState } from "@/hooks/useMainToolWorkspace";
+import { MIN_TOOLS_PANEL_WIDTH, SPLIT_HANDLE_WIDTH } from "@/lib/layout/constants";
 
 export function useMainToolPaneResize(
   workspace: MainToolWorkspaceState,
@@ -40,5 +41,7 @@ export function useMainToolPaneResize(
       ]);
     },
     containerRef,
+    minWidthsPx: workspace.widthFractions.slice(1).map(() => MIN_TOOLS_PANEL_WIDTH),
+    handleWidthPx: SPLIT_HANDLE_WIDTH,
   });
 }
