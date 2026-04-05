@@ -398,6 +398,15 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
   return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
 
+function hasSameOrderedValues<T>(left: readonly T[], right: readonly T[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
 // ── Store creation ──
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -504,7 +513,9 @@ export const useSettingsStore = create<SettingsStore>()(
         const { projects } = get();
         const current = getProjectSettings(projects, projectId);
         const next = typeof updater === "function" ? updater(current.activeTools) : updater;
-        set({ projects: updateProject(projects, projectId, { activeTools: next }) });
+        const valid = next.filter((id) => VALID_TOOL_IDS.has(id));
+        if (hasSameOrderedValues(current.activeTools, valid)) return;
+        set({ projects: updateProject(projects, projectId, { activeTools: valid }) });
       },
 
       setToolOrder: (projectId, updater) => {
@@ -664,4 +675,3 @@ export function deriveMacBackgroundEffect(state: Pick<GlobalSettingsState, "tran
   }
   return state.transparency ? state.macNativeBackgroundEffect : "off";
 }
-

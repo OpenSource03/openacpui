@@ -395,5 +395,15 @@ contextBridge.exposeInMainWorld("claude", {
     install: () => ipcRenderer.invoke("updater:install"),
     check: () => ipcRenderer.invoke("updater:check"),
     currentVersion: () => ipcRenderer.invoke("updater:current-version") as Promise<string>,
+    isPreRelease: () => ipcRenderer.invoke("updater:is-prerelease") as Promise<{
+      isPreRelease: boolean;
+      version: string;
+      releaseUrl: string | null;
+    }>,
+    onPreReleaseStatus: (cb: (info: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, info: unknown) => cb(info);
+      ipcRenderer.on("updater:prerelease-status", listener);
+      return () => ipcRenderer.removeListener("updater:prerelease-status", listener);
+    },
   },
 });

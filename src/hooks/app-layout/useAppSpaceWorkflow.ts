@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useProjectManager } from "@/hooks/useProjectManager";
 import { useSessionManager } from "@/hooks/useSessionManager";
-import { getStoredProjectGitCwd, resolveProjectForSpace } from "@/lib/session/space-projects";
+import {
+  getStoredProjectGitCwd,
+  resolveProjectForSpace,
+  resolveRememberedSessionForSpace,
+} from "@/lib/session/space-projects";
 import { useSpaceManager } from "@/hooks/useSpaceManager";
 import { useSplitView } from "@/hooks/useSplitView";
 import { useSpaceTerminals } from "@/hooks/useSpaceTerminals";
@@ -164,51 +168,35 @@ export function useAppSpaceWorkflow(input: UseAppSpaceWorkflowInput) {
       : null;
     const currentSessionSpaceId = currentSessionProject?.spaceId || "default";
     const isCurrentSessionAlreadyInNextSpace = !!input.manager.activeSession && currentSessionSpaceId === next;
+    const lastSessionMap = readLastSessionMap();
+    const rememberedSession = resolveRememberedSessionForSpace({
+      spaceId: next,
+      lastSessionBySpace: lastSessionMap,
+      projects: input.projectManager.projects,
+      sessions: input.manager.sessions,
+    });
 
     if (!isCurrentSessionAlreadyInNextSpace) {
-      setIsSpaceSwitching(true);
       input.splitView.dismissSplitView();
-      void input.manager.deselectSession();
-    } else {
-      setIsSpaceSwitching(false);
     }
 
-    const timer = setTimeout(() => {
-      const spaceProjectIds = new Set(
-        input.projectManager.projects
-          .filter((project) => (project.spaceId || "default") === next)
-          .map((project) => project.id),
-      );
+    if (isCurrentSessionAlreadyInNextSpace) {
+      setIsSpaceSwitching(false);
+      finishSpaceSwitch();
+      return;
+    }
 
-      if (input.manager.activeSession && spaceProjectIds.has(input.manager.activeSession.projectId)) {
-        finishSpaceSwitch();
-        return;
-      }
+    if (rememberedSession) {
+      setIsSpaceSwitching(true);
+      void Promise.resolve(input.manager.deselectSession())
+        .then(() => input.manager.switchSession(rememberedSession.id))
+        .finally(finishSpaceSwitch);
+      return;
+    }
 
-      const map = readLastSessionMap();
-      const lastSessionId = map[next];
-      if (lastSessionId) {
-        const session = input.manager.sessions.find(
-          (entry) => entry.id === lastSessionId && spaceProjectIds.has(entry.projectId),
-        );
-        if (session) {
-          void Promise.resolve(input.manager.switchSession(session.id)).finally(finishSpaceSwitch);
-          return;
-        }
-      }
-
-      const firstProjectInSpace = input.projectManager.projects.find(
-        (project) => (project.spaceId || "default") === next,
-      );
-      if (firstProjectInSpace) {
-        void input.handleNewChat(firstProjectInSpace.id).finally(finishSpaceSwitch);
-      } else {
-        void input.manager.deselectSession().finally(finishSpaceSwitch);
-      }
-    }, 60);
-
-    return () => clearTimeout(timer);
-  }, [input.handleNewChat, input.manager, input.projectManager.projects, input.spaceManager.activeSpaceId, input.splitView, readLastSessionMap]);
+    setIsSpaceSwitching(false);
+    void Promise.resolve(input.manager.deselectSession()).finally(finishSpaceSwitch);
+  }, [input.manager, input.projectManager.projects, input.spaceManager.activeSpaceId, input.splitView, readLastSessionMap]);
 
   useEffect(() => {
     if (!activeProjectPath) {

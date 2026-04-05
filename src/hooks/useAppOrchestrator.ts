@@ -96,11 +96,22 @@ export function useAppOrchestrator() {
     },
     [settings],
   );
+  const environment = useAppEnvironmentState({
+    macBackgroundEffect: settings.macBackgroundEffect,
+    setMacBackgroundEffect: settings.setMacBackgroundEffect,
+    transparency: settings.transparency,
+    theme: settings.theme,
+    pendingPermission: manager.pendingPermission,
+    activeSessionId: manager.activeSessionId,
+    isProcessing: manager.isProcessing,
+  });
+
   const sessionActions = useAppSessionActions({
     manager,
     settings,
     selectedAgent,
     setSelectedAgent,
+    setShowSettings: environment.setShowSettings,
     refreshAgents,
     activeSpaceId: spaceManager.activeSpaceId,
     projectManager,
@@ -113,16 +124,6 @@ export function useAppOrchestrator() {
     splitView,
     handleNewChat: sessionActions.handleNewChat,
     destroySpaceTerminals: spaceTerminals.destroySpaceTerminals,
-  });
-
-  const environment = useAppEnvironmentState({
-    macBackgroundEffect: settings.macBackgroundEffect,
-    setMacBackgroundEffect: settings.setMacBackgroundEffect,
-    transparency: settings.transparency,
-    theme: settings.theme,
-    pendingPermission: manager.pendingPermission,
-    activeSessionId: manager.activeSessionId,
-    isProcessing: manager.isProcessing,
   });
 
   const contextualState = useAppContextualPanels({
@@ -247,11 +248,8 @@ export function useAppOrchestrator() {
   });
 
   const ui = {
-    showSettings: environment.showSettings || sessionActions.showSettings,
-    setShowSettings: (value: boolean) => {
-      environment.setShowSettings(value);
-      sessionActions.setShowSettings(value);
-    },
+    showSettings: environment.showSettings,
+    setShowSettings: environment.setShowSettings,
     scrollToMessageId: environment.scrollToMessageId,
     setScrollToMessageId: environment.setScrollToMessageId,
     chatSearchOpen: environment.chatSearchOpen,

@@ -25,6 +25,7 @@ import { migrateFromOpenAcpUi } from "./lib/migration";
 import { glassEnabled, applyGlass, setGlassTint } from "./lib/glass";
 import { getAppSettings } from "./lib/app-settings";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
+import { initPreReleaseCheck } from "./lib/prerelease-check";
 import { initPostHog, shutdownPostHog, reinitPostHog, captureEvent } from "./lib/posthog";
 import { getAcpAnalyticsPropertiesForSession } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
@@ -459,6 +460,7 @@ app.whenReady().then(() => {
 
   createWindow();
   initAutoUpdater(getMainWindow);
+  initPreReleaseCheck(getMainWindow);
 
   // Initialize PostHog analytics (if enabled in settings) — fire-and-forget to avoid blocking startup
   initPostHog().catch((err) => {

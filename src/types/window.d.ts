@@ -51,6 +51,13 @@ interface IpcResult {
 type CodexImageInput = { type: "image"; url: string } | { type: "localImage"; path: string };
 
 declare global {
+  /** Result of the GitHub pre-release check for the running version. */
+  interface PreReleaseInfo {
+    isPreRelease: boolean;
+    version: string;
+    releaseUrl: string | null;
+  }
+
   interface Window {
     claude: {
       getGlassSupported: () => Promise<boolean>;
@@ -415,6 +422,8 @@ declare global {
         install: () => Promise<void>;
         check: () => Promise<unknown>;
         currentVersion: () => Promise<string>;
+        isPreRelease: () => Promise<PreReleaseInfo>;
+        onPreReleaseStatus: (cb: (info: PreReleaseInfo) => void) => () => void;
       };
     };
   }

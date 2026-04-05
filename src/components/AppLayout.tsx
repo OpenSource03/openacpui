@@ -1551,23 +1551,10 @@ export function AppLayout() {
                   </Button>
                 )}
               </div>
-              {isSpaceSwitching ? (
-                <div className="flex min-h-0 flex-1 flex-col px-8 py-10">
-                  <div className="w-48 animate-pulse rounded-full bg-foreground/8 h-4" />
-                  <div className="mt-8 space-y-4">
-                    <div className="h-12 animate-pulse rounded-2xl bg-foreground/6" />
-                    <div className="h-28 animate-pulse rounded-3xl bg-foreground/5" />
-                    <div className="h-12 animate-pulse rounded-2xl bg-foreground/6" />
-                    <div className="h-20 animate-pulse rounded-3xl bg-foreground/5" />
-                  </div>
-                  <div className="mt-auto h-24 animate-pulse rounded-[28px] bg-foreground/6" />
-                </div>
-              ) : (
-                <WelcomeScreen
-                  hasProjects={hasProjects}
-                  onCreateProject={handleCreateProject}
-                />
-              )}
+              <WelcomeScreen
+                hasProjects={hasProjects}
+                onCreateProject={handleCreateProject}
+              />
               </>
             )}
           </motion.div>

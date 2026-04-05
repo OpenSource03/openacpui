@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useProjectManager } from "@/hooks/useProjectManager";
 import { useSessionManager } from "@/hooks/useSessionManager";
 import { useSettingsCompat } from "@/hooks/useSettingsCompat";
@@ -14,14 +14,13 @@ interface UseAppSessionActionsInput {
   settings: SettingsState;
   selectedAgent: InstalledAgent | null;
   setSelectedAgent: (agent: InstalledAgent | null) => void;
+  setShowSettings: (show: boolean) => void;
   refreshAgents: () => Promise<void> | void;
   activeSpaceId: string;
   projectManager: Pick<ProjectManagerState, "projects" | "createProject" | "createDevProject">;
 }
 
 export function useAppSessionActions(input: UseAppSessionActionsInput) {
-  const [showSettings, setShowSettings] = useState(false);
-
   const getClaudeEffortForModel = useCallback((model: string | undefined): ClaudeEffort | undefined => {
     if (!model) return undefined;
     const meta = input.manager.supportedModels.find((entry) => entry.value === model);
@@ -88,7 +87,7 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
   }, [getClaudeEffortForModel, input.manager, input.settings, input.setSelectedAgent]);
 
   const handleNewChat = useCallback(async (projectId: string) => {
-    setShowSettings(false);
+    input.setShowSettings(false);
     const wantedEngine = input.selectedAgent?.engine ?? "claude";
     const options = buildSessionOptions(
       wantedEngine,
@@ -100,7 +99,7 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
       input.selectedAgent,
     );
     await input.manager.createSession(projectId, options);
-  }, [getClaudeEffortForModel, input.manager, input.selectedAgent, input.settings]);
+  }, [getClaudeEffortForModel, input.manager, input.selectedAgent, input.setShowSettings, input.settings]);
 
   const handleSend = useCallback(async (text: string, images?: ImageAttachment[], displayText?: string) => {
     const currentEngine = input.manager.activeSession?.engine ?? "claude";
@@ -165,14 +164,14 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
   }, [input.manager]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
-    setShowSettings(false);
+    input.setShowSettings(false);
     input.manager.switchSession(sessionId);
-  }, [input.manager]);
+  }, [input.manager, input.setShowSettings]);
 
   const handleCreateProject = useCallback(async () => {
-    setShowSettings(false);
+    input.setShowSettings(false);
     await input.projectManager.createProject(input.activeSpaceId);
-  }, [input.activeSpaceId, input.projectManager]);
+  }, [input.activeSpaceId, input.projectManager, input.setShowSettings]);
 
   const handleImportCCSession = useCallback(async (projectId: string, ccSessionId: string) => {
     await input.manager.importCCSession(projectId, ccSessionId);
@@ -205,8 +204,6 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
   }, [input.manager.acpConfigOptions, input.manager.activeSession, input.refreshAgents]);
 
   return {
-    showSettings,
-    setShowSettings,
     getClaudeEffortForModel,
     handleAgentWorktreeChange,
     handleAgentChange,

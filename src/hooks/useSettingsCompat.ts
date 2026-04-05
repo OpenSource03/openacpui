@@ -19,6 +19,15 @@ import {
   DEFAULT_ENGINE_MODELS,
 } from "@/stores/settings-store";
 
+function hasSameOrderedValues<T>(left: readonly T[], right: readonly T[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
 /**
  * Drop-in replacement for the legacy `useSettings` hook.
  *
@@ -144,10 +153,14 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
         storeSetActiveTools(pid, (prevArr) => {
           const prevSet = new Set(prevArr);
           const nextSet = updater(prevSet);
-          return [...nextSet];
+          const nextArr = [...nextSet];
+          return hasSameOrderedValues(prevArr, nextArr) ? prevArr : nextArr;
         });
       } else {
-        storeSetActiveTools(pid, [...updater]);
+        const nextArr = [...updater];
+        storeSetActiveTools(pid, (prevArr) => (
+          hasSameOrderedValues(prevArr, nextArr) ? prevArr : nextArr
+        ));
       }
     },
     [storeSetActiveTools, pid],

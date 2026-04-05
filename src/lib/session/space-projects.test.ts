@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveProjectForSpace } from "@/lib/session/space-projects";
+import { resolveProjectForSpace, resolveRememberedSessionForSpace } from "@/lib/session/space-projects";
 import type { ChatSession, Project } from "@/types";
 
 const projects: Project[] = [
@@ -60,5 +60,34 @@ describe("resolveProjectForSpace", () => {
       projects,
       sessions,
     })?.id).toBe("project-b");
+  });
+});
+
+describe("resolveRememberedSessionForSpace", () => {
+  it("returns the remembered session when it belongs to the selected space", () => {
+    expect(resolveRememberedSessionForSpace({
+      spaceId: "space-b",
+      lastSessionBySpace: { "space-b": "session-b" },
+      projects,
+      sessions,
+    })?.id).toBe("session-b");
+  });
+
+  it("returns null when there is no remembered session for the space", () => {
+    expect(resolveRememberedSessionForSpace({
+      spaceId: "space-b",
+      lastSessionBySpace: {},
+      projects,
+      sessions,
+    })).toBeNull();
+  });
+
+  it("returns null when the remembered session no longer belongs to the selected space", () => {
+    expect(resolveRememberedSessionForSpace({
+      spaceId: "space-b",
+      lastSessionBySpace: { "space-b": "session-a" },
+      projects,
+      sessions,
+    })).toBeNull();
   });
 });

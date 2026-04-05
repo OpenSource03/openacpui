@@ -39,6 +39,10 @@ export function useAppContextualPanels(input: UseAppContextualPanelsInput) {
   const bgAgents = useBackgroundAgents({ sessionId: input.manager.activeSessionId });
   const hasTodos = activeTodos.length > 0;
   const hasAgents = bgAgents.agents.length > 0;
+  const tasksPanelSuppressed = input.settings.suppressedPanels.has("tasks");
+  const agentsPanelSuppressed = input.settings.suppressedPanels.has("agents");
+  const tasksPanelOpen = input.settings.activeTools.has("tasks");
+  const agentsPanelOpen = input.settings.activeTools.has("agents");
 
   const availableContextual = useMemo(() => {
     const next = new Set<ToolId>();
@@ -49,34 +53,46 @@ export function useAppContextualPanels(input: UseAppContextualPanelsInput) {
 
   useEffect(() => {
     if (!hasTodos) {
-      input.settings.unsuppressPanel("tasks");
+      if (tasksPanelSuppressed) input.settings.unsuppressPanel("tasks");
       return;
     }
-    if (input.settings.suppressedPanels.has("tasks")) return;
+    if (tasksPanelSuppressed || tasksPanelOpen) return;
     input.settings.setActiveTools((prev) => {
       if (prev.has("tasks")) return prev;
       const next = new Set(prev);
       next.add("tasks");
       return next;
     });
-  }, [hasTodos, input.settings]);
+  }, [
+    hasTodos,
+    tasksPanelOpen,
+    tasksPanelSuppressed,
+    input.settings.setActiveTools,
+    input.settings.unsuppressPanel,
+  ]);
 
   useEffect(() => {
     if (!hasAgents) {
-      input.settings.unsuppressPanel("agents");
+      if (agentsPanelSuppressed) input.settings.unsuppressPanel("agents");
       return;
     }
-    if (input.settings.suppressedPanels.has("agents")) return;
+    if (agentsPanelSuppressed || agentsPanelOpen) return;
     input.settings.setActiveTools((prev) => {
       if (prev.has("agents")) return prev;
       const next = new Set(prev);
       next.add("agents");
       return next;
     });
-  }, [hasAgents, input.settings]);
+  }, [
+    agentsPanelOpen,
+    agentsPanelSuppressed,
+    hasAgents,
+    input.settings.setActiveTools,
+    input.settings.unsuppressPanel,
+  ]);
 
   const hasActiveSessionOrSwitching = !!input.manager.activeSessionId || input.isSpaceSwitching;
-  const hasRightPanel = ((hasTodos && input.settings.activeTools.has("tasks")) || (hasAgents && input.settings.activeTools.has("agents"))) && hasActiveSessionOrSwitching;
+  const hasRightPanel = ((hasTodos && tasksPanelOpen) || (hasAgents && agentsPanelOpen)) && hasActiveSessionOrSwitching;
   const hasToolsColumn = [...input.settings.activeTools].some((id) => COLUMN_TOOL_IDS.has(id) && !input.settings.bottomTools.has(id)) && hasActiveSessionOrSwitching;
   const hasBottomTools = [...input.settings.activeTools].some((id) => COLUMN_TOOL_IDS.has(id) && input.settings.bottomTools.has(id)) && hasActiveSessionOrSwitching;
   const showToolPicker = !!input.manager.activeSessionId || input.isSpaceSwitching;

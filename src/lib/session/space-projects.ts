@@ -8,6 +8,35 @@ interface ResolveProjectForSpaceOptions {
   sessions: Pick<ChatSession, "id" | "projectId">[];
 }
 
+interface ResolveRememberedSessionForSpaceOptions {
+  spaceId: string;
+  lastSessionBySpace: Record<string, string>;
+  projects: Project[];
+  sessions: Pick<ChatSession, "id" | "projectId">[];
+}
+
+export function resolveRememberedSessionForSpace({
+  spaceId,
+  lastSessionBySpace,
+  projects,
+  sessions,
+}: ResolveRememberedSessionForSpaceOptions): Pick<ChatSession, "id" | "projectId"> | null {
+  const rememberedSessionId = lastSessionBySpace[spaceId];
+  if (!rememberedSessionId) return null;
+
+  const projectIdsInSpace = new Set(
+    projects
+      .filter((project) => (project.spaceId || "default") === spaceId)
+      .map((project) => project.id),
+  );
+  if (projectIdsInSpace.size === 0) return null;
+
+  const rememberedSession = sessions.find((session) => session.id === rememberedSessionId);
+  if (!rememberedSession || !projectIdsInSpace.has(rememberedSession.projectId)) return null;
+
+  return rememberedSession;
+}
+
 export function resolveProjectForSpace({
   spaceId,
   activeProjectId,
@@ -25,13 +54,15 @@ export function resolveProjectForSpace({
     if (activeProject) return activeProject;
   }
 
-  const rememberedSessionId = lastSessionBySpace[spaceId];
-  if (rememberedSessionId) {
-    const rememberedSession = sessions.find((session) => session.id === rememberedSessionId);
-    if (rememberedSession) {
-      const rememberedProject = projectsById.get(rememberedSession.projectId);
-      if (rememberedProject) return rememberedProject;
-    }
+  const rememberedSession = resolveRememberedSessionForSpace({
+    spaceId,
+    lastSessionBySpace,
+    projects,
+    sessions,
+  });
+  if (rememberedSession) {
+    const rememberedProject = projectsById.get(rememberedSession.projectId);
+    if (rememberedProject) return rememberedProject;
   }
 
   return projectsInSpace[0];
