@@ -14,6 +14,7 @@ import { buildSdkMcpConfig } from "@shared/lib/mcp-config";
 import type { McpServerInput } from "@shared/lib/mcp-config";
 import { getClaudeBinaryMetadata, getClaudeBinaryPath, getClaudeBinaryStatus, getClaudeVersion } from "../lib/claude-binary";
 import { captureEvent } from "../lib/posthog";
+import { maybeToWslPath } from "../lib/wsl-path";
 
 /** SDK options for file checkpointing — enables Write/Edit/NotebookEdit revert support */
 function fileCheckpointOptions(): Record<string, unknown> {
@@ -47,6 +48,12 @@ interface SessionEntry {
 }
 
 export const sessions = new Map<string, SessionEntry>();
+
+function resolveCwd(raw?: string): string {
+  const candidate = raw && raw.trim() ? raw : process.cwd();
+  const translated = maybeToWslPath(candidate);
+  return translated ?? candidate;
+}
 
 function applyPermissionModeOptions(
   queryOptions: Record<string, unknown>,
@@ -510,7 +517,7 @@ async function restartSession(
 
   const opts = session.startOptions;
   const mcpServers = mcpServersOverride ?? opts.mcpServers;
-  const cwd = cwdOverride || opts.cwd || process.cwd();
+  const cwd = resolveCwd(cwdOverride ?? opts.cwd);
   const query = await getSDK();
   const newChannel = new AsyncChannel<unknown>();
   const cliPath = await getClaudeBinaryPath();
@@ -647,8 +654,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
       const cliPath = await getClaudeBinaryPath();
       logSdkCliPath(`start session=${sessionId.slice(0, 8)}`, cliPath);
+      const cwd = resolveCwd(options.cwd);
       const queryOptions: Record<string, unknown> = {
-        cwd: options.cwd || process.cwd(),
+        cwd,
         includePartialMessages: true,
         thinking: buildThinkingConfig(),
         canUseTool,
