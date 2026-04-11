@@ -151,7 +151,7 @@ declare global {
       ) => Promise<IpcResult>;
       setModel: (
         sessionId: string,
-        model: string,
+        model?: string,
       ) => Promise<IpcResult>;
       setThinking: (
         sessionId: string,

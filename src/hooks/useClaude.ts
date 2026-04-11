@@ -973,11 +973,11 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     }
   }, []);
 
-  const setModel = useCallback(async (model: string) => {
+  const setModel = useCallback(async (model?: string) => {
     if (!sessionIdRef.current) return { error: "No session" };
     const result = await window.claude.setModel(sessionIdRef.current, model);
     if (result?.ok) {
-      setSessionInfo((prev) => prev ? { ...prev, model } : prev);
+      setSessionInfo((prev) => prev ? { ...prev, model: model ?? "default" } : prev);
     }
     return result;
   }, []);

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ModelInfo } from "@/types";
-import { areModelsEquivalent, findEquivalentModel, resolveModelValue } from "./model-utils";
+import {
+  areModelsEquivalent,
+  canonicalizeModelValue,
+  findEquivalentModel,
+  resolveModelValue,
+} from "./model-utils";
 
 const cachedModels: ModelInfo[] = [
   {
@@ -71,6 +76,25 @@ describe("resolveModelValue", () => {
 describe("findEquivalentModel", () => {
   it("returns the cached entry that should drive effort metadata", () => {
     expect(findEquivalentModel("claude-opus-4-6[1m]", cachedModels)?.value).toBe("default");
+  });
+});
+
+describe("canonicalizeModelValue", () => {
+  it("prefers the stable default alias over a concrete runtime id", () => {
+    expect(canonicalizeModelValue("claude-opus-4-6[1m]", cachedModels)).toBe("default");
+  });
+
+  it("keeps an exact value when no better alias exists", () => {
+    expect(canonicalizeModelValue("claude-opus-4-6[1m]", [
+      ...cachedModels.filter((entry) => entry.value !== "default"),
+      {
+        value: "claude-opus-4-6[1m]",
+        displayName: "Opus 4.6 (with 1M context)",
+        description: "Newest 1M Opus",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "max"],
+      },
+    ])).toBe("claude-opus-4-6[1m]");
   });
 });
 

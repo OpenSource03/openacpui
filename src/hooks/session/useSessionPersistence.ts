@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import type { PersistedSession, ClaudeEvent, SystemInitEvent, EngineId, ACPSessionEvent, ACPPermissionEvent, ACPTurnCompleteEvent } from "@/types";
+import { canonicalizeModelValue } from "@/lib/model-utils";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { buildPersistedSession } from "../../lib/session/records";
 import { normalizeToolInput as acpNormalizeToolInput, pickAutoResponseOption } from "../../lib/engine/acp-adapter";
@@ -51,6 +52,7 @@ export function useSessionPersistence({
     saveTimerRef,
     visibleSplitSessionIdsRef,
   } = refs;
+  const activeClaudeModels = claude.supportedModels;
 
   // Persist session with Codex thread ID fallback
   const persistSessionWithCodexFallback = useCallback(async (data: PersistedSession) => {
@@ -367,8 +369,13 @@ export function useSessionPersistence({
         const updates: Record<string, unknown> = {};
 
         // Model sync
-        if (sessionInfo?.model && s.model !== sessionInfo.model) {
-          updates.model = sessionInfo.model;
+        const nextModel = (s.engine ?? "claude") === "claude"
+          ? (activeClaudeModels.length > 0
+            ? (canonicalizeModelValue(sessionInfo?.model, activeClaudeModels) ?? sessionInfo?.model)
+            : s.model)
+          : sessionInfo?.model;
+        if (nextModel && s.model !== nextModel) {
+          updates.model = nextModel;
         }
 
         if (sessionInfo?.permissionMode && s.permissionMode !== sessionInfo.permissionMode) {
@@ -401,7 +408,7 @@ export function useSessionPersistence({
       });
       return changed ? next : prev;
     });
-  }, [activeSessionId, sessionInfo?.model, sessionInfo?.permissionMode, totalCost, messages.length, engine.isProcessing, engine.pendingPermission]);
+  }, [activeClaudeModels, activeSessionId, sessionInfo?.model, sessionInfo?.permissionMode, totalCost, messages.length, engine.isProcessing, engine.pendingPermission]);
 
   // Save current session to disk (used before switching/creating)
   const saveCurrentSession = useCallback(async () => {

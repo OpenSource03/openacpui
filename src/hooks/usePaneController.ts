@@ -13,7 +13,7 @@ import type { ACPConfigOption, ChatSession, ClaudeEffort, EngineId, ImageAttachm
 import type { SessionPaneState } from "@/hooks/session/useSessionPane";
 import type { CodexModelSummary } from "@/hooks/session/types";
 import { buildCodexCollabMode, DEFAULT_PERMISSION_MODE } from "@/hooks/session/types";
-import { findEquivalentModel } from "@/lib/model-utils";
+import { canonicalizeModelValue, findEquivalentModel } from "@/lib/model-utils";
 import type { PaneController } from "@/types";
 
 // ── Model catalog builders (moved from AppLayout) ──
@@ -112,7 +112,7 @@ export function usePaneController(
     const defaultModel = isActiveSessionPane
       ? ctx.settings.getModelForEngine(paneEngine).trim()
       : "";
-    const paneModel = liveModel || persistedModel || defaultModel;
+    const rawPaneModel = liveModel || persistedModel || defaultModel;
     const panePermissionMode =
       paneState.sessionInfo?.permissionMode
       ?? session?.permissionMode
@@ -127,15 +127,18 @@ export function usePaneController(
           ? paneState.codex.codexModels
           : ctx.manager.codexRawModels.length > 0
             ? buildCodexModelCatalog(ctx.manager.codexRawModels)
-            : buildPaneModelFallback(paneModel))
+            : buildPaneModelFallback(rawPaneModel))
         : ensureCurrentClaudeModel(
           paneState.claude.supportedModels.length > 0
             ? paneState.claude.supportedModels
             : ctx.manager.cachedClaudeModels.length > 0
               ? ctx.manager.cachedClaudeModels
-              : buildPaneModelFallback(paneModel),
-          paneModel,
+              : buildPaneModelFallback(rawPaneModel),
+          rawPaneModel,
         );
+    const paneModel = paneEngine === "claude"
+      ? (canonicalizeModelValue(rawPaneModel, paneSupportedModels) ?? rawPaneModel)
+      : rawPaneModel;
     const paneAcpConfigOptions = paneEngine === "acp"
       ? (isActiveSessionPane ? ctx.manager.acpConfigOptions : paneState.acp.configOptions)
       : [];

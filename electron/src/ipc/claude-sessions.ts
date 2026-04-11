@@ -48,6 +48,12 @@ interface SessionEntry {
 
 export const sessions = new Map<string, SessionEntry>();
 
+function toSdkModelOverride(model?: string | null): string | undefined {
+  const normalized = model?.trim();
+  if (!normalized) return undefined;
+  return normalized.toLowerCase() === "default" ? undefined : normalized;
+}
+
 function applyPermissionModeOptions(
   queryOptions: Record<string, unknown>,
   permissionMode?: string,
@@ -564,7 +570,8 @@ async function restartSession(
   };
 
   applyPermissionModeOptions(queryOptions, opts.permissionMode);
-  if (modelOverride ?? opts.model) queryOptions.model = modelOverride ?? opts.model;
+  const restartModel = toSdkModelOverride(modelOverride ?? opts.model);
+  if (restartModel) queryOptions.model = restartModel;
   if (effortOverride ?? opts.effort) {
     queryOptions.effort = effortOverride ?? opts.effort;
   }
@@ -676,8 +683,9 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       }
 
       applyPermissionModeOptions(queryOptions, options.permissionMode);
-      if (options.model) {
-        queryOptions.model = options.model;
+      const startModel = toSdkModelOverride(options.model);
+      if (startModel) {
+        queryOptions.model = startModel;
       }
       if (options.effort) {
         queryOptions.effort = options.effort;
@@ -810,7 +818,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle("claude:set-model", async (_event, { sessionId, model }: { sessionId: string; model: string }) => {
+  ipcMain.handle("claude:set-model", async (_event, { sessionId, model }: { sessionId: string; model?: string }) => {
     const session = sessions.get(sessionId);
     if (!session) {
       log("SET_MODEL", "ERROR: session " + sessionId.slice(0, 8) + " not found");
@@ -821,15 +829,16 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       return { error: "Model switching is not supported by this Claude SDK version" };
     }
     try {
-      await session.queryHandle.setModel(model);
+      const sdkModel = toSdkModelOverride(model);
+      await session.queryHandle.setModel(sdkModel);
       if (session.startOptions) {
-        session.startOptions.model = model;
+        session.startOptions.model = sdkModel;
       }
-      log("SET_MODEL", "session=" + sessionId.slice(0, 8) + " model=" + model);
-      void captureEvent("model_changed", { engine: "claude", model });
+      log("SET_MODEL", "session=" + sessionId.slice(0, 8) + " model=" + (sdkModel ?? "default"));
+      void captureEvent("model_changed", { engine: "claude", model: sdkModel ?? "default" });
       return { ok: true };
     } catch (err) {
-      const errMsg = reportError("SET_MODEL_ERR", err, { engine: "claude", sessionId, model });
+      const errMsg = reportError("SET_MODEL_ERR", err, { engine: "claude", sessionId, model: model ?? "default" });
       return { error: errMsg };
     }
   });

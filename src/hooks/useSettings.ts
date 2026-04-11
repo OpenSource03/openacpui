@@ -64,7 +64,7 @@ const MIN_SPLIT = 0.2;
 const MAX_SPLIT = 0.8;
 const DEFAULT_SPLIT = 0.5;
 
-const DEFAULT_MODEL = "claude-opus-4-6";
+const DEFAULT_MODEL = "default";
 const DEFAULT_PERMISSION_MODE = "default";
 const DEFAULT_PLAN_MODE = true;
 const DEFAULT_CLAUDE_EFFORT: ClaudeEffort = "high";

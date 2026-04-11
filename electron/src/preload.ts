@@ -103,7 +103,7 @@ contextBridge.exposeInMainWorld("claude", {
     ipcRenderer.invoke("claude:permission_response", { sessionId, requestId, behavior, toolUseId, toolInput, newPermissionMode, updatedPermissions }),
   setPermissionMode: (sessionId: string, permissionMode: string) =>
     ipcRenderer.invoke("claude:set-permission-mode", { sessionId, permissionMode }),
-  setModel: (sessionId: string, model: string) =>
+  setModel: (sessionId: string, model?: string) =>
     ipcRenderer.invoke("claude:set-model", { sessionId, model }),
   setThinking: (sessionId: string, thinkingEnabled: boolean) =>
     ipcRenderer.invoke("claude:set-thinking", { sessionId, thinkingEnabled }),

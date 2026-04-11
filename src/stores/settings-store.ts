@@ -5,7 +5,7 @@ import type { AcpPermissionBehavior, ClaudeEffort, EngineId, MacBackgroundEffect
 
 // ── Constants ──
 
-const DEFAULT_MODEL = "claude-opus-4-6";
+const DEFAULT_MODEL = "default";
 const DEFAULT_PERMISSION_MODE = "default";
 const DEFAULT_PLAN_MODE = true;
 const DEFAULT_CLAUDE_EFFORT: ClaudeEffort = "high";

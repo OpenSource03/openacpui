@@ -109,6 +109,44 @@ export function resolveModelValue(model: string | null | undefined, supportedMod
   return undefined;
 }
 
+/**
+ * Convert a model id into the most stable picker value for persistence.
+ *
+ * Unlike `resolveModelValue`, this prefers SDK aliases such as `default`,
+ * `opus`, `sonnet`, and `haiku` over release-specific runtime ids whenever
+ * both refer to the same effective model.
+ */
+export function canonicalizeModelValue(
+  model: string | null | undefined,
+  supportedModels: ModelInfo[],
+): string | undefined {
+  if (!model) return undefined;
+  const target = normalizeModelId(model);
+
+  const equivalents = getEquivalentModels(model, supportedModels);
+  if (equivalents.length > 0) {
+    const preferred = [...equivalents].sort(
+      (a, b) => modelPreferenceScore(b, target) - modelPreferenceScore(a, target),
+    )[0];
+    return preferred.value;
+  }
+
+  const exact = supportedModels.find((entry) => modelValue(entry) === target);
+  if (exact) {
+    return exact.value;
+  }
+
+  const familyMatches = getFamilyMatches(model, supportedModels);
+  if (familyMatches.length > 0) {
+    const preferred = [...familyMatches].sort(
+      (a, b) => modelPreferenceScore(b, target) - modelPreferenceScore(a, target),
+    )[0];
+    return preferred.value;
+  }
+
+  return undefined;
+}
+
 export function findEquivalentModel(
   model: string | null | undefined,
   supportedModels: ModelInfo[],

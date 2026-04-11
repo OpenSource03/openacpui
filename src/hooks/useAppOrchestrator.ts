@@ -11,9 +11,7 @@ import { useAcpAgentAutoUpdate } from "@/hooks/useAcpAgentAutoUpdate";
 import { useSplitView } from "@/hooks/useSplitView";
 import { useFolderManager } from "@/hooks/useFolderManager";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { getAppMinimumWidth } from "@/lib/layout/split-layout";
-import { resolveModelValue } from "@/lib/model-utils";
-import { isWindows } from "@/lib/utils";
+import { canonicalizeModelValue, resolveModelValue } from "@/lib/model-utils";
 import type { ToolId } from "@/types/tools";
 import type { AcpPermissionBehavior, EngineId, InstalledAgent } from "@/types";
 import { getSyncedPlanMode } from "@/hooks/app-layout/session-utils";
@@ -133,28 +131,17 @@ export function useAppOrchestrator() {
   });
 
   useEffect(() => {
-    const minWidth = getAppMinimumWidth({
-      sidebarOpen: sidebar.isOpen,
-      isIslandLayout: settings.islandLayout,
-      hasActiveSession: !!manager.activeSessionId,
-      hasRightPanel: contextualState.hasRightPanel,
-      hasToolsColumn: contextualState.hasToolsColumn,
-      isSplitViewEnabled: splitView.enabled && splitView.paneCount > 1,
-      splitPaneCount: splitView.paneCount,
-      splitTopRowItemKinds: splitView.topRowItems.map((item) => item.kind),
-      isWindows,
-    });
-    window.claude.setMinWidth(Math.max(minWidth, 600));
-  }, [
-    contextualState.hasRightPanel,
-    contextualState.hasToolsColumn,
-    manager.activeSessionId,
-    settings.islandLayout,
-    sidebar.isOpen,
-    splitView.enabled,
-    splitView.paneCount,
-    splitView.topRowItems,
-  ]);
+    const claudeModels = manager.supportedModels.length > 0
+      ? manager.supportedModels
+      : manager.cachedClaudeModels;
+    if (claudeModels.length === 0) return;
+
+    const currentModel = settings.getModelForEngine("claude");
+    const canonicalModel = canonicalizeModelValue(currentModel, claudeModels);
+    if (canonicalModel && canonicalModel !== currentModel) {
+      settings.setModelForEngine("claude", canonicalModel);
+    }
+  }, [manager.cachedClaudeModels, manager.supportedModels, settings.getModelForEngine, settings.setModelForEngine]);
 
   // Sync model from loaded session (canonical runtime names -> picker values)
   useEffect(() => {
@@ -163,7 +150,9 @@ export function useAppOrchestrator() {
     if (!session?.model) return;
 
     const sessionEngine = session.engine ?? "claude";
-    const syncedModel = resolveModelValue(session.model, manager.supportedModels) ?? session.model;
+    const syncedModel = sessionEngine === "claude"
+      ? (canonicalizeModelValue(session.model, manager.supportedModels) ?? session.model)
+      : (resolveModelValue(session.model, manager.supportedModels) ?? session.model);
     if (syncedModel !== settings.getModelForEngine(sessionEngine)) {
       settings.setModelForEngine(sessionEngine, syncedModel);
     }

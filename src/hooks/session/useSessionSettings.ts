@@ -30,6 +30,11 @@ export function useSessionSettings({
   abandonEagerSession,
   resetCodexEffortToModelDefault,
 }: UseSessionSettingsParams) {
+  const getClaudeSdkModel = useCallback((model: string): string | undefined => {
+    const normalized = model.trim();
+    if (!normalized) return undefined;
+    return normalized.toLowerCase() === "default" ? undefined : normalized;
+  }, []);
   const { claude, engine } = engines;
   const {
     setSessions,
@@ -130,7 +135,7 @@ export function useSessionSettings({
       && liveSessionIdsRef.current.has(id);
 
     if (isLiveClaudeSession) {
-      claude.setModel(model).then((result) => {
+      claude.setModel(getClaudeSdkModel(model)).then((result) => {
         if (result?.error) {
           toast.error("Failed to switch model", { description: result.error });
           return;
@@ -164,7 +169,7 @@ export function useSessionSettings({
       applyCodexDefaultEffort(model);
     }
     persistModel();
-  }, [claude.setModel, resetCodexEffortToModelDefault, eagerStartSession, abandonEagerSession, persistSessionPatch]);
+  }, [abandonEagerSession, claude.setModel, eagerStartSession, getClaudeSdkModel, persistSessionPatch, resetCodexEffortToModelDefault]);
 
   // ── Active permission mode ──
 
@@ -341,7 +346,13 @@ export function useSessionSettings({
       const draftEngine = startOptionsRef.current.engine ?? "claude";
       if (!preStartedId || draftEngine !== "claude") return;
 
-      const restartResult = await window.claude.restartSession(preStartedId, undefined, undefined, effort, model);
+      const restartResult = await window.claude.restartSession(
+        preStartedId,
+        undefined,
+        undefined,
+        effort,
+        getClaudeSdkModel(model),
+      );
       if (restartResult?.error) {
         toast.error("Failed to update model effort", { description: restartResult.error });
         return;
@@ -375,7 +386,13 @@ export function useSessionSettings({
     };
 
     if (liveSessionIdsRef.current.has(id)) {
-      const restartResult = await window.claude.restartSession(id, undefined, undefined, effort, model);
+      const restartResult = await window.claude.restartSession(
+        id,
+        undefined,
+        undefined,
+        effort,
+        getClaudeSdkModel(model),
+      );
       if (restartResult?.error) {
         toast.error("Failed to update model effort", { description: restartResult.error });
         return;
@@ -383,7 +400,7 @@ export function useSessionSettings({
     }
 
     persistModelAndEffort();
-  }, [persistSessionPatch, setCachedModels, setDraftMcpStatuses, setStartOptions]);
+  }, [getClaudeSdkModel, persistSessionPatch, setCachedModels, setDraftMcpStatuses, setStartOptions]);
 
   // ── Per-session model (for split view / non-active sessions) ──
 
@@ -398,7 +415,7 @@ export function useSessionSettings({
     };
 
     if ((session.engine ?? "claude") === "claude" && liveSessionIdsRef.current.has(sessionId)) {
-      const result = await window.claude.setModel(sessionId, model);
+      const result = await window.claude.setModel(sessionId, getClaudeSdkModel(model));
       if (result?.error) {
         toast.error("Failed to switch model", { description: result.error });
         return;
@@ -418,7 +435,7 @@ export function useSessionSettings({
     }
 
     persistModel();
-  }, [liveSessionIdsRef, persistSessionPatch, sessionsRef]);
+  }, [getClaudeSdkModel, liveSessionIdsRef, persistSessionPatch, sessionsRef]);
 
   // ── Per-session permission mode ──
 
@@ -481,7 +498,13 @@ export function useSessionSettings({
     if (!session || (session.engine ?? "claude") !== "claude") return;
 
     if (liveSessionIdsRef.current.has(sessionId)) {
-      const restartResult = await window.claude.restartSession(sessionId, undefined, undefined, effort, model);
+      const restartResult = await window.claude.restartSession(
+        sessionId,
+        undefined,
+        undefined,
+        effort,
+        getClaudeSdkModel(model),
+      );
       if (restartResult?.error) {
         toast.error("Failed to update model effort", { description: restartResult.error });
         return;
@@ -489,7 +512,7 @@ export function useSessionSettings({
     }
 
     persistSessionPatch(sessionId, { model, effort });
-  }, [liveSessionIdsRef, persistSessionPatch, sessionsRef]);
+  }, [getClaudeSdkModel, liveSessionIdsRef, persistSessionPatch, sessionsRef]);
 
   return {
     persistSessionPatch,
