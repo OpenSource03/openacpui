@@ -46,6 +46,7 @@ import {
   extractEditableContent,
   getAvailableSlashCommands,
   isClearCommandText,
+  shouldSubmitOnEnter,
 } from "./input-bar-utils";
 import { ContextGauge } from "./ContextGauge";
 import { AttachmentPreview } from "./AttachmentPreview";
@@ -543,7 +544,7 @@ export const InputBar = memo(function InputBar({
       return;
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (shouldSubmitOnEnter(e)) {
       e.preventDefault();
       if (!isSending && !isAwaitingAcpOptions) {
         handleSend();
