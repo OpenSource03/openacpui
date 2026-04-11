@@ -11,10 +11,6 @@ export const PreReleaseBanner = memo(function PreReleaseBanner({
   const [info, setInfo] = useState<PreReleaseInfo | null>(null);
 
   useEffect(() => {
-    // TODO: remove dev override
-    setInfo({ isPreRelease: true, version: "0.21.0", releaseUrl: null });
-    return;
-
     // Fetch on mount (uses cached result after first call)
     window.claude.updater.isPreRelease().then(setInfo);
 
