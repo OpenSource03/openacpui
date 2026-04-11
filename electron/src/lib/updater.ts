@@ -32,6 +32,15 @@ export function getIsInstallingUpdate(): boolean {
   return installingUpdate;
 }
 
+function isCurrentVersionPreRelease(): boolean {
+  return app.getVersion().includes("-");
+}
+
+function syncUpdateChannelPreferences(allowPrereleaseUpdates: boolean): void {
+  autoUpdater.allowPrerelease = allowPrereleaseUpdates;
+  autoUpdater.allowDowngrade = !allowPrereleaseUpdates && isCurrentVersionPreRelease();
+}
+
 /** @internal Exported for testing. */
 export function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -80,12 +89,19 @@ export function initAutoUpdater(
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   // Read persisted preference (defaults to false)
-  autoUpdater.allowPrerelease = getAppSetting("allowPrereleaseUpdates");
+  syncUpdateChannelPreferences(getAppSetting("allowPrereleaseUpdates"));
 
   // React to setting changes at runtime (e.g. user toggles in Settings UI)
   onSettingsChanged((settings) => {
-    autoUpdater.allowPrerelease = settings.allowPrereleaseUpdates;
-    log("UPDATER", `allowPrerelease changed to ${settings.allowPrereleaseUpdates}`);
+    syncUpdateChannelPreferences(settings.allowPrereleaseUpdates);
+    log(
+      "UPDATER",
+      `allowPrerelease changed to ${settings.allowPrereleaseUpdates}; allowDowngrade=${autoUpdater.allowDowngrade}`,
+    );
+
+    if (!settings.allowPrereleaseUpdates && isCurrentVersionPreRelease()) {
+      void checkForUpdates("switch-to-stable");
+    }
   });
 
   autoUpdater.on("update-available", (info: UpdateInfo) => {

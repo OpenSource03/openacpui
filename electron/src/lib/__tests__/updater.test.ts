@@ -48,6 +48,7 @@ const {
     autoDownload: true,
     autoInstallOnAppQuit: true,
     allowPrerelease: false,
+    allowDowngrade: false,
     checkForUpdates: vi.fn().mockResolvedValue({}),
     downloadUpdate: vi.fn().mockResolvedValue(null),
     quitAndInstall: vi.fn(),
@@ -154,6 +155,7 @@ import * as fs from "fs";
 import { execFile } from "child_process";
 import { app, BrowserWindow, shell, powerMonitor } from "electron";
 import { log } from "../logger";
+import { getAppSetting } from "../app-settings";
 import {
   initAutoUpdater,
   getIsInstallingUpdate,
@@ -199,11 +201,13 @@ beforeEach(() => {
   mockIpcHandlers.clear();
   updaterEmitter.removeAllListeners();
   mockAutoUpdater.squirrelDownloadedUpdate = undefined;
+  mockAutoUpdater.allowDowngrade = false;
   mockAutoUpdater.checkForUpdates.mockReset().mockResolvedValue({});
   mockAutoUpdater.downloadUpdate.mockReset().mockResolvedValue(null);
   mockAutoUpdater.quitAndInstall.mockReset();
   mockWindow.destroy.mockReset();
   mockWebContents.send.mockReset();
+  mockApp.getVersion.mockReturnValue("0.12.0");
   (app.on as Mock).mockReset();
   (powerMonitor.on as Mock).mockReset();
   (shell.openExternal as Mock).mockReset();
@@ -211,6 +215,7 @@ beforeEach(() => {
   (fs.existsSync as Mock).mockReturnValue(false);
   (fs.readdirSync as Mock).mockReturnValue([]);
   (log as Mock).mockReset();
+  (getAppSetting as Mock).mockReturnValue(true);
   settingsChangedCbRef.current = null;
 });
 
@@ -393,6 +398,7 @@ describe("initAutoUpdater", () => {
       expect(mockAutoUpdater.autoDownload).toBe(false);
       expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(true);
       expect(mockAutoUpdater.allowPrerelease).toBe(true); // from mocked getAppSetting
+      expect(mockAutoUpdater.allowDowngrade).toBe(false);
     });
 
     it("sets up custom logger on autoUpdater", () => {
@@ -425,6 +431,32 @@ describe("initAutoUpdater", () => {
       // Simulate a settings change
       settingsChangedCbRef.current!({ allowPrereleaseUpdates: false });
       expect(mockAutoUpdater.allowPrerelease).toBe(false);
+      expect(mockAutoUpdater.allowDowngrade).toBe(false);
+    });
+
+    it("allows downgrade when a prerelease build switches to stable-only updates", () => {
+      mockApp.getVersion.mockReturnValue("0.12.0-beta.1");
+
+      init();
+
+      expect(mockAutoUpdater.allowPrerelease).toBe(true);
+      expect(mockAutoUpdater.allowDowngrade).toBe(false);
+
+      settingsChangedCbRef.current!({ allowPrereleaseUpdates: false });
+
+      expect(mockAutoUpdater.allowPrerelease).toBe(false);
+      expect(mockAutoUpdater.allowDowngrade).toBe(true);
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledWith();
+    });
+
+    it("enables downgrade on startup when a prerelease build is already in stable-only mode", () => {
+      mockApp.getVersion.mockReturnValue("0.12.0-beta.1");
+      (getAppSetting as Mock).mockReturnValue(false);
+
+      init();
+
+      expect(mockAutoUpdater.allowPrerelease).toBe(false);
+      expect(mockAutoUpdater.allowDowngrade).toBe(true);
     });
 
     it("schedules startup update check after 5s", async () => {
