@@ -901,6 +901,11 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
 
     log("INTERRUPT", `session=${sessionId.slice(0, 8)}`);
 
+    // Mark as user-initiated stop so the event loop treats teardown errors
+    // (including SDK ede_diagnostic results) as a clean exit.
+    session.stopping = true;
+    session.stopReason = "interrupt";
+
     for (const [requestId, pending] of session.pendingPermissions) {
       pending.resolve({ behavior: "deny", message: "Interrupted by user" });
       session.pendingPermissions.delete(requestId);

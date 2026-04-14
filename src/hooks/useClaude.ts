@@ -84,6 +84,8 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   const completedPermissionIds = useRef<Set<string>>(new Set());
   // Throttle timer for thinking-only flushes (invisible content → 250ms instead of 60fps)
   const thinkingThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks user-initiated interrupts so the result event's ede_diagnostic error is suppressed
+  const interruptedRef = useRef(false);
 
   // Engine-specific reset — runs after base reset via the same sessionId dependency
   useEffect(() => {
@@ -93,6 +95,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
     permissionResponseInFlight.current = false;
     respondingPermissionIds.current.clear();
     completedPermissionIds.current.clear();
+    interruptedRef.current = false;
     if (thinkingThrottleRef.current) {
       clearTimeout(thinkingThrottleRef.current);
       thinkingThrottleRef.current = null;
@@ -689,11 +692,17 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
           // Respect is_error flag — when false, the SDK considers it a non-fatal result
           // (e.g. interrupt teardown with LSP cleanup errors). Only show genuine errors,
           // or user-relevant limit subtypes (max_turns, max_budget) regardless of is_error.
+          // Skip error display for user-initiated interrupts — the SDK emits an
+          // ede_diagnostic error_during_execution result when the request is aborted,
+          // which is expected and not actionable.
           const resultEvent = event as ResultEvent;
-          const isUserRelevantError = resultEvent.is_error
-            || resultEvent.subtype === "error_max_turns"
-            || resultEvent.subtype === "error_max_budget_usd"
-            || resultEvent.subtype === "error_max_structured_output_retries";
+          const wasInterrupted = interruptedRef.current;
+          interruptedRef.current = false;
+          const isUserRelevantError = !wasInterrupted
+            && (resultEvent.is_error
+              || resultEvent.subtype === "error_max_turns"
+              || resultEvent.subtype === "error_max_budget_usd"
+              || resultEvent.subtype === "error_max_structured_output_retries");
           if (isUserRelevantError) {
             const errorMsg = resultEvent.errors?.join("\n")
               || resultEvent.result
@@ -815,6 +824,7 @@ export function useClaude({ sessionId, initialMessages, initialMeta, initialPerm
   const interrupt = useCallback(async () => {
     if (!sessionIdRef.current) return;
     suppressNextSessionCompletion(sessionIdRef.current);
+    interruptedRef.current = true;
 
     // Flush any rAF-buffered streaming content to React state
     flushNow();
