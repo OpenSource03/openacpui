@@ -2,7 +2,7 @@
 > Harnss is in early development and issues are to be expected. Please feel free to report bugs and issues in the Issues section.
 
 <p align="center">
-  
+  <img alt="harnss_banner" src="https://github.com/user-attachments/assets/88f4dce1-c12b-493a-be8c-a3c418293ef4" />
 </p>
 
 <p align="center">
