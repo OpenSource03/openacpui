@@ -65,6 +65,18 @@ function draftStorageKey(draftKey: string): string {
 }
 
 /**
+ * Which draftKey has the current "write lease" on localStorage. When the same
+ * session is somehow surfaced in two InputBar instances (same pane reopen
+ * race, split view, or a second window), only the first-mounted owner writes
+ * back — the rest restore from storage but stay passive, so they never
+ * clobber the primary composer's state.
+ *
+ * Module-level Map, not context, so it survives React reconciliation without
+ * needing a provider plumbed through every mount site.
+ */
+const draftKeyOwners = new Set<string>();
+
+/**
  * Sanitize HTML pulled out of localStorage before re-injecting it via
  * innerHTML. The composer only ever produces text nodes, <br>, and
  * mention chips (spans with a data-mention-path attribute), so we whitelist
@@ -283,7 +295,9 @@ export const InputBar = memo(function InputBar({
       mention.closeMentions();
       command.setShowCommands(false);
       // Drop the persisted draft on send / explicit clear so it doesn't
-      // resurrect next time we restore for this draftKey.
+      // resurrect next time we restore for this draftKey. We always want to
+      // purge (even for non-owners) since a send from any instance means the
+      // draft is "spent" from the user's perspective.
       if (draftKey) {
         try { localStorage.removeItem(draftStorageKey(draftKey)); } catch { /* quota / mode */ }
       }
@@ -297,10 +311,16 @@ export const InputBar = memo(function InputBar({
   // - On cleanup (unmount / draftKey change): save the current DOM under the
   //   PREVIOUS key. useEffect cleanup runs before the next effect body, so the
   //   save always targets the key the DOM actually belonged to.
+  // - Write-lease: if another InputBar is already editing this draftKey, we
+  //   read storage but never write back, so the primary composer stays the
+  //   single source of truth.
   useEffect(() => {
     if (!draftKey) return;
     const el = editableRef.current;
     if (!el) return;
+
+    const isOwner = !draftKeyOwners.has(draftKey);
+    if (isOwner) draftKeyOwners.add(draftKey);
 
     try {
       const stored = localStorage.getItem(draftStorageKey(draftKey));
@@ -317,15 +337,21 @@ export const InputBar = memo(function InputBar({
     } catch { /* ignore — fall through to empty composer */ }
 
     return () => {
-      const current = el.innerHTML;
-      const hasText = Boolean(el.textContent?.trim());
-      try {
-        if (current && hasText) {
-          localStorage.setItem(draftStorageKey(draftKey), current);
-        } else {
-          localStorage.removeItem(draftStorageKey(draftKey));
-        }
-      } catch { /* ignore */ }
+      if (isOwner) {
+        // Primary composer saves its DOM and releases the lease.
+        const current = el.innerHTML;
+        const hasText = Boolean(el.textContent?.trim());
+        try {
+          if (current && hasText) {
+            localStorage.setItem(draftStorageKey(draftKey), current);
+          } else {
+            localStorage.removeItem(draftStorageKey(draftKey));
+          }
+        } catch { /* ignore */ }
+        draftKeyOwners.delete(draftKey);
+      }
+      // Non-owners restore only, so nothing to persist on unmount — avoids
+      // the "last writer wins" clobber when two panes share a session id.
     };
   }, [draftKey]);
 
