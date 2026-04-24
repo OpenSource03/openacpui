@@ -72,7 +72,7 @@ export interface Project {
   createdAt: number;
   spaceId?: string;
   icon?: string;
-  iconType?: "emoji" | "lucide";
+  iconType?: "emoji" | "lucide" | "simple";
 }
 
 /** A user-created folder for organizing chats within a project. */

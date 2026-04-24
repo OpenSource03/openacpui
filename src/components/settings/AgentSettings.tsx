@@ -49,7 +49,7 @@ interface FormState {
   args: string;
   envPairs: Array<{ key: string; value: string }>;
   icon: string;
-  iconType: "emoji" | "lucide";
+  iconType: "emoji" | "lucide" | "simple";
 }
 
 interface FormErrors {

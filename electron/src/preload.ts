@@ -140,7 +140,7 @@ contextBridge.exposeInMainWorld("claude", {
     delete: (projectId: string) => ipcRenderer.invoke("projects:delete", projectId),
     rename: (projectId: string, name: string) => ipcRenderer.invoke("projects:rename", projectId, name),
     updateSpace: (projectId: string, spaceId: string) => ipcRenderer.invoke("projects:update-space", projectId, spaceId),
-    updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => ipcRenderer.invoke("projects:update-icon", projectId, icon, iconType),
+    updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | "simple" | null) => ipcRenderer.invoke("projects:update-icon", projectId, icon, iconType),
     reorder: (projectId: string, targetProjectId: string) => ipcRenderer.invoke("projects:reorder", projectId, targetProjectId),
   },
   sessions: {

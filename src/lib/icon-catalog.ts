@@ -77,9 +77,28 @@ export const CURATED_LUCIDE_ICONS: readonly string[] = [
 
   // Tech & dev
   "Code", "CodeXml", "SquareCode", "Terminal", "SquareTerminal", "Cpu", "Database", "Server",
-  "HardDrive", "Cloud", "CloudUpload", "CloudDownload", "Bug", "Boxes", "Component", "Braces",
-  "Binary", "MemoryStick", "Router", "Laptop", "Monitor", "Smartphone", "Tablet", "Keyboard",
-  "Mouse", "Usb", "Webhook", "Workflow",
+  "HardDrive", "Cloud", "CloudUpload", "CloudDownload", "Bug", "BugOff", "Boxes", "Component",
+  "Braces", "Brackets", "Parentheses", "Binary", "MemoryStick", "Microchip", "CircuitBoard", "Router",
+  "Laptop", "Monitor", "Smartphone", "Tablet", "Keyboard", "Mouse", "Usb", "Webhook",
+  "Workflow", "Waypoints", "ServerCog", "Unplug", "Container", "FileCode", "FileCog", "FileTerminal",
+  "FileKey", "FileLock", "FileCheck", "FileDiff", "FolderCog", "FolderKey", "FolderLock", "FolderSearch",
+  "FolderSymlink", "PackageCheck", "PackageX", "Split", "Merge", "Import", "Recycle", "SquareDashedBottomCode",
+
+  // Code syntax / symbols
+  "Hash", "AtSign", "Asterisk", "SquareAsterisk", "SquareSlash", "Ampersand", "Percent", "SquareFunction",
+  "Pilcrow", "Pi", "Sigma", "Divide", "Equal", "Dot",
+
+  // AI & automation
+  "BrainCircuit", "BrainCog",
+
+  // Network & signal
+  "Network", "Wifi", "WifiOff", "Antenna", "Satellite", "SatelliteDish", "RadioTower", "Cast", "Rss",
+
+  // Security
+  "LockKeyhole", "KeySquare", "ShieldEllipsis", "EyeOff", "BadgeAlert", "BadgeInfo",
+
+  // Layout grids
+  "LayoutGrid", "Grid2x2", "Grid3x3", "Columns3", "Rows3",
 
   // Git & build
   "GitBranch", "GitCommitHorizontal", "GitCompare", "GitFork", "GitMerge", "GitPullRequest", "Github",
@@ -91,7 +110,7 @@ export const CURATED_LUCIDE_ICONS: readonly string[] = [
   // Containers & organization
   "Layers", "Layers2", "Box", "Package", "Package2", "PackageOpen", "Archive", "ArchiveRestore",
   "Inbox", "FolderOpen", "Folder", "FolderClosed", "FolderGit2", "FolderHeart", "FolderKanban", "FolderTree",
-  "Files", "File", "FileText", "FileCode", "BookOpen", "Book", "BookMarked", "Library",
+  "Files", "File", "FileText", "BookOpen", "Book", "BookMarked", "Library",
   "Album", "ClipboardList", "Clipboard", "NotebookPen", "Notebook", "StickyNote", "Tag", "Tags",
 
   // Nature

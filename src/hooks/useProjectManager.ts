@@ -47,7 +47,7 @@ export function useProjectManager() {
     );
   }, []);
 
-  const updateProjectIcon = useCallback(async (id: string, icon: string | null, iconType: "emoji" | "lucide" | null) => {
+  const updateProjectIcon = useCallback(async (id: string, icon: string | null, iconType: "emoji" | "lucide" | "simple" | null) => {
     await window.claude.projects.updateIcon(id, icon, iconType);
     setProjects((prev) =>
       prev.map((p) => {
