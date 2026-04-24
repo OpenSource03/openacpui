@@ -7,6 +7,7 @@ import {
   memo,
   type KeyboardEvent,
 } from "react";
+import DOMPurify from "dompurify";
 import {
   ArrowUp,
   Loader2,
@@ -61,6 +62,25 @@ import { useCommandAutocomplete } from "./CommandPicker";
 /** localStorage key for a per-session composer draft. */
 function draftStorageKey(draftKey: string): string {
   return `harnss-composer-draft-${draftKey}`;
+}
+
+/**
+ * Sanitize HTML pulled out of localStorage before re-injecting it via
+ * innerHTML. The composer only ever produces text nodes, <br>, and
+ * mention chips (spans with a data-mention-path attribute), so we whitelist
+ * exactly that and strip every event handler / script / URL-bearing tag.
+ *
+ * Why it matters: a devtools user, browser extension, or a second Electron
+ * window could theoretically tamper with the saved blob. Without sanitize,
+ * replaying `<img onerror="...">` on mount would execute the handler.
+ */
+function sanitizeDraftHtml(raw: string): string {
+  return DOMPurify.sanitize(raw, {
+    ALLOWED_TAGS: ["br", "span", "div", "p"],
+    ALLOWED_ATTR: ["data-mention-path", "class", "contenteditable", "data-mention-chip"],
+    FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "img", "svg"],
+    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "href", "src", "style"],
+  });
 }
 
 export interface InputBarProps {
@@ -285,7 +305,11 @@ export const InputBar = memo(function InputBar({
     try {
       const stored = localStorage.getItem(draftStorageKey(draftKey));
       if (stored && stored.length > 0) {
-        el.innerHTML = stored;
+        // Sanitize before innerHTML: the blob comes out of localStorage,
+        // which any devtools user / extension could have written. Strip
+        // event handlers / unexpected tags so we never execute tampered
+        // scripts just by restoring a draft.
+        el.innerHTML = sanitizeDraftHtml(stored);
         const hasText = Boolean(el.textContent?.trim());
         hasContentRef.current = hasText;
         setHasContent(hasText);
