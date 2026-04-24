@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { Terminal as TerminalIcon, Plus, X, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PanelHeader } from "@/components/PanelHeader";
-import type { TerminalTab } from "@/hooks/useSpaceTerminals";
+import type { TerminalTab } from "@/hooks/useSessionTerminals";
 import type { ResolvedTheme } from "@/hooks/useTheme";
 
 const DARK_TERMINAL_THEME = {

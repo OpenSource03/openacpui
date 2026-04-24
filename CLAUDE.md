@@ -187,15 +187,34 @@ Key event types in order:
 
 ### Tools Panel System
 
-The right side of the layout has a **ToolPicker** strip (vertical icon bar, always visible) that toggles tool panels on/off. Active tools state (`Set<ToolId>`) is persisted to localStorage.
+The right side of the layout has a **ToolPicker** strip (vertical icon bar, always visible) that toggles tool panels on/off.
 
 **Layout**: `Sidebar | Chat | Tasks/Agents | [Tool Panels] | ToolPicker`
 
 Tool panels share a resizable column. When multiple tools are active, they split vertically with a draggable divider (ratio persisted to localStorage, clamped 20%–80%). The column width is also resizable (280–800px).
 
-**Terminal** (`ToolsPanel`): Multi-tab xterm.js instances. Each tab spawns a node-pty process in the main process via IPC. Uses `allowTransparency: true` + `background: "#00000000"` for transparent canvas that inherits the island's `bg-background`. The FitAddon + ResizeObserver auto-sizes the terminal on panel resize.
+**Scope: session-scoped** — the entire tool panel state follows the active session (à la Claude Desktop's chat isolation). Switching sessions swaps the right-side working surface to that session's state. See `docs/plans/session-scoped-tools.md` for the full design.
 
-**Browser** (`BrowserPanel`): Multi-tab Electron `<webview>` with URL bar, back/forward/reload, HTTPS indicator. Smart URL input: bare domains get `https://` prefix, non-URL text becomes a Google search.
+Per-session state:
+- `activeTools` / `toolOrder` / `suppressedPanels` / `bottomTools` — which tools are active and their placement (Zustand `sessions` slice, see `src/stores/settings-store.ts`)
+- Panel geometry — `rightPanelWidth`, `rightSplitRatio`, `bottomToolsHeight`, `bottomToolsSplitRatios` (same slice)
+- Terminal tab list + pty processes (`src/hooks/useSessionTerminals.ts`; pty owned by sessionId in `electron/src/ipc/terminal.ts`)
+- Browser tab list + webview instances (persistKey `main:session:${sessionId}` in `BrowserPanel`)
+
+Per-project state (unchanged):
+- Engine models, git cwd, collapsed repo list, organize-by-branch toggle
+
+Lazy fallback: a new session reads its tool panel state from the owning project's settings until the user first modifies something, at which point the session entry is materialized and the fork is permanent.
+
+Session lifecycle hooks:
+- **Delete**: kills ptys (`terminal:destroy-session`), clears session settings entry, removes browser localStorage entry.
+- **Switch away**: ptys and webviews stay alive; `npm run dev` in a tab survives chat navigation.
+- **Draft → real materialization**: session id remap in 3 places (settings, pty metadata, browser key). DRAFT_ID entries never persist across app restarts.
+- **App exit**: all ptys die with the main process.
+
+**Terminal** (`ToolsPanel`): Multi-tab xterm.js instances. Each tab spawns a node-pty process in the main process via IPC. pty ownership is keyed by `sessionId`. Uses `allowTransparency: true` + `background: "#00000000"` for transparent canvas that inherits the island's `bg-background`. The FitAddon + ResizeObserver auto-sizes the terminal on panel resize.
+
+**Browser** (`BrowserPanel`): Multi-tab Electron `<webview>` with URL bar, back/forward/reload, HTTPS indicator. Smart URL input: bare domains get `https://` prefix, non-URL text becomes a Google search. All sessions share the default webview partition (cookies interop across sessions).
 
 **Open Files** (`FilesPanel`): Derives accessed files from the session's `UIMessage[]` array — no IPC needed. Scans `tool_call` messages for `Read`/`Edit`/`Write`/`NotebookEdit` tools + subagent steps. Tracks per-file access type (read/modified/created), deduplicates by path keeping highest access level, sorts by most recently accessed. Clicking a file scrolls to its last tool_call in chat.
 

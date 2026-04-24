@@ -3,8 +3,18 @@ import { toast } from "sonner";
 import type { UIMessage, ChatSession, McpServerConfig, Project, ImageAttachment, EngineId } from "../../types";
 import { toMcpStatusState } from "../../lib/mcp-utils";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
-import { captureException } from "../../lib/analytics/analytics";
+import { captureException, reportError } from "../../lib/analytics/analytics";
 import { createSystemMessage, createUserMessage } from "../../lib/message-factory";
+import { useSettingsStore } from "@/stores/settings-store";
+import {
+  notifySessionTerminalsDestroyed,
+  notifySessionTerminalsRemap,
+} from "@/hooks/useSessionTerminals";
+import {
+  deleteBrowserSession,
+  makeSessionBrowserPersistKey,
+  renameBrowserSession,
+} from "@/components/browser/browser-utils";
 import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
@@ -382,6 +392,12 @@ export function useDraftMaterialization({
           });
           if ("cancelled" in result && result.cancelled) {
             setSessions(prev => prev.filter(s => s.id !== DRAFT_ID));
+            useSettingsStore.getState().clearSessionSettings(DRAFT_ID);
+            notifySessionTerminalsDestroyed(DRAFT_ID);
+            void window.claude.terminal.destroySession(DRAFT_ID).catch((err) => {
+              reportError("TERMINAL_DESTROY_DRAFT_CANCELLED", err);
+            });
+            deleteBrowserSession(makeSessionBrowserPersistKey(DRAFT_ID));
             materializingRef.current = false;
             return "";
           }
@@ -396,6 +412,15 @@ export function useDraftMaterialization({
             setSessions(prev => prev.map(s =>
               s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s,
             ));
+            useSettingsStore.getState().remapSessionSettings(DRAFT_ID, failedId);
+            notifySessionTerminalsRemap(DRAFT_ID, failedId);
+            void window.claude.terminal.remapSession(DRAFT_ID, failedId).catch((err) => {
+              reportError("TERMINAL_REMAP_ACP_FAILED", err);
+            });
+            renameBrowserSession(
+              makeSessionBrowserPersistKey(DRAFT_ID),
+              makeSessionBrowserPersistKey(failedId),
+            );
             setInitialMessages(errorMessages);
             setInitialMeta({
               isProcessing: false,
@@ -490,6 +515,15 @@ export function useDraftMaterialization({
             createSystemMessage(errorMsg, true),
           ];
           setSessions(prev => prev.map(s => s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s));
+          useSettingsStore.getState().remapSessionSettings(DRAFT_ID, failedId);
+          notifySessionTerminalsRemap(DRAFT_ID, failedId);
+          void window.claude.terminal.remapSession(DRAFT_ID, failedId).catch((err) => {
+            reportError("TERMINAL_REMAP_CODEX_FAILED", err);
+          });
+          renameBrowserSession(
+            makeSessionBrowserPersistKey(DRAFT_ID),
+            makeSessionBrowserPersistKey(failedId),
+          );
           setInitialMessages(errorMessages);
           setInitialMeta({
             isProcessing: false,
@@ -628,6 +662,20 @@ export function useDraftMaterialization({
       // Replace the DRAFT_ID placeholder (if any) with the real session entry
       setSessions((prev) =>
         [newSession, ...prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false }))],
+      );
+      // Carry any tool panel customizations the user made during the draft
+      // (e.g. toggled terminal/git before sending first message) into the
+      // real session's scope. Also transfer any pty tabs created during draft.
+      // Notify UI synchronously so the user never sees an empty-tabs flash;
+      // the IPC remap updates backend ownership in the background.
+      useSettingsStore.getState().remapSessionSettings(DRAFT_ID, sessionId);
+      notifySessionTerminalsRemap(DRAFT_ID, sessionId);
+      void window.claude.terminal.remapSession(DRAFT_ID, sessionId).catch((err) => {
+        reportError("TERMINAL_REMAP_DRAFT_TO_SESSION", err);
+      });
+      renameBrowserSession(
+        makeSessionBrowserPersistKey(DRAFT_ID),
+        makeSessionBrowserPersistKey(sessionId),
       );
       if (!reusedPreStarted) {
         if (draftEngine === "acp") {

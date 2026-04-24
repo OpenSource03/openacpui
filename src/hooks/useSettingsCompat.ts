@@ -15,6 +15,7 @@ import type { Settings } from "@/hooks/useSettings";
 import {
   useSettingsStore,
   selectProjectSettings,
+  selectSessionScopedSettings,
   deriveMacBackgroundEffect,
   DEFAULT_ENGINE_MODELS,
 } from "@/stores/settings-store";
@@ -34,8 +35,15 @@ function hasSameOrderedValues<T>(left: readonly T[], right: readonly T[]): boole
  * Internally subscribes to the Zustand store with fine-grained selectors,
  * then reassembles the same `Settings` object that consumers expect.
  */
-export function useSettingsCompat(projectId: string | null, engine: EngineId = "claude"): Settings {
+export function useSettingsCompat(
+  projectId: string | null,
+  engine: EngineId = "claude",
+  sessionId: string | null = null,
+): Settings {
   const pid = projectId ?? "__none__";
+  // When no session is active (or no sessionId provided), fall back to a sentinel so that
+  // reads/writes still target a stable key. sessionId="__none__" mirrors project's "__none__".
+  const sid = sessionId ?? "__none__";
 
   // ── Global state (single shallow subscription) ──
 
@@ -89,20 +97,29 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
     useShallow((s) => selectProjectSettings(s, pid)),
   );
 
+  // ── Per-session state (tool panel) ──
+
+  const sessionSettings = useSettingsStore(
+    useShallow((s) => selectSessionScopedSettings(s, sid, pid)),
+  );
+
   // ── Per-project store setters (require projectId binding) ──
 
   const storeSetModelForEngine = useSettingsStore((s) => s.setModelForEngine);
   const storeSetGitCwd = useSettingsStore((s) => s.setGitCwd);
-  const storeSetActiveTools = useSettingsStore((s) => s.setActiveTools);
-  const storeSetToolOrder = useSettingsStore((s) => s.setToolOrder);
-  const storeSetRightPanelWidth = useSettingsStore((s) => s.setRightPanelWidth);
-  const storeSetRightSplitRatio = useSettingsStore((s) => s.setRightSplitRatio);
   const storeToggleRepoCollapsed = useSettingsStore((s) => s.toggleRepoCollapsed);
-  const storeSuppressPanel = useSettingsStore((s) => s.suppressPanel);
-  const storeUnsuppressPanel = useSettingsStore((s) => s.unsuppressPanel);
-  const storeSetBottomToolsHeight = useSettingsStore((s) => s.setBottomToolsHeight);
-  const storeSetBottomToolsSplitRatios = useSettingsStore((s) => s.setBottomToolsSplitRatios);
   const storeSetOrganizeByChatBranch = useSettingsStore((s) => s.setOrganizeByChatBranch);
+
+  // ── Per-session store setters ──
+
+  const storeSetSessionActiveTools = useSettingsStore((s) => s.setSessionActiveTools);
+  const storeSetSessionToolOrder = useSettingsStore((s) => s.setSessionToolOrder);
+  const storeSetSessionRightPanelWidth = useSettingsStore((s) => s.setSessionRightPanelWidth);
+  const storeSetSessionRightSplitRatio = useSettingsStore((s) => s.setSessionRightSplitRatio);
+  const storeSuppressSessionPanel = useSettingsStore((s) => s.suppressSessionPanel);
+  const storeUnsuppressSessionPanel = useSettingsStore((s) => s.unsuppressSessionPanel);
+  const storeSetSessionBottomToolsHeight = useSettingsStore((s) => s.setSessionBottomToolsHeight);
+  const storeSetSessionBottomToolsSplitRatios = useSettingsStore((s) => s.setSessionBottomToolsSplitRatios);
 
   // ── Derived: macBackgroundEffect ──
 
@@ -115,10 +132,10 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
 
   // ── Derived: Set wrappers for array-backed collections ──
 
-  const activeTools = useMemo(() => new Set(projectSettings.activeTools), [projectSettings.activeTools]);
+  const activeTools = useMemo(() => new Set(sessionSettings.activeTools), [sessionSettings.activeTools]);
   const collapsedRepos = useMemo(() => new Set(projectSettings.collapsedRepos), [projectSettings.collapsedRepos]);
-  const suppressedPanels = useMemo(() => new Set(projectSettings.suppressedPanels), [projectSettings.suppressedPanels]);
-  const bottomTools = useMemo(() => new Set(projectSettings.bottomTools), [projectSettings.bottomTools]);
+  const suppressedPanels = useMemo(() => new Set(sessionSettings.suppressedPanels), [sessionSettings.suppressedPanels]);
+  const bottomTools = useMemo(() => new Set(sessionSettings.bottomTools), [sessionSettings.bottomTools]);
 
   // ── Bound callbacks (match old useSettings signatures) ──
 
@@ -150,7 +167,7 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
   const setActiveTools = useCallback(
     (updater: Set<ToolId> | ((prev: Set<ToolId>) => Set<ToolId>)) => {
       if (typeof updater === "function") {
-        storeSetActiveTools(pid, (prevArr) => {
+        storeSetSessionActiveTools(sid, pid, (prevArr) => {
           const prevSet = new Set(prevArr);
           const nextSet = updater(prevSet);
           const nextArr = [...nextSet];
@@ -158,22 +175,22 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
         });
       } else {
         const nextArr = [...updater];
-        storeSetActiveTools(pid, (prevArr) => (
+        storeSetSessionActiveTools(sid, pid, (prevArr) => (
           hasSameOrderedValues(prevArr, nextArr) ? prevArr : nextArr
         ));
       }
     },
-    [storeSetActiveTools, pid],
+    [storeSetSessionActiveTools, sid, pid],
   );
 
   const setToolOrder = useCallback(
-    (updater: ToolId[] | ((prev: ToolId[]) => ToolId[])) => storeSetToolOrder(pid, updater),
-    [storeSetToolOrder, pid],
+    (updater: ToolId[] | ((prev: ToolId[]) => ToolId[])) => storeSetSessionToolOrder(sid, pid, updater),
+    [storeSetSessionToolOrder, sid, pid],
   );
 
   const setRightPanelWidth = useCallback(
-    (w: number) => storeSetRightPanelWidth(pid, w),
-    [storeSetRightPanelWidth, pid],
+    (w: number) => storeSetSessionRightPanelWidth(sid, pid, w),
+    [storeSetSessionRightPanelWidth, sid, pid],
   );
 
   // Save callbacks: Zustand auto-persists, so these are no-ops that
@@ -183,8 +200,8 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
   const saveRightPanelWidth = useCallback(() => { /* persisted automatically */ }, []);
 
   const setRightSplitRatio = useCallback(
-    (r: number) => storeSetRightSplitRatio(pid, r),
-    [storeSetRightSplitRatio, pid],
+    (r: number) => storeSetSessionRightSplitRatio(sid, pid, r),
+    [storeSetSessionRightSplitRatio, sid, pid],
   );
 
   const saveRightSplitRatio = useCallback(() => { /* persisted automatically */ }, []);
@@ -195,25 +212,25 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
   );
 
   const suppressPanel = useCallback(
-    (id: ToolId) => storeSuppressPanel(pid, id),
-    [storeSuppressPanel, pid],
+    (id: ToolId) => storeSuppressSessionPanel(sid, pid, id),
+    [storeSuppressSessionPanel, sid, pid],
   );
 
   const unsuppressPanel = useCallback(
-    (id: ToolId) => storeUnsuppressPanel(pid, id),
-    [storeUnsuppressPanel, pid],
+    (id: ToolId) => storeUnsuppressSessionPanel(sid, pid, id),
+    [storeUnsuppressSessionPanel, sid, pid],
   );
 
   const setBottomToolsHeight = useCallback(
-    (h: number) => storeSetBottomToolsHeight(pid, h),
-    [storeSetBottomToolsHeight, pid],
+    (h: number) => storeSetSessionBottomToolsHeight(sid, pid, h),
+    [storeSetSessionBottomToolsHeight, sid, pid],
   );
 
   const saveBottomToolsHeight = useCallback(() => { /* persisted automatically */ }, []);
 
   const setBottomToolsSplitRatios = useCallback(
-    (r: number[]) => storeSetBottomToolsSplitRatios(pid, r),
-    [storeSetBottomToolsSplitRatios, pid],
+    (r: number[]) => storeSetSessionBottomToolsSplitRatios(sid, pid, r),
+    [storeSetSessionBottomToolsSplitRatios, sid, pid],
   );
 
   const saveBottomToolsSplitRatios = useCallback(() => { /* persisted automatically */ }, []);
@@ -292,12 +309,12 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
     setGitCwd,
     activeTools,
     setActiveTools,
-    rightPanelWidth: projectSettings.rightPanelWidth,
+    rightPanelWidth: sessionSettings.rightPanelWidth,
     setRightPanelWidth,
     saveRightPanelWidth,
-    toolOrder: projectSettings.toolOrder,
+    toolOrder: sessionSettings.toolOrder,
     setToolOrder,
-    rightSplitRatio: projectSettings.rightSplitRatio,
+    rightSplitRatio: sessionSettings.rightSplitRatio,
     setRightSplitRatio,
     saveRightSplitRatio,
     collapsedRepos,
@@ -306,10 +323,10 @@ export function useSettingsCompat(projectId: string | null, engine: EngineId = "
     suppressPanel,
     unsuppressPanel,
     bottomTools,
-    bottomToolsHeight: projectSettings.bottomToolsHeight,
+    bottomToolsHeight: sessionSettings.bottomToolsHeight,
     setBottomToolsHeight,
     saveBottomToolsHeight,
-    bottomToolsSplitRatios: projectSettings.bottomToolsSplitRatios,
+    bottomToolsSplitRatios: sessionSettings.bottomToolsSplitRatios,
     setBottomToolsSplitRatios,
     saveBottomToolsSplitRatios,
     organizeByChatBranch: projectSettings.organizeByChatBranch,

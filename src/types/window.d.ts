@@ -258,11 +258,11 @@ declare global {
         ) => Promise<{ message?: string; error?: string }>;
       };
       terminal: {
-        create: (options: { cwd?: string; cols?: number; rows?: number; spaceId?: string }) => Promise<{ terminalId?: string; error?: string }>;
+        create: (options: { cwd?: string; cols?: number; rows?: number; sessionId?: string }) => Promise<{ terminalId?: string; error?: string }>;
         list: () => Promise<{
           terminals?: Array<{
             terminalId: string;
-            spaceId: string;
+            sessionId: string;
             createdAt: number;
             exited: boolean;
             exitCode: number | null;
@@ -281,7 +281,8 @@ declare global {
         write: (terminalId: string, data: string) => Promise<IpcResult>;
         resize: (terminalId: string, cols: number, rows: number) => Promise<IpcResult>;
         destroy: (terminalId: string) => Promise<{ ok?: boolean }>;
-        destroySpace: (spaceId: string) => Promise<{ ok?: boolean }>;
+        destroySession: (sessionId: string) => Promise<{ ok?: boolean }>;
+        remapSession: (fromSessionId: string, toSessionId: string) => Promise<{ ok?: boolean }>;
         onData: (callback: (data: { terminalId: string; data: string; seq: number }) => void) => () => void;
         onExit: (callback: (data: { terminalId: string; exitCode: number }) => void) => () => void;
       };

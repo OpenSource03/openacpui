@@ -5,7 +5,7 @@
  * Visual rendering is delegated to sub-components in `./browser/`.
  */
 
-import { forwardRef, useCallback, useEffect, useState } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 import { Globe, Loader2 } from "lucide-react";
 import type { GrabbedElement } from "@/types";
 import { capture } from "@/lib/analytics/analytics";
@@ -58,6 +58,13 @@ export function BrowserPanel({ persistKey, onElementGrab, headerControls }: Brow
     writeBrowserHistory(history);
   }, [history]);
 
+  // When persistKey switches, the read effect schedules setState with the new
+  // session's tabs, but on the same effect pass the write effect also fires
+  // (persistKey is in its deps) and would write the current STALE tabs into
+  // the new persistKey's storage — clobbering the new session. The flag below
+  // makes the write effect skip exactly one run right after the read.
+  const skipNextWriteRef = useRef(false);
+
   useEffect(() => {
     const session = readBrowserSession(persistKey);
     setTabs(session.tabs);
@@ -65,9 +72,14 @@ export function BrowserPanel({ persistKey, onElementGrab, headerControls }: Brow
     setInspectMode(false);
     setEmptyInput("");
     setShowEmptySuggestions(false);
+    skipNextWriteRef.current = true;
   }, [persistKey]);
 
   useEffect(() => {
+    if (skipNextWriteRef.current) {
+      skipNextWriteRef.current = false;
+      return;
+    }
     writeBrowserSession(persistKey, tabs, activeTabId);
   }, [activeTabId, persistKey, tabs]);
 

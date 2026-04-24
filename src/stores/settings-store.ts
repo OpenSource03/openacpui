@@ -42,6 +42,11 @@ const VALID_TOOL_IDS = new Set<ToolId>([
 const IS_MAC_PLATFORM = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
 
 const STORE_KEY = "harnss-settings-store";
+/**
+ * Mirror of session/types.ts DRAFT_ID. Duplicated here to avoid a circular import
+ * (settings-store has no other dependency on session code).
+ */
+const DRAFT_SESSION_ID = "__draft__";
 
 // ── Shared helpers (also used by compat hook) ──
 
@@ -85,6 +90,24 @@ export interface ProjectSettings {
   bottomToolsSplitRatios: number[];
   /** Whether to group sidebar chats by git branch */
   organizeByChatBranch: boolean;
+}
+
+/**
+ * Per-session tool panel settings. Subset of ProjectSettings that should
+ * follow the current session, not the project. Sessions are materialized
+ * lazily: a session entry only exists in the `sessions` map once the user
+ * modifies any of its tool settings; before that, reads fall back to the
+ * owning project's settings.
+ */
+export interface SessionScopedSettings {
+  activeTools: ToolId[];
+  toolOrder: ToolId[];
+  rightPanelWidth: number;
+  rightSplitRatio: number;
+  suppressedPanels: ToolId[];
+  bottomTools: ToolId[];
+  bottomToolsHeight: number;
+  bottomToolsSplitRatios: number[];
 }
 
 /** Global settings state (not per-project) */
@@ -149,11 +172,35 @@ interface SettingsActions {
   setBottomToolsHeight: (projectId: string, height: number) => void;
   setBottomToolsSplitRatios: (projectId: string, ratios: number[]) => void;
   setOrganizeByChatBranch: (projectId: string, on: boolean) => void;
+
+  // ── Per-session setters (tool panel state scoped to the active session) ──
+  // All take (sessionId, projectId) so the store can materialize a session
+  // entry from project defaults on first write.
+  setSessionActiveTools: (sessionId: string, projectId: string, updater: ToolId[] | ((prev: ToolId[]) => ToolId[])) => void;
+  setSessionToolOrder: (sessionId: string, projectId: string, updater: ToolId[] | ((prev: ToolId[]) => ToolId[])) => void;
+  setSessionRightPanelWidth: (sessionId: string, projectId: string, width: number) => void;
+  setSessionRightSplitRatio: (sessionId: string, projectId: string, ratio: number) => void;
+  setSessionSuppressedPanels: (sessionId: string, projectId: string, updater: ToolId[] | ((prev: ToolId[]) => ToolId[])) => void;
+  suppressSessionPanel: (sessionId: string, projectId: string, id: ToolId) => void;
+  unsuppressSessionPanel: (sessionId: string, projectId: string, id: ToolId) => void;
+  setSessionBottomTools: (sessionId: string, projectId: string, updater: ToolId[] | ((prev: ToolId[]) => ToolId[])) => void;
+  setSessionBottomToolsHeight: (sessionId: string, projectId: string, height: number) => void;
+  setSessionBottomToolsSplitRatios: (sessionId: string, projectId: string, ratios: number[]) => void;
+  /** Remove all session-scoped settings for a session. Called on session delete. */
+  clearSessionSettings: (sessionId: string) => void;
+  /** Move session-scoped settings from one id to another. Called on draft→real materialization. */
+  remapSessionSettings: (fromId: string, toId: string) => void;
 }
 
 export interface SettingsStore extends GlobalSettingsState, SettingsActions {
   /** Per-project settings map, keyed by projectId (or "__none__" for no project) */
   projects: Record<string, ProjectSettings>;
+  /**
+   * Per-session tool panel settings, keyed by sessionId. Only contains entries
+   * for sessions the user has explicitly customized. Missing entries resolve
+   * via project fallback (see `selectSessionScopedSettings`).
+   */
+  sessions: Record<string, SessionScopedSettings>;
 }
 
 // ── Default project settings ──
@@ -194,6 +241,58 @@ function updateProject(
 ): Record<string, ProjectSettings> {
   const current = getProjectSettings(projects, projectId);
   return { ...projects, [projectId]: { ...current, ...patch } };
+}
+
+/**
+ * Extract the session-scoped subset from ProjectSettings. Used as fallback
+ * when reading a session that hasn't materialized its own entry yet.
+ */
+function projectAsSessionSettings(project: ProjectSettings): SessionScopedSettings {
+  return {
+    activeTools: project.activeTools,
+    toolOrder: project.toolOrder,
+    rightPanelWidth: project.rightPanelWidth,
+    rightSplitRatio: project.rightSplitRatio,
+    suppressedPanels: project.suppressedPanels,
+    bottomTools: project.bottomTools,
+    bottomToolsHeight: project.bottomToolsHeight,
+    bottomToolsSplitRatios: project.bottomToolsSplitRatios,
+  };
+}
+
+/**
+ * Materialize a session entry by copying current resolved values (session
+ * entry if present, else project fallback). Used by session setters before
+ * applying a patch.
+ */
+function materializeSession(
+  sessions: Record<string, SessionScopedSettings>,
+  projects: Record<string, ProjectSettings>,
+  sessionId: string,
+  projectId: string,
+): { nextSessions: Record<string, SessionScopedSettings>; current: SessionScopedSettings } {
+  const existing = sessions[sessionId];
+  if (existing) return { nextSessions: sessions, current: existing };
+  const seed = projectAsSessionSettings(getProjectSettings(projects, projectId));
+  return { nextSessions: { ...sessions, [sessionId]: seed }, current: seed };
+}
+
+/** Immutably patch a single session's settings */
+function updateSession(
+  sessions: Record<string, SessionScopedSettings>,
+  sessionId: string,
+  patch: Partial<SessionScopedSettings>,
+): Record<string, SessionScopedSettings> {
+  const current = sessions[sessionId];
+  if (!current) {
+    // Defensive: caller should have materialized first. Seed from project defaults
+    // projected into the session-scoped subset.
+    return {
+      ...sessions,
+      [sessionId]: { ...projectAsSessionSettings(DEFAULT_PROJECT_SETTINGS), ...patch },
+    };
+  }
+  return { ...sessions, [sessionId]: { ...current, ...patch } };
 }
 
 // ── Legacy localStorage migration ──
@@ -407,6 +506,21 @@ function hasSameOrderedValues<T>(left: readonly T[], right: readonly T[]): boole
   return true;
 }
 
+/**
+ * Strip any DRAFT_SESSION_ID entry before persisting. Drafts are ephemeral by
+ * definition — they're either materialized into a real session (remapped)
+ * or abandoned. Persisting them would cause stale draft customizations to
+ * bleed into the next draft across app restarts.
+ */
+function stripDraftFromSessions(
+  sessions: Record<string, SessionScopedSettings>,
+): Record<string, SessionScopedSettings> {
+  if (!(DRAFT_SESSION_ID in sessions)) return sessions;
+  const next = { ...sessions };
+  delete next[DRAFT_SESSION_ID];
+  return next;
+}
+
 // ── Store creation ──
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -433,6 +547,7 @@ export const useSettingsStore = create<SettingsStore>()(
       coloredToolIcons: false,
 
       projects: {},
+      sessions: {},
 
       // ── Global setters ──
 
@@ -596,6 +711,111 @@ export const useSettingsStore = create<SettingsStore>()(
         const { projects } = get();
         set({ projects: updateProject(projects, projectId, { organizeByChatBranch: on }) });
       },
+
+      // ── Per-session setters ──
+
+      setSessionActiveTools: (sessionId, projectId, updater) => {
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        const next = typeof updater === "function" ? updater(current.activeTools) : updater;
+        const valid = next.filter((id) => VALID_TOOL_IDS.has(id));
+        if (hasSameOrderedValues(current.activeTools, valid)) return;
+        set({ sessions: updateSession(nextSessions, sessionId, { activeTools: valid }) });
+      },
+
+      setSessionToolOrder: (sessionId, projectId, updater) => {
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        const next = typeof updater === "function" ? updater(current.toolOrder) : updater;
+        set({ sessions: updateSession(nextSessions, sessionId, { toolOrder: validateToolOrder(next) }) });
+      },
+
+      setSessionRightPanelWidth: (sessionId, projectId, width) => {
+        const clamped = clampNumber(width, MIN_RIGHT_PANEL, MAX_RIGHT_PANEL, DEFAULT_RIGHT_PANEL);
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        // Skip when the value hasn't changed. Prevents a drag that ends on the
+        // original pixel from forking the session from project defaults.
+        if (current.rightPanelWidth === clamped) return;
+        set({ sessions: updateSession(nextSessions, sessionId, { rightPanelWidth: clamped }) });
+      },
+
+      setSessionRightSplitRatio: (sessionId, projectId, ratio) => {
+        const clamped = clampNumber(ratio, MIN_SPLIT, MAX_SPLIT, DEFAULT_SPLIT);
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        if (current.rightSplitRatio === clamped) return;
+        set({ sessions: updateSession(nextSessions, sessionId, { rightSplitRatio: clamped }) });
+      },
+
+      setSessionSuppressedPanels: (sessionId, projectId, updater) => {
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        const next = typeof updater === "function" ? updater(current.suppressedPanels) : updater;
+        set({ sessions: updateSession(nextSessions, sessionId, { suppressedPanels: next }) });
+      },
+
+      suppressSessionPanel: (sessionId, projectId, id) => {
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        if (current.suppressedPanels.includes(id)) return;
+        set({ sessions: updateSession(nextSessions, sessionId, { suppressedPanels: [...current.suppressedPanels, id] }) });
+      },
+
+      unsuppressSessionPanel: (sessionId, projectId, id) => {
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        if (!current.suppressedPanels.includes(id)) return;
+        set({ sessions: updateSession(nextSessions, sessionId, { suppressedPanels: current.suppressedPanels.filter((p) => p !== id) }) });
+      },
+
+      setSessionBottomTools: (sessionId, projectId, updater) => {
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        const next = typeof updater === "function" ? updater(current.bottomTools) : updater;
+        const valid = next.filter((id) => VALID_TOOL_IDS.has(id));
+        set({ sessions: updateSession(nextSessions, sessionId, { bottomTools: valid }) });
+      },
+
+      setSessionBottomToolsHeight: (sessionId, projectId, height) => {
+        const clamped = clampNumber(height, MIN_BOTTOM_HEIGHT, MAX_BOTTOM_HEIGHT, DEFAULT_BOTTOM_HEIGHT);
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        if (current.bottomToolsHeight === clamped) return;
+        set({ sessions: updateSession(nextSessions, sessionId, { bottomToolsHeight: clamped }) });
+      },
+
+      setSessionBottomToolsSplitRatios: (sessionId, projectId, ratios) => {
+        const { sessions, projects } = get();
+        const { nextSessions, current } = materializeSession(sessions, projects, sessionId, projectId);
+        const nextRatios = [...ratios];
+        if (hasSameOrderedValues(current.bottomToolsSplitRatios, nextRatios)) return;
+        set({ sessions: updateSession(nextSessions, sessionId, { bottomToolsSplitRatios: nextRatios }) });
+      },
+
+      clearSessionSettings: (sessionId) => {
+        const { sessions } = get();
+        if (!(sessionId in sessions)) return;
+        const next = { ...sessions };
+        delete next[sessionId];
+        set({ sessions: next });
+      },
+
+      remapSessionSettings: (fromId, toId) => {
+        if (fromId === toId) return;
+        const { sessions } = get();
+        const src = sessions[fromId];
+        if (!src) return;
+        if (sessions[toId]) {
+          // Should not happen in practice — two drafts racing or logic bug.
+          // Log and overwrite so the more recent (fromId) customizations win.
+          console.warn(`[settings-store] remapSessionSettings: overwriting existing entry at ${toId}`);
+        }
+        const next = { ...sessions };
+        delete next[fromId];
+        next[toId] = src;
+        set({ sessions: next });
+      },
     }),
     {
       name: STORE_KEY,
@@ -622,6 +842,8 @@ export const useSettingsStore = create<SettingsStore>()(
         coloredToolIcons: state.coloredToolIcons,
         // Per-project
         projects: state.projects,
+        // Per-session (tool panel state). DRAFT_ID is ephemeral — never persist it.
+        sessions: stripDraftFromSessions(state.sessions),
       }),
       // Merge incoming persisted state with defaults (handles new fields added later)
       merge: (persisted, current) => {
@@ -630,8 +852,10 @@ export const useSettingsStore = create<SettingsStore>()(
         return {
           ...current,
           ...incoming,
-          // Ensure projects is always an object, never undefined
+          // Ensure projects / sessions are always objects, never undefined.
+          // Defensive: strip DRAFT entry in case a prior version persisted it.
           projects: incoming.projects ?? current.projects,
+          sessions: incoming.sessions ? stripDraftFromSessions(incoming.sessions) : current.sessions,
         };
       },
     },
@@ -666,6 +890,26 @@ export function migrateSettingsIfNeeded(): void {
  */
 export function selectProjectSettings(state: SettingsStore, projectId: string): ProjectSettings {
   return getProjectSettings(state.projects, projectId);
+}
+
+/**
+ * Resolve session-scoped settings. If the session has materialized its own
+ * entry, return it. Otherwise return the project's settings projected into
+ * the session-scoped subset.
+ *
+ * Note: when no session entry exists, this constructs a new object per call.
+ * Use with `useShallow` to avoid unnecessary re-renders; the nested array
+ * fields come from a stable ProjectSettings reference so shallow compare sees
+ * no change even though the wrapper object is new.
+ */
+export function selectSessionScopedSettings(
+  state: SettingsStore,
+  sessionId: string,
+  projectId: string,
+): SessionScopedSettings {
+  const session = state.sessions[sessionId];
+  if (session) return session;
+  return projectAsSessionSettings(getProjectSettings(state.projects, projectId));
 }
 
 /** Derive macBackgroundEffect from transparency + macNativeBackgroundEffect */

@@ -157,6 +157,38 @@ export function writeBrowserSession(persistKey: string, tabs: BrowserTab[], acti
   }
 }
 
+/** Removes a persisted browser session entirely. Called on session delete. */
+export function deleteBrowserSession(persistKey: string): void {
+  try {
+    localStorage.removeItem(getBrowserSessionStorageKey(persistKey));
+  } catch {
+    /* ignore localStorage errors */
+  }
+}
+
+/**
+ * Moves a persisted browser session from one persistKey to another.
+ * Called on draft → real session materialization so tabs opened during the
+ * draft carry over to the real session.
+ */
+export function renameBrowserSession(fromPersistKey: string, toPersistKey: string): void {
+  if (fromPersistKey === toPersistKey) return;
+  try {
+    const fromKey = getBrowserSessionStorageKey(fromPersistKey);
+    const raw = localStorage.getItem(fromKey);
+    if (!raw) return;
+    localStorage.setItem(getBrowserSessionStorageKey(toPersistKey), raw);
+    localStorage.removeItem(fromKey);
+  } catch {
+    /* ignore localStorage errors */
+  }
+}
+
+/** Shared helper to build a session-scoped browser persistKey. */
+export function makeSessionBrowserPersistKey(sessionId: string | null | undefined): string {
+  return `main:session:${sessionId ?? "__none__"}`;
+}
+
 // ── History persistence ─────────────────────────────────────────────────
 
 /** Reads browser history from localStorage with normalization. */

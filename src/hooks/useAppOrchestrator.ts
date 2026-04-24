@@ -5,7 +5,7 @@ import { useSidebar } from "@/hooks/useSidebar";
 import { useSpaceManager } from "@/hooks/useSpaceManager";
 import { useSettingsCompat as useSettings } from "@/hooks/useSettingsCompat";
 import { useTheme } from "@/hooks/useTheme";
-import { useSpaceTerminals } from "@/hooks/useSpaceTerminals";
+import { useSessionTerminals } from "@/hooks/useSessionTerminals";
 import { useAgentRegistry } from "@/hooks/useAgentRegistry";
 import { useAcpAgentAutoUpdate } from "@/hooks/useAcpAgentAutoUpdate";
 import { useSplitView } from "@/hooks/useSplitView";
@@ -42,7 +42,10 @@ export function useAppOrchestrator() {
     ? manager.activeSession.engine
     : (selectedAgent?.engine ?? "claude");
   const settingsProjectId = manager.activeSession?.projectId ?? manager.draftProjectId ?? null;
-  const settings = useSettings(settingsProjectId, settingsEngine);
+  // Session-scoped tool panel state binds to activeSessionId. Includes DRAFT_ID
+  // during drafts — that entry is remapped to the real id on materialization.
+  const settingsSessionId = manager.activeSessionId ?? null;
+  const settings = useSettings(settingsProjectId, settingsEngine, settingsSessionId);
   const resolvedTheme = useTheme(settings.theme);
   const { agents, refresh: refreshAgents, saveAgent, deleteAgent } = useAgentRegistry();
   useAcpAgentAutoUpdate({ installedAgents: agents, refreshInstalledAgents: refreshAgents });
@@ -55,7 +58,7 @@ export function useAppOrchestrator() {
   const lockedAgentId = !manager.isDraft && manager.activeSession?.agentId
     ? manager.activeSession.agentId
     : null;
-  const spaceTerminals = useSpaceTerminals();
+  const sessionTerminals = useSessionTerminals();
 
   // ── Tool toggle with suppression ──
 
@@ -124,7 +127,6 @@ export function useAppOrchestrator() {
     manager,
     splitView,
     handleNewChat: sessionActions.handleNewChat,
-    destroySpaceTerminals: spaceTerminals.destroySpaceTerminals,
   });
 
   const contextualState = useAppContextualPanels({
@@ -231,7 +233,8 @@ export function useAppOrchestrator() {
     settings.setPlanMode,
   ]);
 
-  const activeSpaceTerminals = spaceTerminals.getSpaceState(spaceManager.activeSpaceId);
+  // Terminal tabs are session-scoped. Falls back to empty state when no session is active.
+  const activeSessionTerminals = sessionTerminals.getSessionState(manager.activeSessionId ?? "__none__");
 
   // ── Folder & Pin management ──
   const folders = useFolderManager({
@@ -253,7 +256,7 @@ export function useAppOrchestrator() {
     activeProject: spaceWorkflow.activeProject,
     activeProjectPath: spaceWorkflow.activeProjectPath,
     activeSpaceProject: spaceWorkflow.activeSpaceProject,
-    activeSpaceTerminalCwd: spaceWorkflow.activeSpaceTerminalCwd,
+    activeSessionTerminalCwd: spaceWorkflow.activeSessionTerminalCwd,
     showThinking: true as const,
     settingsEngine,
     hasProjects: spaceWorkflow.hasProjects,
@@ -320,8 +323,8 @@ export function useAppOrchestrator() {
     manager,
     settings,
     resolvedTheme,
-    spaceTerminals,
-    activeSpaceTerminals,
+    sessionTerminals,
+    activeSessionTerminals,
   };
 
   return {
@@ -354,7 +357,7 @@ export function useAppOrchestrator() {
     activeProject: spaceWorkflow.activeProject,
     activeProjectPath: spaceWorkflow.activeProjectPath,
     activeSpaceProject: spaceWorkflow.activeSpaceProject,
-    activeSpaceTerminalCwd: spaceWorkflow.activeSpaceTerminalCwd,
+    activeSessionTerminalCwd: spaceWorkflow.activeSessionTerminalCwd,
     showThinking: true as const,
     settingsEngine,
     hasProjects: spaceWorkflow.hasProjects,
@@ -390,8 +393,8 @@ export function useAppOrchestrator() {
     setChatSearchOpen: ui.setChatSearchOpen,
 
     // Terminals
-    spaceTerminals,
-    activeSpaceTerminals,
+    sessionTerminals,
+    activeSessionTerminals,
 
     // Callbacks
     handleToggleTool,

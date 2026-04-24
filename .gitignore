@@ -4,9 +4,11 @@ electron/dist/
 logs/
 *.log
 .DS_Store
-docs/
+docs/*
+!docs/plans/
 /release/
 .claude/agent-memory/
 frontend/
 cli
 .idea/
+.omx/

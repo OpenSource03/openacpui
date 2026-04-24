@@ -20,6 +20,7 @@ import {
   equalWidthFractions,
 } from "@/lib/layout/constants";
 import type { InstalledAgent } from "@/types";
+import { makeSessionBrowserPersistKey } from "./browser/browser-utils";
 import { AppSidebar } from "./AppSidebar";
 import { ChatHeader } from "./ChatHeader";
 import { ChatSearchBar } from "./ChatSearchBar";
@@ -85,13 +86,13 @@ export function AppLayout() {
   const o = useAppOrchestrator();
   const { managers, agentState, state, ui, actions } = o;
   const {
-    sidebar, projectManager, spaceManager, manager, settings, resolvedTheme, spaceTerminals, activeSpaceTerminals, splitView,
+    sidebar, projectManager, spaceManager, manager, settings, resolvedTheme, sessionTerminals, activeSessionTerminals, splitView,
   } = managers;
   const {
     agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange, lockedEngine, lockedAgentId,
   } = agentState;
   const {
-    activeProjectId, activeProjectPath, activeSpaceProject, activeSpaceTerminalCwd, showThinking,
+    activeProjectId, activeProjectPath, activeSpaceProject, activeSessionTerminalCwd, showThinking,
     hasProjects, isSpaceSwitching, showToolPicker, hasRightPanel,
     activeTodos, bgAgents, hasTodos, hasAgents, availableContextual,
     glassSupported, macLiquidGlassSupported, liveMacBackgroundEffect, devFillEnabled, jiraBoardEnabled,
@@ -945,15 +946,30 @@ export function AppLayout() {
   }, [isSplitActive, mainToolWorkspace, mainTopToolColumnCount, maxMainTopToolColumns]);
 
   // ── Shared tool island context (terminal/MCP/git props common to all islands) ──
+  // Terminal tabs now bind to the active session. When no session is active we
+  // short-circuit the mutation callbacks — there's nothing meaningful to do.
+  const terminalSessionId = manager.activeSessionId;
   const toolIslandCtx = useToolIslandContext({
     spaceId: spaceManager.activeSpaceId,
-    terminalTabs: activeSpaceTerminals.tabs,
-    activeTerminalTabId: activeSpaceTerminals.activeTabId,
-    terminalsReady: spaceTerminals.isReady,
-    onSetActiveTab: (tabId) => spaceTerminals.setActiveTab(spaceManager.activeSpaceId, tabId),
-    onCreateTerminal: () => spaceTerminals.createTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined),
-    onEnsureTerminal: () => spaceTerminals.ensureTerminal(spaceManager.activeSpaceId, activeSpaceTerminalCwd ?? undefined),
-    onCloseTerminal: (tabId) => spaceTerminals.closeTerminal(spaceManager.activeSpaceId, tabId),
+    terminalTabs: activeSessionTerminals.tabs,
+    activeTerminalTabId: activeSessionTerminals.activeTabId,
+    terminalsReady: sessionTerminals.isReady,
+    onSetActiveTab: (tabId) => {
+      if (!terminalSessionId) return;
+      sessionTerminals.setActiveTab(terminalSessionId, tabId);
+    },
+    onCreateTerminal: async () => {
+      if (!terminalSessionId) return;
+      await sessionTerminals.createTerminal(terminalSessionId, activeSessionTerminalCwd ?? undefined);
+    },
+    onEnsureTerminal: async () => {
+      if (!terminalSessionId) return;
+      await sessionTerminals.ensureTerminal(terminalSessionId, activeSessionTerminalCwd ?? undefined);
+    },
+    onCloseTerminal: async (tabId) => {
+      if (!terminalSessionId) return;
+      await sessionTerminals.closeTerminal(terminalSessionId, tabId);
+    },
     resolvedTheme,
     onElementGrab: handleElementGrab,
     onScrollToToolCall: setScrollToMessageId,
@@ -973,7 +989,7 @@ export function AppLayout() {
   ) => (
     <ToolIslandContent
       toolId={toolId}
-      persistKey={`main:${spaceManager.activeSpaceId}`}
+      persistKey={makeSessionBrowserPersistKey(manager.activeSessionId)}
       headerControls={controls}
       projectPath={activeProjectPath}
       projectRoot={activeSpaceProject?.path}
@@ -985,7 +1001,7 @@ export function AppLayout() {
       hasLiveSession={!manager.isDraft}
       {...toolIslandCtx}
     />
-  ), [activeProjectId, activeProjectPath, activeSpaceProject?.path, manager.activeSession?.engine, manager.activeSessionId, manager.isDraft, manager.messages, spaceManager.activeSpaceId, toolIslandCtx]);
+  ), [activeProjectId, activeProjectPath, activeSpaceProject?.path, manager.activeSession?.engine, manager.activeSessionId, manager.isDraft, manager.messages, toolIslandCtx]);
   const handleMoveMainBottomToolToTop = useCallback(
     (islandId: string) => moveBottomToolToTop(mainToolWorkspace, islandId, canFitToolAsNewColumn),
     [mainToolWorkspace, canFitToolAsNewColumn],
@@ -1553,7 +1569,7 @@ export function AppLayout() {
                   onRemoveGrabbedElement={handleRemoveGrabbedElement}
                   lockedEngine={lockedEngine}
                   lockedAgentId={lockedAgentId}
-                  selectedWorktreePath={activeSpaceTerminalCwd}
+                  selectedWorktreePath={activeSessionTerminalCwd}
                   onSelectWorktree={handleAgentWorktreeChange}
                   isEmptySession={manager.messages.length === 0}
                   onManageACPs={() => setShowSettings("agents")}
