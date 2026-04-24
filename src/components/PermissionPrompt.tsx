@@ -66,17 +66,6 @@ const SCOPE_ORDER: PermissionUpdateDestination[] = [
 /** localStorage key for persisting the last-selected permission destination (same key as Cursor). */
 const DESTINATION_STORAGE_KEY = "claude-vscode-permission-destination";
 
-function getSavedDestination(): PermissionUpdateDestination | null {
-  try {
-    const v = localStorage.getItem(DESTINATION_STORAGE_KEY);
-    if (v && (SCOPE_ORDER as string[]).includes(v))
-      return v as PermissionUpdateDestination;
-  } catch {
-    /* SSR / restricted */
-  }
-  return null;
-}
-
 function saveDestination(d: PermissionUpdateDestination) {
   try {
     localStorage.setItem(DESTINATION_STORAGE_KEY, d);

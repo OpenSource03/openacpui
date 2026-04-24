@@ -102,7 +102,7 @@ export function codexItemToToolInput(item: CodexThreadItem): Record<string, unkn
     case "mcpToolCall":
       return (item.arguments ?? {}) as Record<string, unknown>;
     case "webSearch":
-      return codexWebSearchToToolPayload(item);
+      return codexWebSearchToToolPayload(item) as unknown as Record<string, unknown>;
     case "imageView":
       return { file_path: item.path ?? "" };
     default:
@@ -197,7 +197,7 @@ export function codexItemToToolResult(item: CodexThreadItem): ToolUseResult | un
         type: "web_search",
         status: "completed",
         content: describeWebSearchAction(structuredContent),
-        structuredContent,
+        structuredContent: structuredContent as unknown as Record<string, unknown>,
       };
     }
     default:

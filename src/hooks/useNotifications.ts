@@ -197,11 +197,13 @@ export function useNotifications({
 
     if (completed) {
       if (consumeSuppressedSessionCompletion(current.sessionId)) return;
+      // Bind sessionId to a const so the closure can keep it non-nullable.
+      const sid = current.sessionId;
       fireNotification(
         settings.sessionComplete,
         "Task complete",
         `${activeActor} has finished processing.`,
-        current.sessionId ? () => openSession(current.sessionId) : undefined,
+        sid ? () => openSession(sid) : undefined,
       );
     }
   }, [activeActor, activeSessionId, isProcessing, openSession, settings]);
