@@ -205,13 +205,14 @@ contextBridge.exposeInMainWorld("claude", {
       ipcRenderer.invoke("git:generate-commit-message", { cwd, engine, sessionId }),
   },
   terminal: {
-    create: (options: { cwd?: string; cols?: number; rows?: number; spaceId?: string }) => ipcRenderer.invoke("terminal:create", options),
+    create: (options: { cwd?: string; cols?: number; rows?: number; sessionId?: string }) => ipcRenderer.invoke("terminal:create", options),
     list: () => ipcRenderer.invoke("terminal:list"),
     snapshot: (terminalId: string) => ipcRenderer.invoke("terminal:snapshot", terminalId),
     write: (terminalId: string, data: string) => ipcRenderer.invoke("terminal:write", { terminalId, data }),
     resize: (terminalId: string, cols: number, rows: number) => ipcRenderer.invoke("terminal:resize", { terminalId, cols, rows }),
     destroy: (terminalId: string) => ipcRenderer.invoke("terminal:destroy", terminalId),
-    destroySpace: (spaceId: string) => ipcRenderer.invoke("terminal:destroy-space", spaceId),
+    destroySession: (sessionId: string) => ipcRenderer.invoke("terminal:destroy-session", sessionId),
+    remapSession: (fromSessionId: string, toSessionId: string) => ipcRenderer.invoke("terminal:remap-session", { fromSessionId, toSessionId }),
     onData: (callback: (data: unknown) => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on("terminal:data", listener);

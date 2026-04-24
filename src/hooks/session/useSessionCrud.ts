@@ -2,9 +2,10 @@ import { startTransition, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import type { ChatSession, McpServerConfig, PersistedSession, Project, ACPConfigOption } from "@/types";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
-import { capture } from "../../lib/analytics/analytics";
+import { capture, reportError } from "../../lib/analytics/analytics";
 import { bgAgentStore } from "../../lib/background/agent-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { notifySessionTerminalsDestroyed } from "@/hooks/useSessionTerminals";
 import {
   DRAFT_ID,
   DEFAULT_PERMISSION_MODE,
@@ -147,8 +148,14 @@ export function useSessionCrud({
       // useACP's reset effect won't fire, so stale messages (e.g. from a failed start) would persist
       acp.setMessages([]);
       acp.setIsProcessing(false);
-      // Discard any stale draft tool-panel customizations before entering a fresh draft
+      // Discard any stale draft tool-panel customizations and pty processes
+      // before entering a fresh draft. Leftovers could happen if a previous
+      // draft was abandoned without either materialization or explicit cancel.
       useSettingsStore.getState().clearSessionSettings(DRAFT_ID);
+      notifySessionTerminalsDestroyed(DRAFT_ID);
+      void window.claude.terminal.destroySession(DRAFT_ID).catch((err) => {
+        reportError("TERMINAL_DESTROY_STALE_DRAFT", err);
+      });
       setActiveSessionId(DRAFT_ID);
       // Remove any leftover pending DRAFT_ID session from a previous failed ACP start
       setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
@@ -315,6 +322,12 @@ export function useSessionCrud({
       await window.claude.sessions.delete(session.projectId, id);
       // Session-scoped tool panel state is tied to session lifecycle.
       useSettingsStore.getState().clearSessionSettings(id);
+      // Notify UI first (so stale tabs disappear immediately), then kill ptys.
+      // destroySession is idempotent and safe to fire-and-forget.
+      notifySessionTerminalsDestroyed(id);
+      void window.claude.terminal.destroySession(id).catch((err) => {
+        reportError("TERMINAL_DESTROY_ON_SESSION_DELETE", err);
+      });
       if (activeSessionIdRef.current === id) {
         clearQueue();
         setActiveSessionId(null);

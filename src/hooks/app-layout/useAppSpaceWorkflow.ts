@@ -8,7 +8,6 @@ import {
 } from "@/lib/session/space-projects";
 import { useSpaceManager } from "@/hooks/useSpaceManager";
 import { useSplitView } from "@/hooks/useSplitView";
-import { useSpaceTerminals } from "@/hooks/useSpaceTerminals";
 import { SPACE_COLOR_PRESETS } from "@/hooks/useSpaceManager";
 
 const LAST_SESSION_KEY = "harnss-last-session-per-space";
@@ -17,15 +16,12 @@ type ProjectManagerState = ReturnType<typeof useProjectManager>;
 type SpaceManagerState = ReturnType<typeof useSpaceManager>;
 type SessionManagerState = ReturnType<typeof useSessionManager>;
 type SplitViewState = ReturnType<typeof useSplitView>;
-type SpaceTerminalsState = ReturnType<typeof useSpaceTerminals>;
-
 interface UseAppSpaceWorkflowInput {
   projectManager: ProjectManagerState;
   spaceManager: SpaceManagerState;
   manager: SessionManagerState;
   splitView: SplitViewState;
   handleNewChat: (projectId: string) => Promise<void>;
-  destroySpaceTerminals: SpaceTerminalsState["destroySpaceTerminals"];
 }
 
 export function useAppSpaceWorkflow(input: UseAppSpaceWorkflowInput) {
@@ -65,7 +61,7 @@ export function useAppSpaceWorkflow(input: UseAppSpaceWorkflowInput) {
 
   const activeProject = input.projectManager.projects.find((project) => project.id === activeProjectId) ?? null;
   const activeProjectPath = activeProject?.path;
-  const activeSpaceTerminalCwd = activeSpaceProject
+  const activeSessionTerminalCwd = activeSpaceProject
     ? (getStoredProjectGitCwd(activeSpaceProject.id) ?? activeSpaceProject.path)
     : null;
   const hasProjects = input.projectManager.projects.length > 0;
@@ -112,13 +108,15 @@ export function useAppSpaceWorkflow(input: UseAppSpaceWorkflowInput) {
   const handleDeleteSpace = useCallback(async (id: string) => {
     const deletedId = await input.spaceManager.deleteSpace(id);
     if (!deletedId) return;
-    await input.destroySpaceTerminals(deletedId);
+    // Terminals are session-scoped now; deleting a space no longer implies
+    // killing any pty. Projects that belonged to this space move to "default"
+    // and keep their sessions (and the sessions' terminals).
     for (const project of input.projectManager.projects) {
       if (project.spaceId === deletedId) {
         await input.projectManager.updateProjectSpace(project.id, "default");
       }
     }
-  }, [input.destroySpaceTerminals, input.projectManager, input.spaceManager]);
+  }, [input.projectManager, input.spaceManager]);
 
   const handleMoveProjectToSpace = useCallback(async (projectId: string, spaceId: string) => {
     await input.projectManager.updateProjectSpace(projectId, spaceId);
@@ -221,7 +219,7 @@ export function useAppSpaceWorkflow(input: UseAppSpaceWorkflowInput) {
     activeProject,
     activeProjectPath,
     activeSpaceProject,
-    activeSpaceTerminalCwd,
+    activeSessionTerminalCwd,
     hasProjects,
     isSpaceSwitching,
     draftSpaceId,

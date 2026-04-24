@@ -17,7 +17,7 @@ describe("terminal tabs state", () => {
     }));
 
     expect(reconcileTerminalState(persisted, [
-      { terminalId: "term-a", spaceId: "default", createdAt: 1 },
+      { terminalId: "term-a", sessionId: "default", createdAt: 1 },
     ])).toEqual({
       default: {
         tabs: [
@@ -30,8 +30,8 @@ describe("terminal tabs state", () => {
 
   it("recovers live terminals missing from persisted state without duplicates", () => {
     expect(reconcileTerminalState({}, [
-      { terminalId: "term-a", spaceId: "default", createdAt: 1 },
-      { terminalId: "term-b", spaceId: "default", createdAt: 2 },
+      { terminalId: "term-a", sessionId: "default", createdAt: 1 },
+      { terminalId: "term-b", sessionId: "default", createdAt: 2 },
     ])).toEqual({
       default: {
         tabs: [

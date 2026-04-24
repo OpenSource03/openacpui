@@ -21,7 +21,7 @@ interface TerminalEntry {
   };
   cols: number;
   rows: number;
-  spaceId: string;
+  sessionId: string;
   createdAt: number;
   history: TerminalHistoryState;
   seq: number;
@@ -43,7 +43,7 @@ function getPty() {
 }
 
 export function register(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle("terminal:create", (_event, { cwd, cols, rows, spaceId }: { cwd?: string; cols?: number; rows?: number; spaceId?: string } = {}) => {
+  ipcMain.handle("terminal:create", (_event, { cwd, cols, rows, sessionId }: { cwd?: string; cols?: number; rows?: number; sessionId?: string } = {}) => {
     try {
       const pty = getPty();
       const isWin = process.platform === "win32";
@@ -64,7 +64,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
         pty: ptyProcess,
         cols: cols || 80,
         rows: rows || 24,
-        spaceId: spaceId || "default",
+        sessionId: sessionId || "__unassigned__",
         createdAt: Date.now(),
         history: EMPTY_TERMINAL_HISTORY,
         seq: 0,
@@ -153,7 +153,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       terminals: Array.from(terminals.entries())
         .map(([terminalId, term]) => ({
           terminalId,
-          spaceId: term.spaceId,
+          sessionId: term.sessionId,
           createdAt: term.createdAt,
           exited: term.exited,
           exitCode: term.exitCode,
@@ -173,13 +173,23 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     return { ok: true };
   });
 
-  ipcMain.handle("terminal:destroy-space", (_event, spaceId: string) => {
+  ipcMain.handle("terminal:destroy-session", (_event, sessionId: string) => {
     for (const [terminalId, term] of terminals.entries()) {
-      if (term.spaceId !== spaceId) continue;
+      if (term.sessionId !== sessionId) continue;
       term.destroyed = true;
       if (!term.exited) term.pty.kill();
       terminals.delete(terminalId);
-      log("TERMINAL", `Destroyed terminal ${terminalId.slice(0, 8)} for space ${spaceId}`);
+      log("TERMINAL", `Destroyed terminal ${terminalId.slice(0, 8)} for session ${sessionId}`);
+    }
+    return { ok: true };
+  });
+
+  ipcMain.handle("terminal:remap-session", (_event, { fromSessionId, toSessionId }: { fromSessionId: string; toSessionId: string }) => {
+    if (fromSessionId === toSessionId) return { ok: true };
+    for (const term of terminals.values()) {
+      if (term.sessionId === fromSessionId) {
+        term.sessionId = toSessionId;
+      }
     }
     return { ok: true };
   });
