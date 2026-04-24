@@ -42,7 +42,10 @@ export function useAppOrchestrator() {
     ? manager.activeSession.engine
     : (selectedAgent?.engine ?? "claude");
   const settingsProjectId = manager.activeSession?.projectId ?? manager.draftProjectId ?? null;
-  const settings = useSettings(settingsProjectId, settingsEngine);
+  // Session-scoped tool panel state binds to activeSessionId. Includes DRAFT_ID
+  // during drafts — that entry is remapped to the real id on materialization.
+  const settingsSessionId = manager.activeSessionId ?? null;
+  const settings = useSettings(settingsProjectId, settingsEngine, settingsSessionId);
   const resolvedTheme = useTheme(settings.theme);
   const { agents, refresh: refreshAgents, saveAgent, deleteAgent } = useAgentRegistry();
   useAcpAgentAutoUpdate({ installedAgents: agents, refreshInstalledAgents: refreshAgents });

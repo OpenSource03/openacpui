@@ -4,6 +4,7 @@ import type { ChatSession, McpServerConfig, PersistedSession, Project, ACPConfig
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import { capture } from "../../lib/analytics/analytics";
 import { bgAgentStore } from "../../lib/background/agent-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import {
   DRAFT_ID,
   DEFAULT_PERMISSION_MODE,
@@ -146,6 +147,8 @@ export function useSessionCrud({
       // useACP's reset effect won't fire, so stale messages (e.g. from a failed start) would persist
       acp.setMessages([]);
       acp.setIsProcessing(false);
+      // Discard any stale draft tool-panel customizations before entering a fresh draft
+      useSettingsStore.getState().clearSessionSettings(DRAFT_ID);
       setActiveSessionId(DRAFT_ID);
       // Remove any leftover pending DRAFT_ID session from a previous failed ACP start
       setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
@@ -310,6 +313,8 @@ export function useSessionCrud({
       // Dismiss any permission toast for this session
       toast.dismiss(`permission-${id}`);
       await window.claude.sessions.delete(session.projectId, id);
+      // Session-scoped tool panel state is tied to session lifecycle.
+      useSettingsStore.getState().clearSessionSettings(id);
       if (activeSessionIdRef.current === id) {
         clearQueue();
         setActiveSessionId(null);

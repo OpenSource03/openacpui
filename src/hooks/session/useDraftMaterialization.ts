@@ -5,6 +5,7 @@ import { toMcpStatusState } from "../../lib/mcp-utils";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import { captureException } from "../../lib/analytics/analytics";
 import { createSystemMessage, createUserMessage } from "../../lib/message-factory";
+import { useSettingsStore } from "@/stores/settings-store";
 import {
   DRAFT_ID,
   getEffectiveClaudePermissionMode,
@@ -382,6 +383,7 @@ export function useDraftMaterialization({
           });
           if ("cancelled" in result && result.cancelled) {
             setSessions(prev => prev.filter(s => s.id !== DRAFT_ID));
+            useSettingsStore.getState().clearSessionSettings(DRAFT_ID);
             materializingRef.current = false;
             return "";
           }
@@ -396,6 +398,7 @@ export function useDraftMaterialization({
             setSessions(prev => prev.map(s =>
               s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s,
             ));
+            useSettingsStore.getState().remapSessionSettings(DRAFT_ID, failedId);
             setInitialMessages(errorMessages);
             setInitialMeta({
               isProcessing: false,
@@ -490,6 +493,7 @@ export function useDraftMaterialization({
             createSystemMessage(errorMsg, true),
           ];
           setSessions(prev => prev.map(s => s.id === DRAFT_ID ? { ...s, id: failedId, titleGenerating: false } : s));
+          useSettingsStore.getState().remapSessionSettings(DRAFT_ID, failedId);
           setInitialMessages(errorMessages);
           setInitialMeta({
             isProcessing: false,
@@ -629,6 +633,10 @@ export function useDraftMaterialization({
       setSessions((prev) =>
         [newSession, ...prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false }))],
       );
+      // Carry any tool panel customizations the user made during the draft
+      // (e.g. toggled terminal/git before sending first message) into the
+      // real session's scope.
+      useSettingsStore.getState().remapSessionSettings(DRAFT_ID, sessionId);
       if (!reusedPreStarted) {
         if (draftEngine === "acp") {
           // Preserve the user message + processing state through useACP's reset effect
