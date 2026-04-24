@@ -348,6 +348,73 @@ export function useSessionCrud({
     [clearQueue, evictFromCache],
   );
 
+  // ── Archive / Unarchive a session ──
+
+  /**
+   * Archive a session. Stops the running agent, cleans per-session tool state
+   * (pty, browser, settings slice) exactly like delete, but keeps the session
+   * file on disk with archivedAt set. Sidebar filters archived sessions out of
+   * the main list; the Archived view can restore them via unarchiveSession.
+   */
+  const archiveSession = useCallback(
+    async (id: string) => {
+      const session = sessionsRef.current.find((s) => s.id === id);
+      if (!session) return;
+      evictFromCache(id);
+      if (liveSessionIdsRef.current.has(id)) {
+        if (session.engine === "codex") {
+          suppressNextSessionCompletion(id);
+          await window.claude.codex.stop(id);
+        } else if (session.engine === "acp") {
+          suppressNextSessionCompletion(id);
+          await window.claude.acp.stop(id);
+        } else {
+          suppressNextSessionCompletion(id);
+          await window.claude.stop(id, "session_archive");
+        }
+        liveSessionIdsRef.current.delete(id);
+      }
+      backgroundStoreRef.current.delete(id);
+      messageQueueRef.current.delete(id);
+      bgAgentStore.clearSession(id);
+      toast.dismiss(`permission-${id}`);
+      const archivedAt = Date.now();
+      await window.claude.sessions.updateMeta(session.projectId, id, { archivedAt });
+      useSettingsStore.getState().clearSessionSettings(id);
+      notifySessionTerminalsDestroyed(id);
+      void window.claude.terminal.destroySession(id).catch((err) => {
+        reportError("TERMINAL_DESTROY_ON_SESSION_ARCHIVE", err);
+      });
+      deleteBrowserSession(makeSessionBrowserPersistKey(id));
+      if (activeSessionIdRef.current === id) {
+        clearQueue();
+        setActiveSessionId(null);
+        setInitialMessages([]);
+        setInitialMeta(null);
+        setInitialPermission(null);
+        setInitialRawAcpPermission(null);
+      }
+      // Keep the session in the in-memory list so the Archived view can
+      // surface it without reloading from disk — just mark archivedAt.
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, archivedAt, isActive: false } : s)),
+      );
+    },
+    [clearQueue, evictFromCache],
+  );
+
+  const unarchiveSession = useCallback(
+    async (id: string) => {
+      const session = sessionsRef.current.find((s) => s.id === id);
+      if (!session) return;
+      await window.claude.sessions.updateMeta(session.projectId, id, { archivedAt: null });
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, archivedAt: undefined } : s)),
+      );
+    },
+    [],
+  );
+
   // ── Rename a session ──
 
   const renameSession = useCallback((id: string, title: string) => {
@@ -486,6 +553,8 @@ export function useSessionCrud({
     createSession,
     switchSession,
     deleteSession,
+    archiveSession,
+    unarchiveSession,
     renameSession,
     deselectSession,
     importCCSession,

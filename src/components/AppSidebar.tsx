@@ -18,6 +18,7 @@ import { UpdateBanner } from "./UpdateBanner";
 import { PreReleaseBanner } from "./PreReleaseBanner";
 import { ProjectSection } from "./sidebar/ProjectSection";
 import { SidebarActionsProvider } from "./sidebar/SidebarActionsContext";
+import { ArchivedSection } from "./sidebar/ArchivedSection";
 import { useAgentContext } from "./AgentContext";
 import { clearSidebarDragPayload, isSidebarDragKind } from "@/lib/sidebar/dnd";
 
@@ -128,6 +129,8 @@ interface AppSidebarSpaceActions {
 interface AppSidebarSessionActions {
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onArchiveSession: (id: string) => void;
+  onUnarchiveSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
   onPinSession: (sessionId: string, pinned: boolean) => void;
   onMoveSessionToFolder: (sessionId: string, folderId: string | null) => void;
@@ -193,6 +196,8 @@ export const AppSidebar = memo(function AppSidebar({
   const {
     onSelectSession,
     onDeleteSession,
+    onArchiveSession,
+    onUnarchiveSession,
     onRenameSession,
     onPinSession,
     onMoveSessionToFolder,
@@ -250,16 +255,40 @@ export const AppSidebar = memo(function AppSidebar({
 
   const projectIds = useMemo(() => filteredProjects.map((p) => p.id), [filteredProjects]);
 
-  // Pre-group sessions by projectId (O(n) once) instead of filtering per project (O(n*m))
+  // Pre-group sessions by projectId (O(n) once) instead of filtering per project (O(n*m)).
+  // Archived sessions are excluded from the main per-project lists — they're surfaced
+  // via a dedicated "Archived" section below so they don't clutter the active workflow.
   const sessionsByProject = useMemo(() => {
     const map = new Map<string, ChatSession[]>();
     for (const s of sessions) {
+      if (s.archivedAt) continue;
       const arr = map.get(s.projectId) ?? [];
       arr.push(s);
       map.set(s.projectId, arr);
     }
     return map;
   }, [sessions]);
+
+  /** Archived sessions grouped by project for the collapsible Archived section. */
+  const archivedByProject = useMemo(() => {
+    const map = new Map<string, ChatSession[]>();
+    for (const s of sessions) {
+      if (!s.archivedAt) continue;
+      const arr = map.get(s.projectId) ?? [];
+      arr.push(s);
+      map.set(s.projectId, arr);
+    }
+    // Sort each project's archived list by archivedAt desc (most recent first)
+    for (const arr of map.values()) {
+      arr.sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
+    }
+    return map;
+  }, [sessions]);
+  const totalArchivedCount = useMemo(() => {
+    let n = 0;
+    for (const arr of archivedByProject.values()) n += arr.length;
+    return n;
+  }, [archivedByProject]);
 
   // Other spaces for "Move to space" menu
   const otherSpaces = useMemo(() => spaces.filter((s) => s.id !== activeSpaceId), [spaces, activeSpaceId]);
@@ -269,6 +298,8 @@ export const AppSidebar = memo(function AppSidebar({
     () => ({
       selectSession: onSelectSession,
       deleteSession: onDeleteSession,
+      archiveSession: onArchiveSession,
+      unarchiveSession: onUnarchiveSession,
       renameSession: onRenameSession,
       pinSession: onPinSession,
       moveSessionToFolder: onMoveSessionToFolder,
@@ -281,6 +312,8 @@ export const AppSidebar = memo(function AppSidebar({
     [
       onSelectSession,
       onDeleteSession,
+      onArchiveSession,
+      onUnarchiveSession,
       onRenameSession,
       onPinSession,
       onMoveSessionToFolder,
@@ -666,6 +699,14 @@ export const AppSidebar = memo(function AppSidebar({
                       : "No projects in this space"}
                   </p>
                 )}
+
+                <ArchivedSection
+                  projects={filteredProjects}
+                  archivedByProject={archivedByProject}
+                  totalCount={totalArchivedCount}
+                  activeSessionId={activeSessionId}
+                  islandLayout={islandLayout}
+                />
               </div>
             </ScrollArea>
           </div>

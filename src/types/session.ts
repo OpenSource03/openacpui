@@ -108,6 +108,12 @@ export interface SessionBase {
   pinned?: boolean;
   /** Git branch at session creation time. */
   branch?: string;
+  /**
+   * Timestamp when the session was archived. Unset on active (non-archived)
+   * sessions. Archived sessions are hidden from the main sidebar list but
+   * retain all their data and can be unarchived later.
+   */
+  archivedAt?: number;
 }
 
 export interface ChatSession extends SessionBase {

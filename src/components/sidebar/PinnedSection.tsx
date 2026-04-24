@@ -22,6 +22,8 @@ export function PinnedSection({
   const {
     selectSession,
     deleteSession,
+    archiveSession,
+    unarchiveSession,
     renameSession,
     pinSession,
     moveSessionToFolder,
@@ -60,6 +62,8 @@ export function PinnedSection({
           isActive={session.id === activeSessionId}
           onSelect={() => selectSession(session.id)}
           onDelete={() => deleteSession(session.id)}
+          onArchive={() => archiveSession(session.id)}
+          onUnarchive={() => unarchiveSession(session.id)}
           onRename={(title) => renameSession(session.id, title)}
           onPinToggle={() => pinSession(session.id, false)}
           folders={folders}

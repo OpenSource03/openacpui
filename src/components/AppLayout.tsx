@@ -1082,6 +1082,8 @@ export function AppLayout() {
         sessionActions={{
           onSelectSession: handleSidebarSelectSession,
           onDeleteSession: manager.deleteSession,
+          onArchiveSession: manager.archiveSession,
+          onUnarchiveSession: manager.unarchiveSession,
           onRenameSession: manager.renameSession,
           onPinSession: o.handlePinSession,
           onMoveSessionToFolder: o.handleMoveSessionToFolder,
