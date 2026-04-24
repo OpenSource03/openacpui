@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeTheme, session, shell, systemPreferences, webContents } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, session, shell, systemPreferences, webContents } from "electron";
 import path from "path";
 import http from "http";
 import contextMenu from "electron-context-menu";
@@ -27,6 +27,7 @@ import { getAppSettings } from "./lib/app-settings";
 import { initAutoUpdater, getIsInstallingUpdate } from "./lib/updater";
 import { initPreReleaseCheck } from "./lib/prerelease-check";
 import { initPostHog, shutdownPostHog, reinitPostHog, captureEvent } from "./lib/posthog";
+import { isDevToolsShortcut } from "./lib/devtools-shortcuts";
 import { getAcpAnalyticsPropertiesForSession } from "./ipc/acp-sessions";
 import { terminals } from "./ipc/terminal";
 
@@ -171,6 +172,15 @@ function createWindow(): void {
 
   mainWindow = new BrowserWindow(windowOptions);
   if (process.platform === "darwin") applyMacBackgroundEffect(initialMacBackgroundEffect);
+
+  // DevTools shortcuts are scoped to the app window's input events (not OS-global)
+  // so they don't steal Cmd+Alt+I from other apps like Chrome DevTools.
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (!isDevToolsShortcut(input, process.platform)) return;
+    event.preventDefault();
+    log("DEVTOOLS", `Shortcut ${input.key} triggered`);
+    openDevToolsWindow();
+  });
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
@@ -492,19 +502,11 @@ app.whenReady().then(() => {
     app.dock.setIcon(path.join(__dirname, "../../build/icon.png"));
   }
 
-  const shortcuts = ["CommandOrControl+Alt+I", "F12", "CommandOrControl+Shift+J"];
-  for (const shortcut of shortcuts) {
-    const ok = globalShortcut.register(shortcut, () => {
-      log("DEVTOOLS", `Shortcut ${shortcut} triggered`);
-      openDevToolsWindow();
-    });
-    log("DEVTOOLS", `Register ${shortcut}: ${ok ? "OK" : "FAILED"}`);
-  }
+  // DevTools shortcuts are registered per-window via before-input-event
+  // (see createWindow), not as OS-global shortcuts.
 });
 
 app.on("will-quit", (event) => {
-  globalShortcut.unregisterAll();
-
   // When an update is being installed, let the updater control the quit lifecycle.
   // In that case, fire-and-forget PostHog shutdown and do not delay quit.
   if (getIsInstallingUpdate()) {

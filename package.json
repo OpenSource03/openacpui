@@ -29,6 +29,17 @@
     "test:watch": "vitest --config vitest.config.electron.ts"
   },
   "packageManager": "pnpm@10.26.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "core-js",
+      "electron",
+      "electron-liquid-glass",
+      "node-pty",
+      "onnxruntime-node",
+      "protobufjs",
+      "sharp"
+    ]
+  },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.15.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.101",

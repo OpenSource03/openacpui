@@ -239,11 +239,28 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
     updateSessionMessages(sessionId, sessionEngine, (prev) => reorderSentQueuedMessage(prev, next.messageId));
 
     const handleSendError = (message = "Failed to send queued message.") => {
-      updateSessionMessages(sessionId, sessionEngine, (prev) => [
-        ...prev,
-        createSystemMessage(message, true),
-      ]);
-      clearQueueForSession(sessionId);
+      // Preserve remaining queued messages — only the failed one should drop.
+      // The old behavior (clearQueueForSession) wiped the entire queue even if
+      // only a single send failed, losing work the user had queued up.
+      const currentQueue = messageQueueRef.current.get(sessionId) ?? [];
+      const remainingQueue = currentQueue.filter((q) => q.messageId !== next.messageId);
+      if (remainingQueue.length > 0) {
+        messageQueueRef.current.set(sessionId, remainingQueue);
+      } else {
+        messageQueueRef.current.delete(sessionId);
+        boundaryWaitRef.current.delete(sessionId);
+      }
+      setSendNextId((prev) => prev === next.messageId ? null : prev);
+      if (sessionId === activeSessionIdRef.current) {
+        setQueuedCount(remainingQueue.length);
+      }
+      updateSessionMessages(sessionId, sessionEngine, (prev) => {
+        const withoutFailed = prev.filter((m) => m.id !== next.messageId);
+        return [
+          ...withoutFailed,
+          createSystemMessage(message, true),
+        ];
+      });
       setSessionProcessing(sessionId, sessionEngine, false);
     };
 
@@ -259,12 +276,9 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
         try {
           codexCollabMode = buildCodexCollabMode(startOptionsRef.current.planMode, session?.model);
         } catch (err) {
-          updateSessionMessages(sessionId, sessionEngine, (prev) => [
-            ...prev,
-            createSystemMessage(err instanceof Error ? err.message : String(err), true),
-          ]);
-          clearQueueForSession(sessionId);
-          setSessionProcessing(sessionId, sessionEngine, false);
+          // Use the same preserve-remaining-queue semantics as handleSendError.
+          // A misconfigured plan mode for one message shouldn't nuke the rest.
+          handleSendError(err instanceof Error ? err.message : String(err));
           return false;
         }
         const result = await window.claude.codex.send(

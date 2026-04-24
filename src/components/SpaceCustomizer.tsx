@@ -5,7 +5,6 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Shapes, Trash2 } from "lucide-react";
 import { icons } from "lucide-react";
-import { resolveLucideIcon } from "@/lib/icon-utils";
 import { useResolvedTheme } from "@/hooks/useTheme";
 import { SPACE_COLOR_PRESETS } from "@/hooks/useSpaceManager";
 import type { SpaceColor } from "@/types";
