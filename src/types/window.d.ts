@@ -166,7 +166,7 @@ declare global {
         delete: (projectId: string) => Promise<IpcResult>;
         rename: (projectId: string, name: string) => Promise<IpcResult>;
         updateSpace: (projectId: string, spaceId: string) => Promise<IpcResult>;
-        updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => Promise<IpcResult>;
+        updateIcon: (projectId: string, icon: string | null, iconType: "emoji" | "lucide" | "simple" | null) => Promise<IpcResult>;
         reorder: (projectId: string, targetProjectId: string) => Promise<IpcResult>;
       };
       sessions: {

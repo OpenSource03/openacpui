@@ -3,54 +3,17 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Shapes, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { icons } from "lucide-react";
 import { useResolvedTheme } from "@/hooks/useTheme";
 import { SPACE_COLOR_PRESETS } from "@/hooks/useSpaceManager";
 import type { SpaceColor } from "@/types";
+import { CURATED_EMOJIS, CURATED_LUCIDE_ICONS } from "@/lib/icon-catalog";
+import { SIMPLE_ICON_GROUPS, SIMPLE_ICON_SLUGS } from "@/lib/simple-icon-catalog";
+import { SimpleIconGlyph } from "@/components/SimpleIconGlyph";
 
-// ── Expanded curated emoji set (~160 emojis) ──
-
-export const CURATED_EMOJIS = [
-  // Stars & sparkles (most popular for spaces — lead with these)
-  "⭐", "🌟", "✨", "💫", "🌠", "⚡", "🔥", "💥",
-  // Smileys & people
-  "😀", "😎", "🤓", "🧑‍💻", "👾", "🤖", "👻", "💀",
-  "😈", "🥸", "🤩", "😇", "🫡", "🥳", "🤠", "👽",
-  // Hearts & symbols
-  "❤️", "💜", "💙", "💚", "💛", "🧡", "🩷", "🖤",
-  "🩵", "🤍", "💝", "💖", "♾️", "☯️", "🔮", "🧿",
-  // Nature & weather
-  "🌈", "🌊", "🍀", "🌸", "🌺", "🌻", "🌿", "🍂",
-  "🌙", "☀️", "🌤️", "⛈️", "❄️", "🌪️", "🔆", "🌕",
-  // Animals
-  "🐱", "🐶", "🦊", "🐻", "🐼", "🦁", "🐸", "🦋",
-  "🐝", "🦄", "🐙", "🐬", "🦅", "🐺", "🦎", "🐢",
-  // Food & drink
-  "☕", "🍕", "🍔", "🌮", "🍩", "🧁", "🍎", "🍑",
-  "🍣", "🥐", "🍷", "🧋", "🫐", "🍒", "🥑", "🍜",
-  // Objects & tools
-  "🚀", "💎", "🎯", "🎨", "🎵", "📦", "💡", "🔔",
-  "🏆", "🎮", "🎲", "📌", "🔑", "🛡️", "⚙️", "🔧",
-  "📐", "🧪", "💻", "🖥️", "📱", "🔬", "🧲", "📡",
-  // Activities & sports
-  "🎭", "🎬", "🎪", "🎸", "🎤", "🎧", "🎾", "🏀",
-  // Travel & places
-  "🏠", "🏔️", "🌍", "🏝️", "🗼", "🏗️", "🌋", "🗺️",
-  // Symbols & misc
-  "🌀", "📚", "🧬", "🔒", "🏴‍☠️", "🚩", "🏁", "🎌",
-  "💧", "🪐", "🛸", "🧊", "🫧", "🪩", "🎀", "🪬",
-];
-
-// ── Popular lucide icons ──
-
-const POPULAR_ICONS = [
-  "Layers", "Rocket", "Code", "Terminal", "Globe", "Heart", "Star", "Zap",
-  "Shield", "Target", "Compass", "Flame", "Gem", "Crown", "Coffee", "Music",
-  "Camera", "Book", "Briefcase", "Cpu", "Database", "Feather", "Gift", "Home",
-  "Key", "Lamp", "Map", "Palette", "PenTool", "Puzzle", "Scissors", "Settings",
-  "Sparkles", "Sun", "Umbrella", "Wand", "Wrench", "Box", "Cloud", "Flag",
-];
+// Re-export so existing consumers importing from this file keep working.
+export { CURATED_EMOJIS };
 
 // ── Color helpers ──
 
@@ -64,9 +27,9 @@ function getSwatchBg(preset: SpaceColor, isDark: boolean): string {
 
 interface SpaceCustomizerProps {
   icon: string;
-  iconType: "emoji" | "lucide";
+  iconType: "emoji" | "lucide" | "simple";
   color: SpaceColor;
-  onUpdateIcon: (icon: string, iconType: "emoji" | "lucide") => void;
+  onUpdateIcon: (icon: string, iconType: "emoji" | "lucide" | "simple") => void;
   onUpdateColor: (color: SpaceColor) => void;
   /** When provided, show name input and delete button (edit mode) */
   editMode?: {
@@ -86,8 +49,11 @@ export function SpaceCustomizer({
   onUpdateColor,
   editMode,
 }: SpaceCustomizerProps) {
-  const [showIcons, setShowIcons] = useState(iconType === "lucide");
+  const initialMode: "emoji" | "lucide" | "simple" =
+    iconType === "simple" ? "simple" : iconType === "lucide" ? "lucide" : "emoji";
+  const [mode, setMode] = useState<"emoji" | "lucide" | "simple">(initialMode);
   const [iconSearch, setIconSearch] = useState("");
+  const [brandSearch, setBrandSearch] = useState("");
   const resolvedTheme = useResolvedTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -95,10 +61,17 @@ export function SpaceCustomizer({
 
   const filteredIcons = useMemo(() => {
     const allNames = Object.keys(icons);
-    if (!iconSearch) return POPULAR_ICONS.filter((n) => allNames.includes(n));
+    const allNameSet = new Set(allNames);
+    if (!iconSearch) return CURATED_LUCIDE_ICONS.filter((n) => allNameSet.has(n));
     const q = iconSearch.toLowerCase();
-    return allNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 80);
+    return allNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 200);
   }, [iconSearch]);
+
+  const filteredBrands = useMemo(() => {
+    if (!brandSearch) return null;
+    const q = brandSearch.toLowerCase();
+    return SIMPLE_ICON_SLUGS.filter((s) => s.includes(q));
+  }, [brandSearch]);
 
   const handleSelectColor = useCallback(
     (preset: SpaceColor) => {
@@ -129,29 +102,28 @@ export function SpaceCustomizer({
 
       {/* ── Icon section ── */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-            {showIcons ? "Icon" : "Emoji"}
-          </span>
-          <button
-            onClick={() => {
-              setShowIcons(!showIcons);
-              setIconSearch("");
-            }}
-            className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-          >
-            {showIcons ? (
-              "Use emoji"
-            ) : (
-              <span className="inline-flex items-center gap-1">
-                <Shapes className="h-3 w-3" />
-                Icons
-              </span>
-            )}
-          </button>
+        {/* Segmented 3-way switch: Emoji / Icons / Brands */}
+        <div className="grid grid-cols-3 gap-0.5 rounded-md bg-muted/40 p-0.5 text-[11px]">
+          {([
+            { id: "emoji", label: "Emoji" },
+            { id: "lucide", label: "Icons" },
+            { id: "simple", label: "Brands" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setMode(opt.id)}
+              className={`rounded px-2 py-1 transition-colors ${
+                mode === opt.id
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
 
-        {showIcons ? (
+        {mode === "lucide" ? (
           <div className="space-y-1.5">
             <Input
               placeholder="Search icons..."
@@ -181,6 +153,64 @@ export function SpaceCustomizer({
                   );
                 })}
               </div>
+            </ScrollArea>
+          </div>
+        ) : mode === "simple" ? (
+          <div className="space-y-1.5">
+            <Input
+              placeholder="Search brands..."
+              value={brandSearch}
+              onChange={(e) => setBrandSearch(e.target.value)}
+              className="h-7 text-xs"
+            />
+            <ScrollArea className="h-[160px]">
+              {filteredBrands ? (
+                <div className="grid grid-cols-8 gap-0.5 p-0.5">
+                  {filteredBrands.map((slug) => {
+                    const isSelected = iconType === "simple" && icon === slug;
+                    return (
+                      <button
+                        key={slug}
+                        onClick={() => onUpdateIcon(slug, "simple")}
+                        title={slug}
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all hover:bg-accent hover:scale-110 ${
+                          isSelected ? "bg-accent ring-2 ring-ring scale-105" : ""
+                        }`}
+                      >
+                        <SimpleIconGlyph slug={slug} size={16} />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-2 p-0.5">
+                  {SIMPLE_ICON_GROUPS.map((group) => (
+                    <div key={group.label}>
+                      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {group.label}
+                      </p>
+                      <div className="grid grid-cols-8 gap-0.5">
+                        {group.icons.map((brand) => {
+                          const isSelected =
+                            iconType === "simple" && icon === brand.slug;
+                          return (
+                            <button
+                              key={brand.slug}
+                              onClick={() => onUpdateIcon(brand.slug, "simple")}
+                              title={brand.title}
+                              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all hover:bg-accent hover:scale-110 ${
+                                isSelected ? "bg-accent ring-2 ring-ring scale-105" : ""
+                              }`}
+                            >
+                              <SimpleIconGlyph slug={brand.slug} size={16} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </ScrollArea>
           </div>
         ) : (

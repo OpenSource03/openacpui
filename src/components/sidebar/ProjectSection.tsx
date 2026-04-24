@@ -18,6 +18,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import { resolveLucideIcon } from "@/lib/icon-utils";
+import { SimpleIconGlyph } from "@/components/SimpleIconGlyph";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -89,7 +90,7 @@ export function ProjectSection({
   onToggleJiraBoard: () => void;
   onDeleteProject: () => void;
   onRenameProject: (name: string) => void;
-  onUpdateIcon: (icon: string | null, iconType: "emoji" | "lucide" | null) => void;
+  onUpdateIcon: (icon: string | null, iconType: "emoji" | "lucide" | "simple" | null) => void;
   onImportCCSession: (ccSessionId: string) => void;
   otherSpaces: Space[];
   onMoveToSpace: (spaceId: string) => void;
@@ -282,6 +283,8 @@ export function ProjectSection({
             />
             {project.icon && project.iconType === "emoji" ? (
               <span className="h-4 w-4 shrink-0 text-center text-sm leading-4">{project.icon}</span>
+            ) : project.icon && project.iconType === "simple" ? (
+              <SimpleIconGlyph slug={project.icon} size={16} className="shrink-0 text-sidebar-foreground/60" />
             ) : project.icon && project.iconType === "lucide" ? (
               (() => {
                 const Icon = resolveLucideIcon(project.icon);
@@ -420,6 +423,8 @@ export function ProjectSection({
                         <DropdownMenuItem key={s.id} onClick={() => onMoveToSpace(s.id)}>
                           {s.iconType === "emoji" ? (
                             <span className="me-2 text-sm">{s.icon}</span>
+                          ) : s.iconType === "simple" ? (
+                            <SimpleIconGlyph slug={s.icon} size={14} className="me-2 shrink-0" />
                           ) : SpIcon ? (
                             <SpIcon className="me-2 h-3.5 w-3.5" />
                           ) : null}

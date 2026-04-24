@@ -101,7 +101,7 @@ interface AppSidebarProjectActions {
   onCreateProject: () => void;
   onDeleteProject: (id: string) => void;
   onRenameProject: (id: string, name: string) => void;
-  onUpdateProjectIcon: (id: string, icon: string | null, iconType: "emoji" | "lucide" | null) => void;
+  onUpdateProjectIcon: (id: string, icon: string | null, iconType: "emoji" | "lucide" | "simple" | null) => void;
   onImportCCSession: (projectId: string, ccSessionId: string) => void;
   onToggleSidebar: () => void;
   onNavigateToMessage: (sessionId: string, messageId: string) => void;
@@ -389,7 +389,7 @@ export const AppSidebar = memo(function AppSidebar({
   const maskValue = `linear-gradient(to bottom, ${maskTop}, ${maskBottom})`;
 
   const handleDraftIconUpdate = useCallback(
-    (icon: string, iconType: "emoji" | "lucide") => {
+    (icon: string, iconType: "emoji" | "lucide" | "simple") => {
       if (draftSpaceId) onUpdateSpace(draftSpaceId, { icon, iconType });
     },
     [draftSpaceId, onUpdateSpace],

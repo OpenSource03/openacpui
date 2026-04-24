@@ -13,7 +13,7 @@ interface Project {
   createdAt: number;
   spaceId?: string;
   icon?: string;
-  iconType?: "emoji" | "lucide";
+  iconType?: "emoji" | "lucide" | "simple";
 }
 
 function getProjectsFilePath(): string {
@@ -155,7 +155,7 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle("projects:update-icon", (_event, projectId: string, icon: string | null, iconType: "emoji" | "lucide" | null) => {
+  ipcMain.handle("projects:update-icon", (_event, projectId: string, icon: string | null, iconType: "emoji" | "lucide" | "simple" | null) => {
     try {
       const projects = readProjects().map((p) => {
         if (p.id !== projectId) return p;

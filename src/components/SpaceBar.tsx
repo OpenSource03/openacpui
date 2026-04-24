@@ -17,6 +17,7 @@ import {
   PopoverAnchor,
 } from "@/components/ui/popover";
 import { resolveLucideIcon } from "@/lib/icon-utils";
+import { SimpleIconGlyph } from "@/components/SimpleIconGlyph";
 import { SpaceCustomizer } from "./SpaceCustomizer";
 import type { Space } from "@/types";
 
@@ -36,6 +37,9 @@ interface SpaceBarProps {
 export function SpaceIcon({ space, size = 18 }: { space: Space; size?: number }) {
   if (space.iconType === "emoji") {
     return <span style={{ fontSize: size - 2 }}>{space.icon}</span>;
+  }
+  if (space.iconType === "simple") {
+    return <SimpleIconGlyph slug={space.icon} size={size} />;
   }
   const Icon = resolveLucideIcon(space.icon);
   if (!Icon) return <span style={{ fontSize: size - 2 }}>?</span>;

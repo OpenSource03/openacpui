@@ -11,7 +11,7 @@ export interface Space {
   id: string;
   name: string;
   icon: string;              // Emoji or lucide PascalCase name ("Rocket")
-  iconType: "emoji" | "lucide";
+  iconType: "emoji" | "lucide" | "simple";
   color: SpaceColor;
   createdAt: number;
   order: number;             // Position in bottom bar
