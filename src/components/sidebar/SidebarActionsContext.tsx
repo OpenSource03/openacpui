@@ -4,8 +4,12 @@ import { createContext, useContext, type ReactNode } from "react";
 export interface SidebarActions {
   /** Select/switch to a session. */
   selectSession: (id: string) => void;
-  /** Delete a session by ID. */
+  /** Delete a session by ID (permanent). */
   deleteSession: (id: string) => void;
+  /** Archive a session — hides it from the main list, keeps its data. */
+  archiveSession: (id: string) => void;
+  /** Unarchive a previously archived session. */
+  unarchiveSession: (id: string) => void;
   /** Rename a session. */
   renameSession: (id: string, title: string) => void;
   /** Toggle pin state on a session. */

@@ -1,6 +1,8 @@
 import { useCallback } from "react";
 import { useInlineRename } from "@/hooks/useInlineRename";
 import {
+  Archive,
+  ArchiveRestore,
   Columns2,
   Pencil,
   Trash2,
@@ -36,6 +38,8 @@ export function SessionItem({
   isActive,
   onSelect,
   onDelete,
+  onArchive,
+  onUnarchive,
   onRename,
   onPinToggle,
   folders,
@@ -49,6 +53,10 @@ export function SessionItem({
   isActive: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  /** Move session to archive (hidden from main list, data preserved). */
+  onArchive?: () => void;
+  /** Restore an archived session back to the main list. */
+  onUnarchive?: () => void;
   onRename: (title: string) => void;
   /** Toggle pin state. Omit if pin feature not available in this context. */
   onPinToggle?: () => void;
@@ -235,6 +243,21 @@ export function SessionItem({
             <Pencil className="me-2 h-3.5 w-3.5" />
             Rename
           </DropdownMenuItem>
+          {session.archivedAt ? (
+            onUnarchive && (
+              <DropdownMenuItem onClick={onUnarchive}>
+                <ArchiveRestore className="me-2 h-3.5 w-3.5" />
+                Unarchive
+              </DropdownMenuItem>
+            )
+          ) : (
+            onArchive && (
+              <DropdownMenuItem onClick={onArchive}>
+                <Archive className="me-2 h-3.5 w-3.5" />
+                Archive
+              </DropdownMenuItem>
+            )
+          )}
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             onClick={onDelete}

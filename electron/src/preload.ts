@@ -149,7 +149,7 @@ contextBridge.exposeInMainWorld("claude", {
     list: (projectId: string) => ipcRenderer.invoke("sessions:list", projectId),
     delete: (projectId: string, sessionId: string) => ipcRenderer.invoke("sessions:delete", projectId, sessionId),
     search: (projectIds: string[], query: string) => ipcRenderer.invoke("sessions:search", { projectIds, query }),
-    updateMeta: (projectId: string, sessionId: string, patch: { pinned?: boolean; folderId?: string | null; branch?: string }) =>
+    updateMeta: (projectId: string, sessionId: string, patch: { pinned?: boolean; folderId?: string | null; branch?: string; archivedAt?: number | null }) =>
       ipcRenderer.invoke("sessions:update-meta", { projectId, sessionId, patch }),
   },
   folders: {

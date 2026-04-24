@@ -182,6 +182,7 @@ declare global {
           pinned?: boolean;
           folderId?: string | null;
           branch?: string;
+          archivedAt?: number | null;
         }) => Promise<IpcResult>;
       };
       folders: {

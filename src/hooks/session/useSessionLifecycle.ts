@@ -87,11 +87,13 @@ export function useSessionLifecycle({
     prefetchCodexModels,
   });
 
-  // ── Session CRUD: create, switch, delete, rename, deselect, import, draft agent ──
+  // ── Session CRUD: create, switch, delete, archive, rename, deselect, import, draft agent ──
   const {
     createSession,
     switchSession,
     deleteSession,
+    archiveSession,
+    unarchiveSession,
     renameSession,
     deselectSession,
     importCCSession,
@@ -355,6 +357,8 @@ export function useSessionLifecycle({
     createSession,
     switchSession,
     deleteSession,
+    archiveSession,
+    unarchiveSession,
     renameSession,
     deselectSession,
     importCCSession,

@@ -24,6 +24,8 @@ export interface SessionMeta {
   branch?: string;
   /** Agent ID — which agent was used for this session. */
   agentId?: string;
+  /** Timestamp when the session was archived. Absent means active. */
+  archivedAt?: number;
 }
 
 /**
@@ -61,5 +63,6 @@ export function extractSessionMeta(data: Record<string, unknown>, lastMessageAt:
     pinned: data.pinned as boolean | undefined,
     branch: data.branch as string | undefined,
     agentId: data.agentId as string | undefined,
+    archivedAt: data.archivedAt as number | undefined,
   };
 }
