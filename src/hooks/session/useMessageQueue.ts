@@ -276,12 +276,9 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
         try {
           codexCollabMode = buildCodexCollabMode(startOptionsRef.current.planMode, session?.model);
         } catch (err) {
-          updateSessionMessages(sessionId, sessionEngine, (prev) => [
-            ...prev,
-            createSystemMessage(err instanceof Error ? err.message : String(err), true),
-          ]);
-          clearQueueForSession(sessionId);
-          setSessionProcessing(sessionId, sessionEngine, false);
+          // Use the same preserve-remaining-queue semantics as handleSendError.
+          // A misconfigured plan mode for one message shouldn't nuke the rest.
+          handleSendError(err instanceof Error ? err.message : String(err));
           return false;
         }
         const result = await window.claude.codex.send(
