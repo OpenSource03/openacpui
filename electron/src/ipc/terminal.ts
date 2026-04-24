@@ -96,6 +96,14 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
           seq: entry.seq,
         });
         safeSend(getMainWindow, "terminal:exit", { terminalId, exitCode });
+        // Evict from the map once the renderer has had a chance to read the
+        // final history via snapshot. Keeps long-running apps from
+        // accumulating dead entries (e.g. from shells killed externally).
+        setTimeout(() => {
+          if (terminals.get(terminalId) === entry) {
+            terminals.delete(terminalId);
+          }
+        }, 30_000);
       });
 
       log("TERMINAL", `Created terminal ${terminalId.slice(0, 8)} shell=${shellPath} cwd=${cwd}`);
