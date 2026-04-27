@@ -21,7 +21,6 @@ import { SidebarSearch } from "./SidebarSearch";
 import { SpaceBar, SpaceIcon } from "./SpaceBar";
 import { SpaceCustomizer } from "./SpaceCustomizer";
 import { UpdateBanner } from "./UpdateBanner";
-import { PreReleaseBanner } from "./PreReleaseBanner";
 import { ProjectSection } from "./sidebar/ProjectSection";
 import { SidebarActionsProvider } from "./sidebar/SidebarActionsContext";
 import { ArchivedSection } from "./sidebar/ArchivedSection";
@@ -789,7 +788,6 @@ export const AppSidebar = memo(function AppSidebar({
           </div>
 
           <UpdateBanner />
-          <PreReleaseBanner onOpenSettings={onOpenSettings} />
 
           <div className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] text-sidebar-foreground/40">
             <span>Harnss is in early beta</span>
