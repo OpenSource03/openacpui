@@ -27,14 +27,15 @@ shared/
     │   ├── v2/          # Modern v2 API types
     │   └── serde_json/  # JSON value types
     ├── codex.ts         # Codex type re-exports with Codex-prefixed aliases
-    ├── engine.ts        # EngineId, AppPermissionBehavior, SlashCommand, RespondPermissionFn
+    ├── engine.ts        # EngineId (claude | acp | codex | cli), AppPermissionBehavior, SlashCommand, RespondPermissionFn
+    ├── cli-engine.ts    # CLI engine IPC option/event/state types (start, resume, fork, archive)
     ├── acp.ts           # ACP session update types
     └── registry.ts      # Agent registry types
 
 electron/
 ├── dist/       # tsup build output (gitignored)
 └── src/
-    ├── ipc/    # IPC handlers (claude-sessions, projects, sessions, settings, terminal, git, etc.)
+    ├── ipc/    # IPC handlers (claude-sessions, cli-sessions, projects, sessions, settings, terminal, git, etc.)
     └── lib/    # Main-process utilities (logger, async-channel, data-dir, app-settings, sdk, error-utils, etc.)
 
 src/
@@ -105,7 +106,18 @@ The main process uses `@anthropic-ai/claude-agent-sdk` (ESM-only, loaded via `aw
 **IPC API — Claude Code Import:**
 
 - `cc-sessions:list(projectPath)` — lists JSONL files in `~/.claude/projects/{hash}`
-- `cc-sessions:import(projectPath, ccSessionId)` — converts JSONL transcript to UIMessage[]
+- `cc-sessions:list-all()` — scans every cwd's `sessions-index.json` and flattens entries; backs the global session browser. Filters stale index rows (jsonl gone) and sidechain transcripts; tolerates schema drift on bool/number/string variants.
+- `cc-sessions:find-by-id(sessionId)` — locates a session across all cwds, returns recorded cwd + preview
+- `cc-sessions:import(projectPath, ccSessionId)` — converts JSONL transcript to UIMessage[] (SDK-mode static history view)
+
+**IPC API — CLI Engine:**
+
+- `cli:start(opts)` / `cli:resume(opts)` / `cli:fork({ originalSessionId, cwd })` — spawn `claude` in a pty
+- `cli:stop(sessionId)` — SIGTERM + tear down pty
+- `cli:list-live()` / `cli:get-live(sessionId)` — recover live pty state on window reload
+- `cli:archive({ sessionId, cwd })` — move the JSONL into `.archived/`
+- Events: `cli:event` carries `CliSessionEvent` (spawned / resumed / session_identified / spawn_failed / resume_failed / exited)
+- Pty bytes flow through the existing `terminal:data` channel — CLI ptys register into the same `terminals` map as user shells
 
 **IPC API — File Operations:**
 
@@ -150,6 +162,7 @@ Two tiers of settings storage, each suited to different access patterns:
   - `useMessageQueue` — message queuing and drain for not-yet-ready sessions
 - `useEngineBase` — shared foundation for all engine hooks (state, rAF flush, reset effect)
 - `useClaude` / `useACP` / `useCodex` — engine-specific event handling built on `useEngineBase`
+- `useCliSession` — CLI engine state mirror (terminalId, status, ready). Diverges from `useEngineBase` because CLI doesn't carry React-side messages — chat lives in xterm directly.
 - `useSpaceTheme` — space color tinting via CSS custom properties
 - `usePanelResize` — all resize handle logic (right panel, tools panel, splits)
 - `useStreamingTextReveal` — per-token fade-in animation via DOM text node splitting
@@ -157,9 +170,39 @@ Two tiers of settings storage, each suited to different access patterns:
 - `useBackgroundAgents` — polls async Task agent output files every 3s, marks complete after 2 stable polls
 - `useSidebar` — sidebar open/close with localStorage persistence
 
-**BackgroundSessionStore** — accumulates events for non-active sessions to prevent state loss when switching. On switch-away, session state is captured into the store; on switch-back, state is consumed from the store (or loaded from disk if no live process). Event handling is split into per-engine handler modules (`background-claude-handler.ts`, `background-acp-handler.ts`, `background-codex-handler.ts`).
+**BackgroundSessionStore** — accumulates events for non-active sessions to prevent state loss when switching. On switch-away, session state is captured into the store; on switch-back, state is consumed from the store (or loaded from disk if no live process). Event handling is split into per-engine handler modules (`background-claude-handler.ts`, `background-acp-handler.ts`, `background-codex-handler.ts`). CLI sessions don't go through the background store — pty + xterm buffer is the persistence layer.
 
-### Claude CLI Stream-JSON Protocol
+### CLI Engine
+
+A fourth engine (`engine: "cli"`) spawns the official `claude` binary directly in a pty and renders its TUI through xterm. Trade-off: gives up structured tool-call rendering and SDK-only features (Jira/Confluence cards, etc.) in exchange for full CLI fidelity (slash commands, login flow, plugin updates, native permission UX). See `docs/plans/cli-mode.md` and `docs/plans/cli-engine-api.md` for the full design.
+
+**Lifecycle**:
+
+- `cli:start({ cwd, sessionId, ... })` — spawn `claude --session-id <uuid>` in a pty under `cwd`. Pty bytes flow through the existing `terminal:data` channel by registering the entry into the same `terminals` map used by `terminal:create`.
+- `cli:resume({ sessionId, cwd, fork? })` — spawn `claude --resume <id>` (or `--fork-session` for branching). Reuses an existing live pty if one is already attached for that sessionId.
+- `cli:fork({ originalSessionId, cwd })` — convenience over resume + fork. Returns a provisional `fork-pending-<uuid>` session id; main fs.watches the cwd's project dir for the new `.jsonl` and emits a `session_identified` event with the real id once minted.
+- `cli:archive({ sessionId, cwd })` — moves the JSONL into the cwd's `.archived/` subdirectory. Repeated archives append `.N` suffix to avoid clobbering.
+- `cli:listLive()` / `cli:getLive(sessionId)` — recover live pty state on window reload.
+
+**Renderer state** (`useCliSession`): per-active-session mirror of terminalId / pid / status / ready / errorMessage. Three race guards:
+
+- `intendedSessionIdRef` — set synchronously before IPC `await`; prevents `exited` events from being filtered when they arrive before React commits the placeholder state.
+- `exitedEarlyRef` — Set keyed by sessionId; populated by exited/spawn_failed events; checked by the IPC result handler so a successful spawn-then-immediate-exit doesn't get overwritten with phantom `running` state.
+- `session_identified` global subscription — fires `onSessionIdentified` callback regardless of which session is active, so fork id discovery doesn't get lost when the user navigates away mid-fork.
+
+**Provisional id rekey** (`rekeyCliSession` in `useSessionCrud`): when fork's real id arrives, migrates every keyed bucket — sidebar row, persisted session file (`engine: "cli"` tag re-saved), in-memory cache, session-scoped settings, terminal pty ownership (`notifySessionTerminalsRemap` + `terminal:remap-session` IPC), browser tab state. Provisional rows aren't persisted to disk in the first place (createCliSession skips `sessions.save` when sessionId starts with `fork-pending-`).
+
+**UI surfaces**:
+
+- Sidebar project row — primary hover button is `>_` Terminal icon when CLI is wired (default daily driver); SDK "New chat" relocated to dropdown menu.
+- "All CC Sessions" sidebar section — global browser scanning `~/.claude/projects/*/sessions-index.json`; per-row hover Fork / Archive / SDK-import buttons.
+- Cmd+P / Ctrl+P quick-switcher — Radix Dialog modal with arrow-key nav; ↵ resume; ⌘↵ fork. De-dupes against all sidebar sessions (incl. archived) so global rows can't ghost-route into archived state.
+- `<CliChatPanel>` — full-screen xterm chat surface with starting/error/exited/running states + slim header (cwd + sidebar toggle).
+- Sidebar SessionItem context menu — "Fork from here" for CLI sessions only.
+
+**No CLI-side message queue or composer overlay**: the CLI's own prompt handles input directly (slash commands, IME, history). Earlier `<CliComposer>` was removed after Phase 0 confirmed the CLI prompt is fine in xterm.
+
+### Claude CLI Stream-JSON Protocol (SDK engine)
 
 Key event types in order:
 

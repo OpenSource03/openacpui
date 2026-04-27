@@ -1,5 +1,7 @@
 # Harnss CLI 模式（"Claude CLI 会话管理器"方向）
 
+> **状态：已落地 (2026-04-28)**。Track A/B/C 全部 merged，CLI engine 与 SDK / ACP / Codex 并存运行。Phase 4 决策结果：**SDK 保留，不冲突**——多引擎共存。本文档保留作为设计/历史记录。
+
 ## 背景与动机
 
 当前 Harnss 通过 `@anthropic-ai/claude-agent-sdk` 直接驱动会话。
@@ -143,61 +145,36 @@ CLI 现有 `--resume` 弹的 picker 只在当前 cwd 内搜，**Harnss 的增值
 **初步倾向：路线 B**，先以 CLI engine 形式增量验证，
 跑一段时间后看 SDK 模式还有没人用，再决定是否清理。
 
-## Phase 划分
+## Phase 划分（实际落地结果）
 
-### Phase 0 — 探针（1 天）
+### Phase 0 — 探针 ✅ PASSED
 
-无需动 codebase，仅确认假设：
+PTY emulation 完整渲染 CLI TUI：banner、slash-command picker、permission prompt、CJK 输入、auto mode toggle、`/agents` 等交互菜单全部在 xterm 里正常工作。
 
-- [ ] 在现有 TerminalPanel 里手动跑 `claude --session-id $(uuidgen)`，
-      确认 pty 能完整渲染 CLI TUI（颜色、TUI 折叠、permission prompt 都正常）
-- [ ] 跑完一个 session 后，确认 `sessions-index.json` 出现新 entry
-- [ ] 用 `claude --resume <id>` 在新 pty 里恢复，确认体验完整
+### Phase 1 — CLI engine 骨架 ✅ DONE (PR #12)
 
-**验收**：体验对比 iTerm 跑 CLI 无差异。
-**如失败**（如 PTY emulation 不够，prompt 错乱）→ 整个方向作废。
+落地范围：
+- `electron/src/ipc/cli-sessions.ts` — start / resume / fork / archive / list-live / get-live IPC handlers
+- `src/hooks/useCliSession.ts` — 状态镜像 + 三个 race guards (intendedSessionIdRef / exitedEarlyRef / global session_identified)
+- `src/components/cli/CliChatPanel.tsx` — 全屏 xterm chat 视图
+- 新建会话入口：sidebar 项目 hover 行的主按钮（取代 SquarePen）
+- 切换 session：保持 pty 后台 alive
 
-### Phase 1 — CLI engine 骨架（2-3 天）
+### Phase 2 — Global session browser ✅ DONE (PR #9 + #12)
 
-- [ ] `electron/src/ipc/cli-sessions.ts`：spawn / list / fork / archive
-- [ ] `useCliSession` hook
-- [ ] 新建会话 UI 加 "CLI Mode" engine 选项
-- [ ] CLI session 的 chat 面板用一个全屏 xterm.js 实例
-- [ ] 切换 session = 切 pty 焦点（保持后台 alive，与现有 terminal 一致）
+- `cc-sessions:list-all` IPC 扫所有 `sessions-index.json`，filter stale entries + sidechain
+- `<AllSessionsSection>` 折叠侧边栏
+- `<SessionPicker>` cmd+P 全局快速切换器（Radix Dialog + 焦点管理 + a11y）
+- 搜索、过滤、排序（modified desc）
+- Open (CLI resume) / Fork / Archive / SDK import 全套
 
-**验收**：能在 Harnss 内创建 CLI session、切换、恢复，体验等同 iTerm 跑 CLI。
+### Phase 3 — Composer 持久化适配 ✅ DROPPED
 
-### Phase 2 — Global session browser（2-3 天）
+Phase 0 实测后用户反馈：CLI 自带的输入框（含 slash-command picker、history、IME）足够好用，浮层 composer 反而冗余。最终决定：去掉 `<CliComposer>`，xterm 直接接受输入。文档保留浮层方案设计，未来如果用户对持久化 draft 有需求可以再加。
 
-- [ ] 扫所有 sessions-index.json 的 main IPC
-- [ ] 侧边栏新增 "All Sessions" 视图（在现有 Project list 之上）
-- [ ] cmd+P 全局 session 切换器
-- [ ] 搜索 / 过滤 / 排序
-- [ ] Open / Fork / Archive 操作
+### Phase 4 — SDK 模式取舍 ✅ DECIDED: 保留
 
-**验收**：跨 50+ session、跨 10+ cwd 的浏览体验流畅。
-
-### Phase 3 — Composer 持久化适配（1-2 天）
-
-CLI 模式下没有 React 受控的 composer，怎么实现"切走再回来文字还在"：
-
-方案：Harnss 拦截 cmd+enter / 普通 Enter 之外的输入，
-进入"编辑暂存"模式（一个浮在 pty 上方的文本框），切换 session 时把文本存 cli-meta.json，
-切回时再渲染。提交时把暂存内容 paste 进 pty（`pty.write(text + "\r")`）。
-
-也可以更激进：直接监听 pty 输出，截获 CLI 的输入框 ANSI 区域，
-但这太脆弱，跟 CLI 渲染绑死。
-
-**默认方案**：Harnss 浮层 composer + paste。
-
-### Phase 4 — SDK 模式取舍（1 天决策）
-
-跑 1-2 周，看：
-- CLI session 占新建的比例
-- tool renderer 缺失体感是否强烈
-- 是否有用户依赖 SDK 模式独有功能
-
-数据驱动决定路线 A / B。
+跑了一段时间后，SDK 模式的 rich tool renderer (Jira / Confluence / Edit diff) 仍然有独特价值。决策：**多引擎并存** (路线 B)。CLI 是默认日常驱动 (sidebar 主按钮)，SDK 通过 dropdown menu 仍可用。
 
 ## 并行执行图
 

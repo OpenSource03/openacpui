@@ -1,9 +1,11 @@
 # CLI Engine — IPC + State Contract
 
-Companion to `docs/plans/cli-mode.md`. Locks the IPC surface and renderer
-state shape **before** Phase 1 implementation so the design is reviewable
-independent of code, and Phase 1 has a clear target rather than discovering
-the API as it goes.
+> **Status: implemented (2026-04-28)**. The contract below describes the shipped surface; sections marked *deferred* in the original draft were resolved during Phase 1 and now have explicit answers (fork id discovery via fs.watch, archive cwd-based path derivation, etc.). Diff vs. ship: archive takes `cwd` (not `cwdHash`), `cli:fork` IPC was added as a separate verb (originally folded into `cli:resume`), composer punt from Phase 3 became a permanent drop.
+
+Companion to `docs/plans/cli-mode.md`. Locked the IPC surface and renderer
+state shape **before** Phase 1 implementation so the design was reviewable
+independent of code, and Phase 1 had a clear target rather than discovering
+the API as it went.
 
 Type stubs live in `shared/types/cli-engine.ts`. This doc explains the why.
 

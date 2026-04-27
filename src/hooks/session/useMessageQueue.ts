@@ -271,10 +271,10 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
     try {
       if (sessionEngine === "cli") {
         // CLI sessions don't go through the message queue — the user types
-        // directly into CliComposer / pty. If we somehow get here, drop the
-        // queued message rather than fall through to the SDK send path.
-        // (`liveSessionIdsRef` doesn't track CLI sessions either, so this
-        // branch is also gated upstream by `liveSessionIdsRef.has(id)`.)
+        // directly into the CLI's own xterm prompt. If we somehow get here,
+        // drop the queued message rather than fall through to the SDK send
+        // path. (`liveSessionIdsRef` doesn't track CLI sessions either, so
+        // this branch is also gated upstream by `liveSessionIdsRef.has(id)`.)
         return false;
       } else if (sessionEngine === "acp") {
         setSessionProcessing(sessionId, sessionEngine, true);
