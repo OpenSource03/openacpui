@@ -14,7 +14,7 @@ export interface SessionMeta {
   permissionMode?: string;
   planMode?: boolean;
   totalCost?: number;
-  engine?: "claude" | "acp" | "codex";
+  engine?: "claude" | "acp" | "codex" | "cli";
   codexThreadId?: string;
   /** Which folder this chat belongs to (undefined = root level). */
   folderId?: string;

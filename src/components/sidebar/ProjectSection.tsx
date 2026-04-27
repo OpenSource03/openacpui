@@ -8,6 +8,7 @@ import {
   FolderOpen,
   FolderPlus,
   SquarePen,
+  Terminal as TerminalIcon,
   KanbanSquare,
   ChevronRight,
   ChevronDown,
@@ -62,6 +63,7 @@ export function ProjectSection({
   isJiraBoardOpen,
   organizeByChatBranch,
   onNewChat,
+  onNewCliChat,
   onToggleJiraBoard,
   onDeleteProject,
   onRenameProject,
@@ -87,6 +89,12 @@ export function ProjectSection({
   isJiraBoardOpen: boolean;
   organizeByChatBranch: boolean;
   onNewChat: () => void;
+  /**
+   * Spawn a CLI-engine session in the project's cwd. Optional — when not
+   * passed, the CLI button is hidden. Wired in AppLayout when the cli IPC
+   * surface is available (always, currently).
+   */
+  onNewCliChat?: () => void;
   onToggleJiraBoard: () => void;
   onDeleteProject: () => void;
   onRenameProject: (name: string) => void;
@@ -322,9 +330,22 @@ export function ProjectSection({
               size="icon"
               className="h-7 w-7 shrink-0 rounded-lg text-sidebar-foreground/50 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
               onClick={onNewChat}
+              title="New chat"
             >
               <SquarePen className="h-4 w-4" />
             </Button>
+
+            {onNewCliChat && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 rounded-lg text-sidebar-foreground/50 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
+                onClick={onNewCliChat}
+                title="New CLI session"
+              >
+                <TerminalIcon className="h-4 w-4" />
+              </Button>
+            )}
 
             <Popover open={iconPickerOpen} onOpenChange={setIconPickerOpen}>
               <PopoverAnchor asChild>

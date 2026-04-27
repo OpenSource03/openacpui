@@ -100,6 +100,8 @@ interface AppSidebarState {
 
 interface AppSidebarProjectActions {
   onNewChat: (projectId: string) => void;
+  /** Spawn a CLI-engine session in the project. Optional gate point. */
+  onNewCliChat?: (projectId: string) => void;
   onToggleProjectJiraBoard: (projectId: string) => void;
   onCreateProject: () => void;
   onDeleteProject: (id: string) => void;
@@ -179,6 +181,7 @@ export const AppSidebar = memo(function AppSidebar({
   } = state;
   const {
     onNewChat,
+    onNewCliChat,
     onToggleProjectJiraBoard,
     onCreateProject,
     onDeleteProject,
@@ -691,6 +694,7 @@ export const AppSidebar = memo(function AppSidebar({
                       isJiraBoardOpen={jiraBoardProjectId === project.id}
                       organizeByChatBranch={organizeByChatBranch}
                       onNewChat={() => onNewChat(project.id)}
+                      onNewCliChat={onNewCliChat ? () => onNewCliChat(project.id) : undefined}
                       onToggleJiraBoard={() => onToggleProjectJiraBoard(project.id)}
                       onDeleteProject={() => onDeleteProject(project.id)}
                       onRenameProject={(name) => onRenameProject(project.id, name)}

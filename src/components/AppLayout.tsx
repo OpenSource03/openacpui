@@ -4,6 +4,8 @@ import { PanelLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAppOrchestrator } from "@/hooks/useAppOrchestrator";
+import { useCliSession } from "@/hooks/useCliSession";
+import { CliChatPanel } from "@/components/cli/CliChatPanel";
 import { useSpaceTheme } from "@/hooks/useSpaceTheme";
 import { useGlassTheme } from "@/hooks/useGlassTheme";
 import { ThemeProvider } from "@/hooks/useTheme";
@@ -88,6 +90,32 @@ export function AppLayout() {
   const {
     sidebar, projectManager, spaceManager, manager, settings, resolvedTheme, sessionTerminals, activeSessionTerminals, splitView,
   } = managers;
+  // CLI engine has its own xterm-based chat surface — kept out of
+  // useAppOrchestrator deliberately so SDK / ACP / Codex paths remain
+  // unaffected. We only feed it the active session id.
+  const cli = useCliSession({ activeSessionId: manager.activeSessionId });
+  const isCliEngine = manager.activeSession?.engine === "cli";
+  const handleCliRetry = useCallback(() => {
+    const session = manager.activeSession;
+    if (!session) return;
+    // Pass the project's cwd through so CLI re-applies --add-dir and the
+    // pty starts in the right directory after a retry. Falling back to
+    // $HOME would lose project context after every spawn failure / exit.
+    const project = projectManager.projects.find((p) => p.id === session.projectId);
+    void cli.resume({
+      sessionId: session.id,
+      cwd: project?.path,
+    });
+  }, [cli, manager.activeSession, projectManager.projects]);
+  const handleCliClose = useCallback(() => {
+    const session = manager.activeSession;
+    if (!session) return;
+    void cli.stop(session.id);
+  }, [cli, manager.activeSession]);
+  const handleCliSendToPty = useCallback((text: string) => {
+    if (!cli.state?.terminalId) return;
+    void window.claude.terminal.write(cli.state.terminalId, text + "\r");
+  }, [cli.state?.terminalId]);
   const {
     agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange, lockedEngine, lockedAgentId,
   } = agentState;
@@ -183,6 +211,32 @@ export function AppLayout() {
       await handleNewChat(projectId);
     },
     [handleNewChat, projectManager.projects, setJiraBoardProjectForSpace, splitView.dismissSplitView],
+  );
+
+  // CLI engine entrypoint: spawn `claude` in a pty under the project's cwd.
+  // Materializes a real (non-draft) ChatSession synchronously via
+  // createCliSession so the activeSession.engine flip from null/SDK to
+  // "cli" happens before pty events start firing.
+  const handleOpenNewCliChat = useCallback(
+    async (projectId: string) => {
+      const project = projectManager.projects.find((item) => item.id === projectId);
+      if (!project) return;
+      setJiraBoardProjectForSpace(project.spaceId || "default", null);
+      splitView.dismissSplitView();
+      const sessionId = crypto.randomUUID();
+      const result = await manager.createCliSession(projectId, sessionId, project.path);
+      if ("error" in result) {
+        toast.error("Failed to create CLI session", { description: result.error });
+        return;
+      }
+      void cli.start({
+        cwd: project.path,
+        sessionId,
+        cols: 80,
+        rows: 24,
+      });
+    },
+    [cli, manager, projectManager.projects, setJiraBoardProjectForSpace, splitView.dismissSplitView],
   );
 
   const handleComposerClear = useCallback(
@@ -1054,6 +1108,7 @@ export function AppLayout() {
         }}
         projectActions={{
           onNewChat: handleOpenNewChat,
+          onNewCliChat: handleOpenNewCliChat,
           onToggleProjectJiraBoard: handleToggleProjectJiraBoard,
           onCreateProject: handleCreateProject,
           onDeleteProject: projectManager.deleteProject,
@@ -1511,22 +1566,35 @@ export function AppLayout() {
                   onClose={() => setChatSearchOpen(false)}
                 />
               )}
-              <ChatView
-                spaceId={spaceManager.activeSpaceId}
-                messages={manager.messages}
-                isProcessing={manager.isProcessing}
-                showThinking={showThinking}
-                extraBottomPadding={!!manager.pendingPermission}
-                scrollToMessageId={scrollToMessageId}
-                onScrolledToMessage={handleScrolledToMessage}
-                sessionId={manager.activeSessionId}
-                onRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
-                onFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
-                onTopScrollProgress={handleTopScrollProgress}
-                onSendQueuedNow={handleSendQueuedNow}
-                onUnqueueQueuedMessage={handleUnqueueMessage}
-                sendNextId={manager.sendNextId}
-              />
+              {isCliEngine ? (
+                <CliChatPanel
+                  state={cli.state}
+                  resolvedTheme={resolvedTheme}
+                  onPtyDataObserved={cli.markReady}
+                  onRetry={handleCliRetry}
+                  onClose={handleCliClose}
+                  onSendToPty={handleCliSendToPty}
+                  draftKey={manager.activeSessionId ?? "cli-draft"}
+                />
+              ) : (
+                <ChatView
+                  spaceId={spaceManager.activeSpaceId}
+                  messages={manager.messages}
+                  isProcessing={manager.isProcessing}
+                  showThinking={showThinking}
+                  extraBottomPadding={!!manager.pendingPermission}
+                  scrollToMessageId={scrollToMessageId}
+                  onScrolledToMessage={handleScrolledToMessage}
+                  sessionId={manager.activeSessionId}
+                  onRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
+                  onFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
+                  onTopScrollProgress={handleTopScrollProgress}
+                  onSendQueuedNow={handleSendQueuedNow}
+                  onUnqueueQueuedMessage={handleUnqueueMessage}
+                  sendNextId={manager.sendNextId}
+                />
+              )}
+              {!isCliEngine && (
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
                 style={{
@@ -1534,6 +1602,8 @@ export function AppLayout() {
                   background: bottomFadeBackground,
                 }}
               />
+              )}
+              {!isCliEngine && (
               <div data-chat-composer className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
                 <BottomComposer
                   draftKey={manager.activeSessionId}
@@ -1580,6 +1650,7 @@ export function AppLayout() {
                   onManageACPs={() => setShowSettings("agents")}
                 />
               </div>
+              )}
               </>
             ) : (
               <>

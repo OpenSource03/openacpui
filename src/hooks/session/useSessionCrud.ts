@@ -182,6 +182,12 @@ export function useSessionCrud({
       } else if (draftEngine === "acp") {
         eagerStartAcpSession(projectId, options);
         probeMcpServers(projectId);
+      } else if (draftEngine === "cli") {
+        // CLI engine: nothing to eager-start in the draft phase. The
+        // actual `claude` pty is spawned on first send (or via a
+        // session-row affordance), since spawn cost is too high to do
+        // speculatively for every draft.
+        setDraftMcpStatuses([]);
       } else {
         // Codex: no eager start; prefetch model list for the picker.
         setDraftMcpStatuses([]);
@@ -309,17 +315,23 @@ export function useSessionCrud({
       if (!session) return;
       evictFromCache(id);
       if (liveSessionIdsRef.current.has(id)) {
+        suppressNextSessionCompletion(id);
         if (session.engine === "codex") {
-          suppressNextSessionCompletion(id);
           await window.claude.codex.stop(id);
         } else if (session.engine === "acp") {
-          suppressNextSessionCompletion(id);
           await window.claude.acp.stop(id);
+        } else if (session.engine === "cli") {
+          await window.claude.cli.stop(id);
         } else {
-          suppressNextSessionCompletion(id);
           await window.claude.stop(id, "session_delete");
         }
         liveSessionIdsRef.current.delete(id);
+      }
+      // CLI sessions don't use liveSessionIdsRef (they're not in the SDK's
+      // active-session map), but we still need to make sure the pty dies.
+      // cli.stop is idempotent so calling it unconditionally is safe.
+      if (session.engine === "cli") {
+        await window.claude.cli.stop(id).catch(() => { /* already gone */ });
       }
       backgroundStoreRef.current.delete(id);
       messageQueueRef.current.delete(id);
@@ -366,17 +378,20 @@ export function useSessionCrud({
       if (!session) return;
       evictFromCache(id);
       if (liveSessionIdsRef.current.has(id)) {
+        suppressNextSessionCompletion(id);
         if (session.engine === "codex") {
-          suppressNextSessionCompletion(id);
           await window.claude.codex.stop(id);
         } else if (session.engine === "acp") {
-          suppressNextSessionCompletion(id);
           await window.claude.acp.stop(id);
+        } else if (session.engine === "cli") {
+          await window.claude.cli.stop(id);
         } else {
-          suppressNextSessionCompletion(id);
           await window.claude.stop(id, "session_archive");
         }
         liveSessionIdsRef.current.delete(id);
+      }
+      if (session.engine === "cli") {
+        await window.claude.cli.stop(id).catch(() => { /* already gone */ });
       }
       backgroundStoreRef.current.delete(id);
       messageQueueRef.current.delete(id);
@@ -556,8 +571,85 @@ export function useSessionCrud({
     }
   }, [prefetchCodexModels, abandonEagerSession, abandonDraftAcpSession, eagerStartAcpSession, probeMcpServers]);
 
+  /**
+   * Create a CLI engine session and switch to it immediately. Unlike
+   * `createSession`, the CLI engine has no draft phase — the pty is spawned
+   * eagerly on user click, so we materialize the real `ChatSession`
+   * synchronously instead of going through DRAFT_ID + materialize-on-send.
+   *
+   * Caller is responsible for the actual `cli.start({...})` IPC after this
+   * returns; the Harnss session row exists by then so AppLayout's
+   * `isCliEngine` routing flips before the pty fires its first event.
+   */
+  const createCliSession = useCallback(async (
+    projectId: string,
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ ok: true } | { error: string }> => {
+    const project = findProject(projectId);
+    if (!project) return { error: `Project ${projectId} not found` };
+
+    abandonEagerSession("cli_session_create");
+    abandonDraftAcpSession("cli_session_create");
+    seedBackgroundStore();
+    void saveCurrentSession();
+
+    const now = Date.now();
+    const newSession: ChatSession = {
+      id: sessionId,
+      projectId,
+      title: "CLI session",
+      createdAt: now,
+      lastMessageAt: now,
+      totalCost: 0,
+      isActive: true,
+      engine: "cli",
+    };
+
+    // Persist with engine='cli' from the start. Autosave runs only when
+    // messages.length > 0, and CLI sessions intentionally never grow a
+    // React-side messages list — so this is the only chance to write the
+    // engine tag. Without it, the persisted row reloads as a default
+    // (Claude SDK) session and the routing in AppLayout breaks on restart.
+    const persisted = {
+      id: sessionId,
+      projectId,
+      title: newSession.title,
+      createdAt: now,
+      messages: [],
+      totalCost: 0,
+      engine: "cli" as const,
+    };
+    await window.claude.sessions.save(persisted);
+    cacheSessionPayload(persisted);
+
+    setSessions((prev) => [
+      newSession,
+      ...prev.filter((s) => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })),
+    ]);
+    setInitialMessages([]);
+    setInitialMeta(null);
+    setActiveSessionId(sessionId);
+    setDraftProjectId(null);
+    void cwd; // cwd is consumed by the cli.start call the caller makes next.
+    return { ok: true };
+  }, [
+    cacheSessionPayload,
+    findProject,
+    abandonEagerSession,
+    abandonDraftAcpSession,
+    saveCurrentSession,
+    seedBackgroundStore,
+    setActiveSessionId,
+    setDraftProjectId,
+    setInitialMessages,
+    setInitialMeta,
+    setSessions,
+  ]);
+
   return {
     createSession,
+    createCliSession,
     switchSession,
     deleteSession,
     archiveSession,

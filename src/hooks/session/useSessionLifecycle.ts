@@ -90,6 +90,7 @@ export function useSessionLifecycle({
   // ── Session CRUD: create, switch, delete, archive, rename, deselect, import, draft agent ──
   const {
     createSession,
+    createCliSession,
     switchSession,
     deleteSession,
     archiveSession,
@@ -355,6 +356,7 @@ export function useSessionLifecycle({
 
   return {
     createSession,
+    createCliSession,
     switchSession,
     deleteSession,
     archiveSession,

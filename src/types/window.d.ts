@@ -239,6 +239,21 @@ declare global {
           | { error: string }
         >;
       };
+      cli: {
+        start: (opts: import("@shared/types/cli-engine").CliStartOptions) =>
+          Promise<import("@shared/types/cli-engine").CliStartResult>;
+        resume: (opts: import("@shared/types/cli-engine").CliResumeOptions) =>
+          Promise<import("@shared/types/cli-engine").CliStartResult>;
+        stop: (sessionId: string) => Promise<{ ok: boolean }>;
+        listLive: () => Promise<import("@shared/types/cli-engine").CliLiveSession[]>;
+        getLive: (sessionId: string) =>
+          Promise<import("@shared/types/cli-engine").CliLiveSession | null>;
+        archive: (target: import("@shared/types/cli-engine").CliArchiveTarget) =>
+          Promise<{ ok: boolean; error?: string }>;
+        onEvent: (
+          callback: (event: import("@shared/types/cli-engine").CliSessionEvent) => void,
+        ) => () => void;
+      };
       files: {
         list: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
         listAll: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;

@@ -13,6 +13,10 @@ export const DEFAULT_ENGINE_MODELS: Record<EngineId, string> = {
   claude: DEFAULT_MODEL,
   acp: "",
   codex: "",
+  // CLI engine forwards the chosen model via the `--model` flag at spawn
+  // time; empty string means "let CLI use its own default" (same idiom as
+  // ACP / Codex).
+  cli: "",
 };
 
 const MIN_RIGHT_PANEL = 200;
@@ -458,6 +462,7 @@ function readLegacyProjectSettings(pid: string): ProjectSettings {
       claude: readLegacyModelForEngine(pid, "claude"),
       acp: readLegacyModelForEngine(pid, "acp"),
       codex: readLegacyModelForEngine(pid, "codex"),
+      cli: readLegacyModelForEngine(pid, "cli"),
     },
     gitCwd: localStorage.getItem(`harnss-${pid}-git-cwd`),
     activeTools: readLegacyJson<ToolId[]>(`harnss-${pid}-active-tools`, []).filter((id) => VALID_TOOL_IDS.has(id)),

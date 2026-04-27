@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ImageAttachment, UIMessage } from "../../types";
+import type { EngineId, ImageAttachment, UIMessage } from "../../types";
 import type { CollaborationMode } from "../../types/codex-protocol/CollaborationMode";
 import { imageAttachmentsToCodexInputs } from "../../lib/engine/codex-adapter";
 import { suppressNextSessionCompletion } from "../../lib/notification-utils";
@@ -87,9 +87,12 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
 
   const updateSessionMessages = useCallback((
     sessionId: string,
-    sessionEngine: "claude" | "acp" | "codex",
+    sessionEngine: EngineId,
     updater: (prev: UIMessage[]) => UIMessage[],
   ) => {
+    // CLI engine has no React-controlled message list (chat lives in
+    // xterm), so message-queue helpers are no-ops for it.
+    if (sessionEngine === "cli") return;
     if (sessionId === activeSessionIdRef.current) {
       const targetSetMessages = sessionEngine === "codex"
         ? codex.setMessages
@@ -104,9 +107,10 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
 
   const setSessionProcessing = useCallback((
     sessionId: string,
-    sessionEngine: "claude" | "acp" | "codex",
+    sessionEngine: EngineId,
     isProcessing: boolean,
   ) => {
+    if (sessionEngine === "cli") return;
     if (sessionId === activeSessionIdRef.current) {
       const targetSetIsProcessing = sessionEngine === "codex"
         ? codex.setIsProcessing
@@ -265,7 +269,14 @@ export function useMessageQueue({ refs, setters, engines, activeSessionId }: Use
     };
 
     try {
-      if (sessionEngine === "acp") {
+      if (sessionEngine === "cli") {
+        // CLI sessions don't go through the message queue — the user types
+        // directly into CliComposer / pty. If we somehow get here, drop the
+        // queued message rather than fall through to the SDK send path.
+        // (`liveSessionIdsRef` doesn't track CLI sessions either, so this
+        // branch is also gated upstream by `liveSessionIdsRef.has(id)`.)
+        return false;
+      } else if (sessionEngine === "acp") {
         setSessionProcessing(sessionId, sessionEngine, true);
         const result = await window.claude.acp.prompt(sessionId, next.text, next.images);
         if (result?.error) handleSendError("Failed to send queued message.");
