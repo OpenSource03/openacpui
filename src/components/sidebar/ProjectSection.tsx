@@ -331,27 +331,24 @@ export function ProjectSection({
               </Button>
             )}
 
+            {/*
+              Primary new-session button. Defaults to spawning a CLI
+              session — that's the most common path now that CLI mode
+              is the daily driver. Falls back to "New chat" (SDK) when
+              CLI isn't wired in this project, which keeps non-CLI
+              projects working with the original SquarePen affordance.
+              The SDK "New chat" is still reachable from the dropdown
+              menu for users who specifically want it.
+            */}
             <Button
               variant="ghost"
               size="icon"
               className="h-7 w-7 shrink-0 rounded-lg text-sidebar-foreground/50 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
-              onClick={onNewChat}
-              title="New chat"
+              onClick={onNewCliChat ?? onNewChat}
+              title={onNewCliChat ? "New CLI session" : "New chat"}
             >
-              <SquarePen className="h-4 w-4" />
+              {onNewCliChat ? <TerminalIcon className="h-4 w-4" /> : <SquarePen className="h-4 w-4" />}
             </Button>
-
-            {onNewCliChat && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0 rounded-lg text-sidebar-foreground/50 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
-                onClick={onNewCliChat}
-                title="New CLI session"
-              >
-                <TerminalIcon className="h-4 w-4" />
-              </Button>
-            )}
 
             <Popover open={iconPickerOpen} onOpenChange={setIconPickerOpen}>
               <PopoverAnchor asChild>
@@ -394,6 +391,18 @@ export function ProjectSection({
                 openingIconPickerRef.current = false;
               }}
             >
+              {/*
+                When CLI is available the primary hover button creates
+                a CLI session, so SDK "New chat" lives in the menu as
+                a fallback. When CLI isn't wired, hover button is
+                already SDK and this item is hidden.
+              */}
+              {onNewCliChat && (
+                <DropdownMenuItem onClick={onNewChat}>
+                  <SquarePen className="me-2 h-3.5 w-3.5" />
+                  New chat (SDK)
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={onCreateFolder}>
                 <FolderPlus className="me-2 h-3.5 w-3.5" />
                 New folder

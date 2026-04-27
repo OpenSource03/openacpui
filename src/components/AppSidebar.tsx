@@ -1,5 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo, type DragEvent } from "react";
-import { Bug, PanelLeft, Plus, Paintbrush } from "lucide-react";
+import { Bug, FolderPlus, PanelLeft, Plus, Paintbrush } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { isMac } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -582,22 +588,26 @@ export const AppSidebar = memo(function AppSidebar({
         <div className="flex-1" />
 
         {!isCreating && (
-          <>
-            <button
-              onClick={() => setImportDialogOpen(true)}
-              title="Import session by ID"
-              className="no-drag flex h-7 w-7 items-center justify-center rounded-full text-sidebar-foreground/70 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
-            >
-              <KeyRound className="h-3.5 w-3.5 shrink-0" />
-            </button>
-            <button
-              onClick={onCreateProject}
-              className="no-drag flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium text-sidebar-foreground/70 transition-all hover:bg-black/5 hover:text-sidebar-foreground dark:hover:bg-white/10"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              <span>Add project</span>
-            </button>
-          </>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="no-drag flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium text-sidebar-foreground/70 transition-all hover:bg-black/5 hover:text-sidebar-foreground focus-visible:outline-none dark:hover:bg-white/10"
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span>Add</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+              <DropdownMenuItem onClick={onCreateProject}>
+                <FolderPlus className="me-2 h-3.5 w-3.5" />
+                Add project
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
+                <KeyRound className="me-2 h-3.5 w-3.5" />
+                Import session by ID
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
 
