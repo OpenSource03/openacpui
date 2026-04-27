@@ -10,6 +10,7 @@ import {
   deleteBrowserSession,
   makeSessionBrowserPersistKey,
 } from "@/components/browser/browser-utils";
+import { clearAllComposerStateForSession } from "@/lib/composer-draft-storage";
 import {
   DRAFT_ID,
   DEFAULT_PERMISSION_MODE,
@@ -161,6 +162,7 @@ export function useSessionCrud({
         reportError("TERMINAL_DESTROY_STALE_DRAFT", err);
       });
       deleteBrowserSession(makeSessionBrowserPersistKey(DRAFT_ID));
+      clearAllComposerStateForSession(DRAFT_ID);
       setActiveSessionId(DRAFT_ID);
       // Remove any leftover pending DRAFT_ID session from a previous failed ACP start
       setSessions((prev) => prev.filter(s => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })));
@@ -335,6 +337,8 @@ export function useSessionCrud({
       });
       // Drop browser tabs/URLs persisted for this session.
       deleteBrowserSession(makeSessionBrowserPersistKey(id));
+      // Drop persisted composer draft (text + attachments) and grab buckets.
+      clearAllComposerStateForSession(id);
       if (activeSessionIdRef.current === id) {
         clearQueue();
         setActiveSessionId(null);
@@ -386,6 +390,7 @@ export function useSessionCrud({
         reportError("TERMINAL_DESTROY_ON_SESSION_ARCHIVE", err);
       });
       deleteBrowserSession(makeSessionBrowserPersistKey(id));
+      clearAllComposerStateForSession(id);
       if (activeSessionIdRef.current === id) {
         clearQueue();
         setActiveSessionId(null);

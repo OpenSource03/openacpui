@@ -1,5 +1,5 @@
 import {
-  useEffect,
+  useLayoutEffect,
   useState,
   useRef,
   useCallback,
@@ -372,13 +372,26 @@ export const InputBar = memo(function InputBar({
   const attachmentsRef = useRef<ImageAttachment[]>(attachments);
   attachmentsRef.current = attachments;
 
-  useEffect(() => {
-    if (!draftKey) return;
+  // Whether this composer instance owns the persistence write-lease. Reflected
+  // back to the user via a read-only state on the contenteditable element so
+  // the second pane in a duplicate-session split can't appear-to-edit and
+  // then silently lose its content on unmount.
+  const [isDraftOwner, setIsDraftOwner] = useState(true);
+
+  // useLayoutEffect (not useEffect) keeps the save/restore work inside the
+  // same commit phase as the prop change — eliminates the visible "flash of
+  // previous session's text" the user sees during async effect scheduling.
+  useLayoutEffect(() => {
+    if (!draftKey) {
+      setIsDraftOwner(true);
+      return;
+    }
     const el = editableRef.current;
     if (!el) return;
 
     const isOwner = !draftKeyOwners.has(draftKey);
     if (isOwner) draftKeyOwners.add(draftKey);
+    setIsDraftOwner(isOwner);
 
     try {
       const stored = localStorage.getItem(draftStorageKey(draftKey));
@@ -406,22 +419,28 @@ export const InputBar = memo(function InputBar({
     return () => {
       if (isOwner) {
         // Primary composer saves its DOM + attachments and releases the lease.
-        const html = el.innerHTML;
-        const hasText = Boolean(el.textContent?.trim());
-        const pendingAttachments = attachmentsRef.current;
-        const blob: DraftBlobV1 = {
-          v: DRAFT_BLOB_VERSION,
-          html: hasText ? html : "",
-          attachments: pendingAttachments,
-        };
-        const hasAnything = hasText || pendingAttachments.length > 0;
-        try {
-          if (hasAnything) {
-            localStorage.setItem(draftStorageKey(draftKey), JSON.stringify(blob));
-          } else {
-            localStorage.removeItem(draftStorageKey(draftKey));
-          }
-        } catch { /* ignore — quota exceeded silently drops the draft */ }
+        // `el` may be detached by the time cleanup runs (React already
+        // unmounted us), so guard the read — innerHTML on a detached node is
+        // technically defined but we'd rather drop the save than risk an
+        // exception.
+        if (el.isConnected) {
+          const html = el.innerHTML;
+          const hasText = Boolean(el.textContent?.trim());
+          const pendingAttachments = attachmentsRef.current;
+          const blob: DraftBlobV1 = {
+            v: DRAFT_BLOB_VERSION,
+            html: hasText ? html : "",
+            attachments: pendingAttachments,
+          };
+          const hasAnything = hasText || pendingAttachments.length > 0;
+          try {
+            if (hasAnything) {
+              localStorage.setItem(draftStorageKey(draftKey), JSON.stringify(blob));
+            } else {
+              localStorage.removeItem(draftStorageKey(draftKey));
+            }
+          } catch { /* ignore — quota exceeded silently drops the draft */ }
+        }
         draftKeyOwners.delete(draftKey);
       }
       // Non-owners restore only, so nothing to persist on unmount — avoids
@@ -970,22 +989,25 @@ export const InputBar = memo(function InputBar({
           )}
           <div
             ref={editableRef}
-            contentEditable
+            contentEditable={isDraftOwner && !isAwaitingAcpOptions}
             onInput={handleEditableInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             className={`min-h-[24px] max-h-[200px] overflow-y-auto text-[14.5px] leading-relaxed outline-none whitespace-pre-wrap wrap-break-word ${
               isAwaitingAcpOptions
                 ? "cursor-wait text-muted-foreground/60"
+                : !isDraftOwner
+                ? "cursor-not-allowed text-muted-foreground/60"
                 : "text-foreground"
             }`}
+            title={!isDraftOwner ? "This session is being edited in another pane — switch there to type." : undefined}
             role="textbox"
             aria-multiline="true"
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"
             data-gramm="false"
-            aria-disabled={isAwaitingAcpOptions}
+            aria-disabled={isAwaitingAcpOptions || !isDraftOwner}
             suppressContentEditableWarning
           />
         </div>
