@@ -406,6 +406,11 @@ export const InputBar = memo(function InputBar({
         hasContentRef.current = hasText;
         setHasContent(hasText || blob.attachments.length > 0);
         setAttachments(blob.attachments);
+        // Sync the ref synchronously — setAttachments schedules an async
+        // commit, but a same-pass cleanup (StrictMode double-invoke or
+        // rapid key flip) would otherwise read the previous render's empty
+        // value and clobber the storage we just restored from.
+        attachmentsRef.current = blob.attachments;
       } else {
         // New session has no saved draft — reset both the DOM and the
         // attachments state so nothing from the previous session lingers.
@@ -413,18 +418,12 @@ export const InputBar = memo(function InputBar({
         hasContentRef.current = false;
         setHasContent(false);
         setAttachments([]);
+        attachmentsRef.current = [];
       }
     } catch { /* ignore — fall through to empty composer */ }
 
     return () => {
       if (isOwner) {
-        // Primary composer saves its DOM + attachments and releases the lease.
-        // Important: don't gate on `el.isConnected`. When the user switches
-        // space, AppLayout's `activeSessionId ? <Composer/> : null`
-        // conditional unmounts us; React detaches the DOM node BEFORE running
-        // this cleanup, so isConnected would be false at exactly the moment
-        // we most need to save. innerHTML on a detached node still returns
-        // the last committed string, so reading it here is safe.
         const html = el.innerHTML;
         const hasText = Boolean(el.textContent?.trim());
         const pendingAttachments = attachmentsRef.current;
@@ -440,11 +439,9 @@ export const InputBar = memo(function InputBar({
           } else {
             localStorage.removeItem(draftStorageKey(draftKey));
           }
-        } catch { /* ignore — quota exceeded silently drops the draft */ }
+        } catch { /* quota / private mode */ }
         draftKeyOwners.delete(draftKey);
       }
-      // Non-owners restore only, so nothing to persist on unmount — avoids
-      // the "last writer wins" clobber when two panes share a session id.
     };
   }, [draftKey]);
 
