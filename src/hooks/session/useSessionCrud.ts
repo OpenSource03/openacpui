@@ -455,22 +455,23 @@ export function useSessionCrud({
   // ── Import a Claude Code session ──
 
   const importCCSession = useCallback(
-    async (projectId: string, ccSessionId: string) => {
+    async (projectId: string, ccSessionId: string): Promise<{ ok: true } | { error: string }> => {
       const project = findProject(projectId);
-      if (!project) return;
+      if (!project) return { error: `Project ${projectId} not found` };
 
       // If already imported, just switch to it
       const existing = sessionsRef.current.find((s) => s.id === ccSessionId);
       if (existing) {
         await switchSession(ccSessionId);
-        return;
+        return { ok: true };
       }
 
       seedBackgroundStore();
       void saveCurrentSession();
 
       const result = await window.claude.ccSessions.import(getProjectCwd(project), ccSessionId);
-      if (result.error || !result.messages) return;
+      if (result.error) return { error: result.error };
+      if (!result.messages) return { error: "Imported session contained no messages" };
 
       const firstUserMsg = result.messages.find((m) => m.role === "user");
       const titleText = firstUserMsg?.content || "Imported Session";
@@ -511,6 +512,7 @@ export function useSessionCrud({
       setActiveSessionId(ccSessionId);
       setDraftProjectId(null);
       capture("session_imported", { message_count: result.messages.length });
+      return { ok: true };
     },
     [cacheSessionPayload, findProject, saveCurrentSession, seedBackgroundStore, switchSession],
   );

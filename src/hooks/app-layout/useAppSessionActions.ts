@@ -227,7 +227,8 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
         projectId = created.project.id;
       }
 
-      await input.manager.importCCSession(projectId, found.ccSessionId);
+      const importResult = await input.manager.importCCSession(projectId, found.ccSessionId);
+      if ("error" in importResult) return { error: importResult.error };
       return { ok: true, projectId };
     },
     [input.activeSpaceId, input.manager, input.projectManager],

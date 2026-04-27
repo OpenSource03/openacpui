@@ -11,6 +11,46 @@ interface SessionPreview {
   timestamp: string;
 }
 
+/**
+ * Schema of the per-cwd index file Claude Code maintains under
+ * `~/.claude/projects/{cwdHash}/sessions-index.json`. We treat every field as
+ * best-effort — older CLI versions may omit some, and the file is a CLI
+ * implementation detail that could change between releases. The reader below
+ * validates each entry and skips anything that doesn't have the bare minimum
+ * (a sessionId).
+ */
+interface CCSessionIndexEntry {
+  sessionId?: unknown;
+  fullPath?: unknown;
+  fileMtime?: unknown;
+  firstPrompt?: unknown;
+  summary?: unknown;
+  messageCount?: unknown;
+  created?: unknown;
+  modified?: unknown;
+  gitBranch?: unknown;
+  projectPath?: unknown;
+  isSidechain?: unknown;
+}
+
+interface CCSessionIndexFile {
+  version?: unknown;
+  entries?: unknown;
+}
+
+/** Flat shape returned to the renderer. One entry per session file. */
+interface AllSessionsEntry {
+  sessionId: string;
+  cwdHash: string;
+  projectPath: string | null;
+  firstPrompt: string | null;
+  summary: string | null;
+  messageCount: number | null;
+  modified: number;
+  created: number | null;
+  gitBranch: string | null;
+}
+
 interface UIMessage {
   id: string;
   role: string;
@@ -59,6 +99,90 @@ function extractCwdFromJsonl(filePath: string): string | null {
     /* ignore */
   }
   return null;
+}
+
+/**
+ * Coerce a CLI-written timestamp to epoch ms. CLI versions disagree on
+ * whether `modified`/`created` are ISO strings or numeric epochs, so we
+ * accept both shapes. Returns null when the value is missing or unparseable.
+ */
+function parseTs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const n = Date.parse(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
+ * Single-pass cwd + first-user-message reader used by the fallback path of
+ * `cc-sessions:list-all`. Scans up to 100 lines once per file instead of the
+ * old extractSessionPreview + extractCwdFromJsonl pair, which read the same
+ * file twice — costly when a cwd has hundreds of large transcripts and the
+ * sessions-index.json is missing/malformed. Stays async + non-blocking so
+ * Promise.all over many files actually overlaps the disk reads instead of
+ * pinning the main process.
+ */
+async function extractSessionMeta(filePath: string): Promise<{
+  cwd: string | null;
+  firstUserMessage: string | null;
+  isSidechain: boolean;
+}> {
+  try {
+    const content = await fs.promises.readFile(filePath, "utf-8");
+    const lines = content.split("\n");
+    let cwd: string | null = null;
+    let firstUserMessage: string | null = null;
+    let isSidechain = false;
+    let scanned = 0;
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      if (scanned++ > 100) break;
+      try {
+        const obj = JSON.parse(line);
+        if (!cwd && typeof obj.cwd === "string" && obj.cwd) cwd = obj.cwd;
+        // Any line tagged as sidechain marks the whole transcript — CLI
+        // doesn't mix main + sub-agent in one file, so the first hit is
+        // enough.
+        if (!isSidechain && isTruthyFlag(obj.isSidechain)) isSidechain = true;
+        if (
+          !firstUserMessage &&
+          obj.type === "user" &&
+          !obj.isMeta &&
+          !obj.isSidechain &&
+          typeof obj.message?.content === "string" &&
+          obj.message.content.trim()
+        ) {
+          const raw = obj.message.content.trim();
+          firstUserMessage = raw.length > 80 ? raw.slice(0, 77) + "..." : raw;
+        }
+        if (cwd && firstUserMessage && isSidechain) break;
+      } catch {
+        continue;
+      }
+    }
+    return { cwd, firstUserMessage, isSidechain };
+  } catch {
+    return { cwd: null, firstUserMessage: null, isSidechain: false };
+  }
+}
+
+/**
+ * Schema-drift-tolerant truthy check. CLI typically writes `isSidechain: true`
+ * but historic dumps and adjacent tools have used `"true"`/`"1"`/`1`/`"TRUE"`
+ * — accept all of them so sub-agent transcripts never sneak into the
+ * resumable list.
+ */
+function isTruthyFlag(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    return v === "true" || v === "1";
+  }
+  return false;
 }
 
 function extractSessionPreview(filePath: string): SessionPreview | null {
@@ -292,6 +416,141 @@ export function register(): void {
     } catch (err) {
       const errMsg = reportError("CC_SESSIONS:IMPORT_ERR", err);
       return { error: errMsg };
+    }
+  });
+
+  /**
+   * List every Claude Code session across every project the user has touched.
+   *
+   * Reads `~/.claude/projects/* /sessions-index.json` (CLI's own session
+   * index) and flattens the entries into a single list. Falls back per-cwd to
+   * scanning `.jsonl` files when the index is missing — older CLI versions or
+   * fresh installs may not have written one yet.
+   *
+   * Sidechain sessions (subagent transcripts) are filtered out — they aren't
+   * directly resumable.
+   */
+  ipcMain.handle("cc-sessions:list-all", async () => {
+    try {
+      const root = path.join(os.homedir(), ".claude", "projects");
+      if (!fs.existsSync(root)) return [];
+
+      const subdirs = await fs.promises.readdir(root, { withFileTypes: true });
+      const all: AllSessionsEntry[] = [];
+
+      for (const dir of subdirs) {
+        if (!dir.isDirectory()) continue;
+        const cwdHash = dir.name;
+        const dirPath = path.join(root, cwdHash);
+        const indexPath = path.join(dirPath, "sessions-index.json");
+
+        let usedIndex = false;
+        if (fs.existsSync(indexPath)) {
+          try {
+            const raw = await fs.promises.readFile(indexPath, "utf-8");
+            const parsed = JSON.parse(raw) as CCSessionIndexFile;
+            // Only treat the index as authoritative when its `entries` is the
+            // expected array shape. Anything else (missing key, schema drift,
+            // wrong type) falls through to the JSONL scan so we still surface
+            // the cwd's sessions instead of silently dropping it.
+            if (Array.isArray(parsed.entries)) {
+              // The index can outlive the JSONL files (CLI deletes the .jsonl
+              // but doesn't always rewrite the index). Build a one-time set of
+              // present session ids per cwd so we can skip stale entries
+              // without a per-row stat.
+              let presentIds: Set<string>;
+              try {
+                const files = await fs.promises.readdir(dirPath);
+                presentIds = new Set(
+                  files.filter((f) => f.endsWith(".jsonl")).map((f) => f.slice(0, -6)),
+                );
+              } catch {
+                presentIds = new Set();
+              }
+
+              for (const e of parsed.entries as CCSessionIndexEntry[]) {
+                if (typeof e.sessionId !== "string" || !e.sessionId) continue;
+                // Defensive: CLI typically writes a boolean, but accept any
+                // truthy string/number form too so a schema-shift can't leak
+                // sidechain transcripts into the resumable list.
+                if (isTruthyFlag(e.isSidechain)) continue;
+                if (!presentIds.has(e.sessionId)) continue;
+
+                // Accept either type for both fields — older CLI versions
+                // wrote epoch numbers into `modified`, newer write ISO; same
+                // story for `fileMtime`. Convert string→ms via Date.parse.
+                const modifiedNum = parseTs(e.modified) ?? parseTs(e.fileMtime);
+                if (modifiedNum === null) continue;
+
+                const createdNum = parseTs(e.created);
+
+                all.push({
+                  sessionId: e.sessionId,
+                  cwdHash,
+                  projectPath: typeof e.projectPath === "string" ? e.projectPath : null,
+                  firstPrompt: typeof e.firstPrompt === "string" ? e.firstPrompt : null,
+                  summary: typeof e.summary === "string" && e.summary ? e.summary : null,
+                  messageCount: typeof e.messageCount === "number" ? e.messageCount : null,
+                  modified: modifiedNum,
+                  created: createdNum,
+                  gitBranch: typeof e.gitBranch === "string" && e.gitBranch ? e.gitBranch : null,
+                });
+              }
+              usedIndex = true;
+            }
+          } catch {
+            // Malformed index — fall through to jsonl scan below.
+          }
+        }
+
+        if (usedIndex) continue;
+
+        // Fallback: no/broken index, scan .jsonl files directly. We do a
+        // single bounded read per file (extractSessionMeta) to grab cwd +
+        // first-prompt in one pass — the previous version called
+        // extractSessionPreview AND extractCwdFromJsonl, which read the same
+        // file twice and could freeze the IPC for users with hundreds of
+        // sessions sharing a broken index. We also stat in parallel so the
+        // dir scan doesn't serialize on disk latency.
+        try {
+          const files = (await fs.promises.readdir(dirPath)).filter((f) => f.endsWith(".jsonl"));
+          const rows = await Promise.all(
+            files.map(async (f) => {
+              const sessionId = f.slice(0, -6);
+              const filePath = path.join(dirPath, f);
+              try {
+                const [stat, meta] = await Promise.all([
+                  fs.promises.stat(filePath),
+                  extractSessionMeta(filePath),
+                ]);
+                if (meta.isSidechain) return null;
+                return {
+                  sessionId,
+                  cwdHash,
+                  projectPath: meta.cwd,
+                  firstPrompt: meta.firstUserMessage,
+                  summary: null as string | null,
+                  messageCount: null as number | null,
+                  modified: stat.mtimeMs,
+                  created: null as number | null,
+                  gitBranch: null as string | null,
+                } satisfies AllSessionsEntry;
+              } catch {
+                return null;
+              }
+            }),
+          );
+          for (const r of rows) if (r) all.push(r);
+        } catch {
+          continue;
+        }
+      }
+
+      all.sort((a, b) => b.modified - a.modified);
+      return all;
+    } catch (err) {
+      reportError("CC_SESSIONS:LIST_ALL_ERR", err);
+      return [];
     }
   });
 

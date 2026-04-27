@@ -199,6 +199,22 @@ declare global {
       };
       ccSessions: {
         list: (projectPath: string) => Promise<CCSessionInfo[]>;
+        /**
+         * Aggregate every Claude Code session across every cwd by reading the
+         * per-cwd `sessions-index.json` files (with .jsonl scan fallback when
+         * the index is missing). Backs the global session browser.
+         */
+        listAll: () => Promise<Array<{
+          sessionId: string;
+          cwdHash: string;
+          projectPath: string | null;
+          firstPrompt: string | null;
+          summary: string | null;
+          messageCount: number | null;
+          modified: number;
+          created: number | null;
+          gitBranch: string | null;
+        }>>;
         import: (projectPath: string, ccSessionId: string) => Promise<{
           messages?: UIMessage[];
           ccSessionId?: string;

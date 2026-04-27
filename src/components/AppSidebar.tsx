@@ -19,6 +19,7 @@ import { PreReleaseBanner } from "./PreReleaseBanner";
 import { ProjectSection } from "./sidebar/ProjectSection";
 import { SidebarActionsProvider } from "./sidebar/SidebarActionsContext";
 import { ArchivedSection } from "./sidebar/ArchivedSection";
+import { AllSessionsSection } from "./sidebar/AllSessionsSection";
 import { ImportSessionDialog } from "./ImportSessionDialog";
 import { KeyRound } from "lucide-react";
 import { useAgentContext } from "./AgentContext";
@@ -734,6 +735,8 @@ export const AppSidebar = memo(function AppSidebar({
                   activeSessionId={activeSessionId}
                   islandLayout={islandLayout}
                 />
+
+                <AllSessionsSection onImportSessionById={onImportSessionById} />
               </div>
             </ScrollArea>
           </div>

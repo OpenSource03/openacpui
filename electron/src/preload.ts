@@ -166,6 +166,7 @@ contextBridge.exposeInMainWorld("claude", {
   },
   ccSessions: {
     list: (projectPath: string) => ipcRenderer.invoke("cc-sessions:list", projectPath),
+    listAll: () => ipcRenderer.invoke("cc-sessions:list-all"),
     import: (projectPath: string, ccSessionId: string) => ipcRenderer.invoke("cc-sessions:import", projectPath, ccSessionId),
     findById: (sessionId: string) => ipcRenderer.invoke("cc-sessions:find-by-id", sessionId),
   },
