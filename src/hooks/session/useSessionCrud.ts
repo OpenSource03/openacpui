@@ -585,9 +585,27 @@ export function useSessionCrud({
     projectId: string,
     sessionId: string,
     cwd: string,
-  ): Promise<{ ok: true } | { error: string }> => {
+  ): Promise<{ ok: true; created: boolean } | { error: string }> => {
     const project = findProject(projectId);
     if (!project) return { error: `Project ${projectId} not found` };
+
+    // Idempotency: if a session with this id already exists, reuse it
+    // instead of prepending a duplicate row. This matters for resume
+    // flows from the global session browser — the user may click the
+    // same row twice, or navigate back to a CLI session they already
+    // resumed. Engine-mismatch is a real conflict (e.g. previously SDK-
+    // imported), so we surface it as an error rather than silently
+    // replacing.
+    const existing = sessionsRef.current.find((s) => s.id === sessionId);
+    if (existing) {
+      if (existing.engine !== "cli") {
+        return {
+          error: `Session ${sessionId.slice(0, 8)}… already exists as ${existing.engine ?? "claude"} engine — open it from the sidebar instead.`,
+        };
+      }
+      await switchSessionRef.current?.(sessionId);
+      return { ok: true, created: false };
+    }
 
     abandonEagerSession("cli_session_create");
     abandonDraftAcpSession("cli_session_create");
@@ -632,7 +650,7 @@ export function useSessionCrud({
     setActiveSessionId(sessionId);
     setDraftProjectId(null);
     void cwd; // cwd is consumed by the cli.start call the caller makes next.
-    return { ok: true };
+    return { ok: true, created: true };
   }, [
     cacheSessionPayload,
     findProject,

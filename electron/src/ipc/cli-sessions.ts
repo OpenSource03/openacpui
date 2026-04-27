@@ -245,6 +245,22 @@ export function register(getMainWindow: () => BrowserWindow | null): void {
       if (!opts || typeof opts.sessionId !== "string") {
         return { ok: false, sessionId: opts?.sessionId ?? "", error: "sessionId is required" };
       }
+      // Idempotency: if this sessionId already has a live pty in this
+      // Harnss process, reuse it rather than spawning a second
+      // `claude --resume` (which would fight over the same JSONL file
+      // and orphan the previous pty). Renderer can detect "already
+      // attached" by comparing the returned terminalId to its current
+      // state.
+      const existing = liveSessions.get(opts.sessionId);
+      if (existing && terminals.get(existing.terminalId) && !terminals.get(existing.terminalId)?.exited) {
+        log("CLI", `cli:resume reusing existing live pty for ${opts.sessionId.slice(0, 8)}`);
+        return {
+          ok: true,
+          terminalId: existing.terminalId,
+          sessionId: opts.sessionId,
+          pid: existing.pid,
+        };
+      }
       const pty = getPty();
       const cols = opts.cols ?? 80;
       const rows = opts.rows ?? 24;

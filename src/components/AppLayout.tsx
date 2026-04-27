@@ -130,6 +130,7 @@ export function AppLayout() {
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
     handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
     handleSendQueuedNow, handleUnqueueMessage, handleCreateProject, handleImportCCSession, handleImportSessionById,
+    handleResumeCliSessionById,
     handleNavigateToMessage, handleStartCreateSpace, handleConfirmCreateSpace, handleCancelCreateSpace,
     handleUpdateSpace, handleDeleteSpace, handleMoveProjectToSpace, handleSeedDevExampleSpaceData,
   } = actions;
@@ -1112,6 +1113,7 @@ export function AppLayout() {
           onUpdateProjectIcon: projectManager.updateProjectIcon,
           onImportCCSession: handleImportCCSession,
           onImportSessionById: handleImportSessionById,
+          onResumeCliSessionById: handleResumeCliSessionById,
           onToggleSidebar: sidebar.toggle,
           onNavigateToMessage: handleNavigateToMessage,
           onMoveProjectToSpace: handleMoveProjectToSpace,

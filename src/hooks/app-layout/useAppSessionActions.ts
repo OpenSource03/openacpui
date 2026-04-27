@@ -234,6 +234,84 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
     [input.activeSpaceId, input.manager, input.projectManager],
   );
 
+  /**
+   * Twin of `handleImportSessionById` but resumes the session in CLI mode
+   * (spawns `claude --resume <uuid>` in a pty) instead of importing the
+   * JSONL transcript into the SDK session model.
+   *
+   * This is the default entry point from the global session browser — for
+   * users on the cli-mode pivot, "Open" should mean "continue the actual
+   * conversation in CLI", not "show me the messages as a static history".
+   */
+  const handleResumeCliSessionById = useCallback(
+    async (
+      rawInput: string,
+    ): Promise<{ ok: true; projectId: string; sessionId: string } | { error: string }> => {
+      const uuidMatch = rawInput.match(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+      );
+      const sessionId = (uuidMatch ? uuidMatch[0] : rawInput).trim();
+      if (!sessionId) return { error: "Session id is empty" };
+
+      const found = await window.claude.ccSessions.findById(sessionId);
+      if ("error" in found) return { error: found.error };
+      if (!("found" in found) || !found.found) {
+        return { error: `Session ${sessionId} not found in ~/.claude/projects` };
+      }
+
+      const rawCwd = found.cwd ?? found.cwdFallbackFromDirName;
+      if (!rawCwd) return { error: "Session file has no cwd recorded" };
+      const cwd = rawCwd.replace(/\/+$/, "");
+
+      const existing = input.projectManager.projects.find(
+        (p) => p.path.replace(/\/+$/, "") === cwd,
+      );
+      let projectId: string;
+      if (existing) {
+        projectId = existing.id;
+      } else {
+        const created = await input.projectManager.createProjectAtPath(cwd, input.activeSpaceId);
+        if ("error" in created) return { error: `Failed to create project at ${cwd}: ${created.error}` };
+        projectId = created.project.id;
+      }
+
+      const createResult = await input.manager.createCliSession(
+        projectId,
+        found.ccSessionId,
+        cwd,
+      );
+      if ("error" in createResult) return { error: createResult.error };
+
+      // Spawn `claude --resume <id>` and await the result. We have to do
+      // this here (rather than fire-and-forget) so a sync spawn failure
+      // (missing binary / EACCES / bad cwd) can be surfaced through the
+      // returned error instead of leaving an orphaned sidebar row pointing
+      // at a session that never came up. cli:event lifecycle wiring still
+      // takes care of subsequent failures (post-spawn exit, etc.) via the
+      // CliChatPanel's status states.
+      const cliResult = await window.claude.cli.resume({
+        sessionId: found.ccSessionId,
+        cwd,
+      });
+      if (!cliResult.ok) {
+        // Only roll back when *we* freshly created this row. If the user
+        // had already opened this CLI session before (createCliSession
+        // returned created=false), the existing row is legitimate saved
+        // state and shouldn't be deleted just because today's resume
+        // attempt failed.
+        if (createResult.created) {
+          await input.manager.deleteSession(found.ccSessionId).catch(() => {
+            /* swallow — the row would just be inconsistent for one tick */
+          });
+        }
+        return { error: cliResult.error };
+      }
+
+      return { ok: true, projectId, sessionId: found.ccSessionId };
+    },
+    [input.activeSpaceId, input.manager, input.projectManager],
+  );
+
   const handleSeedDevExampleSpaceData = useCallback(async () => {
     if (!import.meta.env.DEV) return;
     const { seedDevExampleSpaceData } = await import("@/lib/dev-seeding/space-seeding");
@@ -277,6 +355,7 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
     handleSelectSession,
     handleCreateProject,
     handleImportSessionById,
+    handleResumeCliSessionById,
     handleImportCCSession,
     handleSeedDevExampleSpaceData,
     handleNavigateToMessage,

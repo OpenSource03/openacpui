@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Globe, GitBranch, MessagesSquare, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Globe, GitBranch, MessagesSquare, RefreshCw, Search } from "lucide-react";
 
 interface AllSessionsEntry {
   sessionId: string;
@@ -15,10 +15,19 @@ interface AllSessionsEntry {
 
 interface AllSessionsSectionProps {
   /**
-   * Routes a discovered Claude Code session into Harnss: looks up cwd via
-   * `cc-sessions:find-by-id`, creates/matches a project at that path, then
-   * imports the JSONL transcript and switches to it. Wired in
-   * `useAppSessionActions.handleImportSessionById`.
+   * Resume a session as a live CLI engine session — spawns
+   * `claude --resume <id>` in a pty under the session's recorded cwd.
+   * Default click action; what users actually want when they say
+   * "open this past conversation".
+   */
+  onResumeCliSessionById: (
+    sessionId: string,
+  ) => Promise<{ ok: true; projectId: string; sessionId: string } | { error: string }>;
+  /**
+   * Static-history fallback: imports the JSONL transcript into a Harnss
+   * SDK session so the messages are browseable but not continuable.
+   * Exposed as a secondary affordance per row for the rare case the user
+   * wants to read history without spinning up CLI.
    */
   onImportSessionById: (
     sessionId: string,
@@ -57,7 +66,10 @@ function formatRelative(ms: number): string {
  * user picks SDK-mode or CLI-mode for new sessions, it lets them pull any
  * past CLI session into Harnss with one click.
  */
-export function AllSessionsSection({ onImportSessionById }: AllSessionsSectionProps) {
+export function AllSessionsSection({
+  onResumeCliSessionById,
+  onImportSessionById,
+}: AllSessionsSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const [entries, setEntries] = useState<AllSessionsEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -177,52 +189,70 @@ export function AllSessionsSection({ onImportSessionById }: AllSessionsSectionPr
             const projectName = entry.projectPath
               ? entry.projectPath.split("/").filter(Boolean).pop() ?? entry.projectPath
               : "—";
+            const isPending = importingId === entry.sessionId;
+            const runAction = async (action: () => Promise<{ error?: string } | { ok: true }>) => {
+              setImportingId(entry.sessionId);
+              setImportError(null);
+              try {
+                const result = await action();
+                if ("error" in result && result.error) setImportError(result.error);
+              } catch (err) {
+                setImportError(err instanceof Error ? err.message : String(err));
+              } finally {
+                setImportingId(null);
+              }
+            };
             return (
-              <button
+              <div
                 key={`${entry.cwdHash}/${entry.sessionId}`}
-                type="button"
-                disabled={importingId === entry.sessionId}
-                onClick={async () => {
-                  setImportingId(entry.sessionId);
-                  setImportError(null);
-                  try {
-                    const result = await onImportSessionById(entry.sessionId);
-                    if ("error" in result) setImportError(result.error);
-                  } catch (err) {
-                    // Don't leave the row in a permanently disabled state if
-                    // the import threw (vs. returning an error object).
-                    setImportError(err instanceof Error ? err.message : String(err));
-                  } finally {
-                    setImportingId(null);
-                  }
-                }}
-                className="group flex w-full flex-col gap-0.5 rounded border border-transparent px-2 py-1.5 text-start transition-colors hover:border-sidebar-foreground/10 hover:bg-sidebar-foreground/[0.04] disabled:opacity-50"
+                className="group relative flex items-stretch rounded border border-transparent transition-colors hover:border-sidebar-foreground/10 hover:bg-sidebar-foreground/[0.04]"
                 title={entry.projectPath ?? entry.cwdHash}
               >
-                <span className="line-clamp-2 text-xs text-sidebar-foreground/85">
-                  {label}
-                </span>
-                <span className="flex items-center gap-2 text-[10px] text-sidebar-foreground/45">
-                  <span className="truncate" title={entry.projectPath ?? undefined}>
-                    {projectName}
+                {/* Primary action — resume in CLI mode */}
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => void runAction(() => onResumeCliSessionById(entry.sessionId))}
+                  className="flex flex-1 flex-col gap-0.5 px-2 py-1.5 text-start disabled:opacity-50"
+                >
+                  <span className="line-clamp-2 text-xs text-sidebar-foreground/85">
+                    {label}
                   </span>
-                  {entry.gitBranch && (
-                    <span className="flex items-center gap-0.5 truncate">
-                      <GitBranch className="h-2.5 w-2.5" />
-                      {entry.gitBranch}
+                  <span className="flex items-center gap-2 text-[10px] text-sidebar-foreground/45">
+                    <span className="truncate" title={entry.projectPath ?? undefined}>
+                      {projectName}
                     </span>
-                  )}
-                  {typeof entry.messageCount === "number" && (
-                    <span className="flex items-center gap-0.5">
-                      <MessagesSquare className="h-2.5 w-2.5" />
-                      {entry.messageCount}
+                    {entry.gitBranch && (
+                      <span className="flex items-center gap-0.5 truncate">
+                        <GitBranch className="h-2.5 w-2.5" />
+                        {entry.gitBranch}
+                      </span>
+                    )}
+                    {typeof entry.messageCount === "number" && (
+                      <span className="flex items-center gap-0.5">
+                        <MessagesSquare className="h-2.5 w-2.5" />
+                        {entry.messageCount}
+                      </span>
+                    )}
+                    <span className="ms-auto whitespace-nowrap">
+                      {formatRelative(entry.modified)}
                     </span>
-                  )}
-                  <span className="ms-auto whitespace-nowrap">
-                    {formatRelative(entry.modified)}
                   </span>
-                </span>
-              </button>
+                </button>
+                {/* Secondary action — import as static SDK history */}
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void runAction(() => onImportSessionById(entry.sessionId));
+                  }}
+                  title="View as static history (SDK import, no CLI process)"
+                  className="flex w-7 shrink-0 items-center justify-center text-sidebar-foreground/35 opacity-0 transition-opacity hover:text-sidebar-foreground/70 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-sidebar-foreground/30 disabled:opacity-30 group-hover:opacity-100"
+                >
+                  <FileText className="h-3 w-3" />
+                </button>
+              </div>
             );
           })}
 

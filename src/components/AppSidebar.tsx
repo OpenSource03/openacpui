@@ -114,6 +114,14 @@ interface AppSidebarProjectActions {
    * one at the session's cwd if none exists).
    */
   onImportSessionById: (sessionId: string) => Promise<{ ok: true; projectId: string } | { error: string }>;
+  /**
+   * Default action from the global session browser — resume a past CLI
+   * session in CLI mode (spawns claude --resume). Distinct from
+   * onImportSessionById which loads the JSONL as static SDK history.
+   */
+  onResumeCliSessionById: (
+    sessionId: string,
+  ) => Promise<{ ok: true; projectId: string; sessionId: string } | { error: string }>;
   onToggleSidebar: () => void;
   onNavigateToMessage: (sessionId: string, messageId: string) => void;
   onMoveProjectToSpace: (projectId: string, spaceId: string) => void;
@@ -189,6 +197,7 @@ export const AppSidebar = memo(function AppSidebar({
     onUpdateProjectIcon,
     onImportCCSession,
     onImportSessionById,
+    onResumeCliSessionById,
     onToggleSidebar,
     onNavigateToMessage,
     onMoveProjectToSpace,
@@ -740,7 +749,10 @@ export const AppSidebar = memo(function AppSidebar({
                   islandLayout={islandLayout}
                 />
 
-                <AllSessionsSection onImportSessionById={onImportSessionById} />
+                <AllSessionsSection
+                  onResumeCliSessionById={onResumeCliSessionById}
+                  onImportSessionById={onImportSessionById}
+                />
               </div>
             </ScrollArea>
           </div>
