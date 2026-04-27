@@ -100,6 +100,8 @@ interface AppSidebarState {
 
 interface AppSidebarProjectActions {
   onNewChat: (projectId: string) => void;
+  /** Spawn a CLI-engine session in the project. Optional gate point. */
+  onNewCliChat?: (projectId: string) => void;
   onToggleProjectJiraBoard: (projectId: string) => void;
   onCreateProject: () => void;
   onDeleteProject: (id: string) => void;
@@ -112,6 +114,22 @@ interface AppSidebarProjectActions {
    * one at the session's cwd if none exists).
    */
   onImportSessionById: (sessionId: string) => Promise<{ ok: true; projectId: string } | { error: string }>;
+  /**
+   * Default action from the global session browser — resume a past CLI
+   * session in CLI mode (spawns claude --resume). Distinct from
+   * onImportSessionById which loads the JSONL as static SDK history.
+   */
+  onResumeCliSessionById: (
+    sessionId: string,
+  ) => Promise<{ ok: true; projectId: string; sessionId: string } | { error: string }>;
+  /** Fork an existing CC session to a new CLI-minted id. */
+  onForkCliSessionById: (
+    sessionId: string,
+  ) => Promise<{ ok: true; provisionalSessionId: string } | { error: string }>;
+  /** Archive a CC session (move JSONL to .archived/). */
+  onArchiveCliSessionById: (
+    sessionId: string,
+  ) => Promise<{ ok: true } | { error: string }>;
   onToggleSidebar: () => void;
   onNavigateToMessage: (sessionId: string, messageId: string) => void;
   onMoveProjectToSpace: (projectId: string, spaceId: string) => void;
@@ -148,6 +166,12 @@ interface AppSidebarSessionActions {
   onPinFolder: (projectId: string, folderId: string, pinned: boolean) => void;
   onOpenInSplitView?: (sessionId: string) => void;
   canOpenSessionInSplitView?: (sessionId: string) => boolean;
+  /**
+   * Fork an existing CLI sidebar session. Optional — caller wires it
+   * only when CLI engine is available; SessionItem hides the menu
+   * option when undefined.
+   */
+  onForkSidebarCliSession?: (sessionId: string) => void;
 }
 
 interface AppSidebarProps {
@@ -179,6 +203,7 @@ export const AppSidebar = memo(function AppSidebar({
   } = state;
   const {
     onNewChat,
+    onNewCliChat,
     onToggleProjectJiraBoard,
     onCreateProject,
     onDeleteProject,
@@ -186,6 +211,9 @@ export const AppSidebar = memo(function AppSidebar({
     onUpdateProjectIcon,
     onImportCCSession,
     onImportSessionById,
+    onResumeCliSessionById,
+    onForkCliSessionById,
+    onArchiveCliSessionById,
     onToggleSidebar,
     onNavigateToMessage,
     onMoveProjectToSpace,
@@ -216,6 +244,7 @@ export const AppSidebar = memo(function AppSidebar({
     onPinFolder,
     onOpenInSplitView,
     canOpenSessionInSplitView,
+    onForkSidebarCliSession,
   } = sessionActions;
   const { agents } = useAgentContext();
   const isCreating = draftSpaceId !== null;
@@ -321,6 +350,7 @@ export const AppSidebar = memo(function AppSidebar({
       deleteFolder: onDeleteFolder,
       openInSplitView: onOpenInSplitView,
       canOpenSessionInSplitView,
+      forkCliSession: onForkSidebarCliSession,
     }),
     [
       onSelectSession,
@@ -335,6 +365,7 @@ export const AppSidebar = memo(function AppSidebar({
       onDeleteFolder,
       onOpenInSplitView,
       canOpenSessionInSplitView,
+      onForkSidebarCliSession,
     ],
   );
 
@@ -691,6 +722,7 @@ export const AppSidebar = memo(function AppSidebar({
                       isJiraBoardOpen={jiraBoardProjectId === project.id}
                       organizeByChatBranch={organizeByChatBranch}
                       onNewChat={() => onNewChat(project.id)}
+                      onNewCliChat={onNewCliChat ? () => onNewCliChat(project.id) : undefined}
                       onToggleJiraBoard={() => onToggleProjectJiraBoard(project.id)}
                       onDeleteProject={() => onDeleteProject(project.id)}
                       onRenameProject={(name) => onRenameProject(project.id, name)}
@@ -736,7 +768,12 @@ export const AppSidebar = memo(function AppSidebar({
                   islandLayout={islandLayout}
                 />
 
-                <AllSessionsSection onImportSessionById={onImportSessionById} />
+                <AllSessionsSection
+                  onResumeCliSessionById={onResumeCliSessionById}
+                  onForkCliSessionById={onForkCliSessionById}
+                  onArchiveCliSessionById={onArchiveCliSessionById}
+                  onImportSessionById={onImportSessionById}
+                />
               </div>
             </ScrollArea>
           </div>

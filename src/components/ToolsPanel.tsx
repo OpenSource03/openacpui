@@ -247,7 +247,7 @@ export function ToolsPanel({
   );
 }
 
-function TerminalInstance({
+export function TerminalInstance({
   terminalId,
   isVisible,
   resolvedTheme,

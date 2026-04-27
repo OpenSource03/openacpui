@@ -121,12 +121,15 @@ export type CliStartResult =
 
 /**
  * Resolved entry shape passed to `cli:archive`. Required fields drive the
- * file move; `fullPath` is preferred (no hash guessing) but the (sessionId,
- * cwdHash) tuple is enough when the JSONL lives in the canonical location.
+ * file move; `fullPath` is preferred (no hash guessing) but a (sessionId,
+ * cwd) pair lets main derive the canonical project dir via its own
+ * normalization rules — keeps renderer and main from drifting on hash
+ * encoding details.
  */
 export interface CliArchiveTarget {
   sessionId: string;
-  cwdHash: string;
+  /** Absolute path of the working directory the session was started in. */
+  cwd: string;
   fullPath?: string;
 }
 

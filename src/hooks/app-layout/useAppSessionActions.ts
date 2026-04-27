@@ -234,6 +234,170 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
     [input.activeSpaceId, input.manager, input.projectManager],
   );
 
+  /**
+   * Twin of `handleImportSessionById` but resumes the session in CLI mode
+   * (spawns `claude --resume <uuid>` in a pty) instead of importing the
+   * JSONL transcript into the SDK session model.
+   *
+   * This is the default entry point from the global session browser — for
+   * users on the cli-mode pivot, "Open" should mean "continue the actual
+   * conversation in CLI", not "show me the messages as a static history".
+   */
+  const handleResumeCliSessionById = useCallback(
+    async (
+      rawInput: string,
+    ): Promise<{ ok: true; projectId: string; sessionId: string } | { error: string }> => {
+      const uuidMatch = rawInput.match(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+      );
+      const sessionId = (uuidMatch ? uuidMatch[0] : rawInput).trim();
+      if (!sessionId) return { error: "Session id is empty" };
+
+      const found = await window.claude.ccSessions.findById(sessionId);
+      if ("error" in found) return { error: found.error };
+      if (!("found" in found) || !found.found) {
+        return { error: `Session ${sessionId} not found in ~/.claude/projects` };
+      }
+
+      const rawCwd = found.cwd ?? found.cwdFallbackFromDirName;
+      if (!rawCwd) return { error: "Session file has no cwd recorded" };
+      const cwd = rawCwd.replace(/\/+$/, "");
+
+      const existing = input.projectManager.projects.find(
+        (p) => p.path.replace(/\/+$/, "") === cwd,
+      );
+      let projectId: string;
+      if (existing) {
+        projectId = existing.id;
+      } else {
+        const created = await input.projectManager.createProjectAtPath(cwd, input.activeSpaceId);
+        if ("error" in created) return { error: `Failed to create project at ${cwd}: ${created.error}` };
+        projectId = created.project.id;
+      }
+
+      const createResult = await input.manager.createCliSession(
+        projectId,
+        found.ccSessionId,
+        cwd,
+      );
+      if ("error" in createResult) return { error: createResult.error };
+
+      // Spawn `claude --resume <id>` and await the result. We have to do
+      // this here (rather than fire-and-forget) so a sync spawn failure
+      // (missing binary / EACCES / bad cwd) can be surfaced through the
+      // returned error instead of leaving an orphaned sidebar row pointing
+      // at a session that never came up. cli:event lifecycle wiring still
+      // takes care of subsequent failures (post-spawn exit, etc.) via the
+      // CliChatPanel's status states.
+      const cliResult = await window.claude.cli.resume({
+        sessionId: found.ccSessionId,
+        cwd,
+      });
+      if (!cliResult.ok) {
+        // Only roll back when *we* freshly created this row. If the user
+        // had already opened this CLI session before (createCliSession
+        // returned created=false), the existing row is legitimate saved
+        // state and shouldn't be deleted just because today's resume
+        // attempt failed.
+        if (createResult.created) {
+          await input.manager.deleteSession(found.ccSessionId).catch(() => {
+            /* swallow — the row would just be inconsistent for one tick */
+          });
+        }
+        return { error: cliResult.error };
+      }
+
+      return { ok: true, projectId, sessionId: found.ccSessionId };
+    },
+    [input.activeSpaceId, input.manager, input.projectManager],
+  );
+
+  /**
+   * Fork an existing CC session: spawns `claude --resume <orig> --fork-session`
+   * which clones the transcript under a fresh CLI-minted session id. The new
+   * id is discovered asynchronously via fs.watch in main; the sidebar row
+   * starts under a provisional id and rekeys when the real one arrives.
+   */
+  const handleForkCliSessionById = useCallback(
+    async (
+      originalSessionId: string,
+    ): Promise<{ ok: true; provisionalSessionId: string } | { error: string }> => {
+      const found = await window.claude.ccSessions.findById(originalSessionId);
+      if ("error" in found) return { error: found.error };
+      if (!("found" in found) || !found.found) {
+        return { error: `Session ${originalSessionId} not found in ~/.claude/projects` };
+      }
+      const rawCwd = found.cwd ?? found.cwdFallbackFromDirName;
+      if (!rawCwd) return { error: "Session has no cwd recorded" };
+      const cwd = rawCwd.replace(/\/+$/, "");
+
+      const existing = input.projectManager.projects.find(
+        (p) => p.path.replace(/\/+$/, "") === cwd,
+      );
+      let projectId: string;
+      if (existing) {
+        projectId = existing.id;
+      } else {
+        const created = await input.projectManager.createProjectAtPath(cwd, input.activeSpaceId);
+        if ("error" in created) return { error: `Failed to create project at ${cwd}: ${created.error}` };
+        projectId = created.project.id;
+      }
+
+      // Spawn first so we have a provisional id to bind the sidebar row
+      // to. cli.fork resolves once the pty is up; the real id arrives
+      // later via session_identified → manager.rekeyCliSession.
+      const cliResult = await window.claude.cli.fork({
+        originalSessionId: found.ccSessionId,
+        cwd,
+      });
+      if (!cliResult.ok) return { error: cliResult.error };
+
+      const createResult = await input.manager.createCliSession(
+        projectId,
+        cliResult.sessionId,
+        cwd,
+      );
+      if ("error" in createResult) {
+        // Fork pty already running but Harnss row creation failed —
+        // tear down the pty so we don't leak it.
+        await window.claude.cli.stop(cliResult.sessionId).catch(() => { /* ok */ });
+        return { error: createResult.error };
+      }
+      return { ok: true, provisionalSessionId: cliResult.sessionId };
+    },
+    [input.activeSpaceId, input.manager, input.projectManager],
+  );
+
+  /**
+   * Archive a CC session that's not currently in the sidebar (or even
+   * one that is — caller decides). Routes through `cli:archive` IPC
+   * which moves the JSONL into the cwd's `.archived/` subdirectory.
+   * Existing sidebar `archiveSession` handles in-app rows; this helper
+   * is for the global session browser case.
+   */
+  const handleArchiveCliSessionById = useCallback(
+    async (sessionId: string): Promise<{ ok: true } | { error: string }> => {
+      const found = await window.claude.ccSessions.findById(sessionId);
+      if ("error" in found) return { error: found.error };
+      if (!("found" in found) || !found.found) {
+        return { error: `Session ${sessionId} not found in ~/.claude/projects` };
+      }
+      const rawCwd = found.cwd ?? found.cwdFallbackFromDirName;
+      if (!rawCwd) return { error: "Session has no cwd recorded" };
+      // Pass cwd (not the hash) — main derives the canonical project dir
+      // itself so the renderer doesn't have to mirror Claude's encoding
+      // rules. If Claude changes hash semantics, only main needs the
+      // patch.
+      const result = await window.claude.cli.archive({
+        sessionId: found.ccSessionId,
+        cwd: rawCwd.replace(/\/+$/, ""),
+      });
+      if (!result.ok) return { error: result.error ?? "Archive failed" };
+      return { ok: true };
+    },
+    [],
+  );
+
   const handleSeedDevExampleSpaceData = useCallback(async () => {
     if (!import.meta.env.DEV) return;
     const { seedDevExampleSpaceData } = await import("@/lib/dev-seeding/space-seeding");
@@ -277,6 +441,9 @@ export function useAppSessionActions(input: UseAppSessionActionsInput) {
     handleSelectSession,
     handleCreateProject,
     handleImportSessionById,
+    handleResumeCliSessionById,
+    handleForkCliSessionById,
+    handleArchiveCliSessionById,
     handleImportCCSession,
     handleSeedDevExampleSpaceData,
     handleNavigateToMessage,

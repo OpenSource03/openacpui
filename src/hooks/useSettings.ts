@@ -72,6 +72,7 @@ const DEFAULT_ENGINE_MODELS: Record<EngineId, string> = {
   claude: DEFAULT_MODEL,
   acp: "",
   codex: "",
+  cli: "",
 };
 
 const MIN_BOTTOM_HEIGHT = 120;
@@ -218,6 +219,7 @@ function readEngineModels(pid: string): Record<EngineId, string> {
     claude: readModelForEngine(pid, "claude"),
     acp: readModelForEngine(pid, "acp"),
     codex: readModelForEngine(pid, "codex"),
+    cli: readModelForEngine(pid, "cli"),
   };
 }
 

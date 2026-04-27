@@ -17,7 +17,7 @@ export interface SlashCommand {
 }
 
 /** All supported engine identifiers. */
-export type EngineId = "claude" | "acp" | "codex";
+export type EngineId = "claude" | "acp" | "codex" | "cli";
 
 /**
  * Permission response behaviors.

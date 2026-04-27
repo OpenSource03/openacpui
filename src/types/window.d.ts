@@ -239,6 +239,29 @@ declare global {
           | { error: string }
         >;
       };
+      cli: {
+        start: (opts: import("@shared/types/cli-engine").CliStartOptions) =>
+          Promise<import("@shared/types/cli-engine").CliStartResult>;
+        resume: (opts: import("@shared/types/cli-engine").CliResumeOptions) =>
+          Promise<import("@shared/types/cli-engine").CliStartResult>;
+        /**
+         * Fork a session: spawns `claude --resume <orig> --fork-session`
+         * and discovers the new id asynchronously via fs.watch on the
+         * project dir. Resolves with a provisional sessionId; the real
+         * forked id arrives via the `session_identified` cli:event.
+         */
+        fork: (opts: { originalSessionId: string; cwd: string; cols?: number; rows?: number }) =>
+          Promise<import("@shared/types/cli-engine").CliStartResult>;
+        stop: (sessionId: string) => Promise<{ ok: boolean }>;
+        listLive: () => Promise<import("@shared/types/cli-engine").CliLiveSession[]>;
+        getLive: (sessionId: string) =>
+          Promise<import("@shared/types/cli-engine").CliLiveSession | null>;
+        archive: (target: import("@shared/types/cli-engine").CliArchiveTarget) =>
+          Promise<{ ok: boolean; error?: string }>;
+        onEvent: (
+          callback: (event: import("@shared/types/cli-engine").CliSessionEvent) => void,
+        ) => () => void;
+      };
       files: {
         list: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;
         listAll: (cwd: string) => Promise<{ files: string[]; dirs: string[] }>;

@@ -170,6 +170,20 @@ contextBridge.exposeInMainWorld("claude", {
     import: (projectPath: string, ccSessionId: string) => ipcRenderer.invoke("cc-sessions:import", projectPath, ccSessionId),
     findById: (sessionId: string) => ipcRenderer.invoke("cc-sessions:find-by-id", sessionId),
   },
+  cli: {
+    start: (opts: unknown) => ipcRenderer.invoke("cli:start", opts),
+    resume: (opts: unknown) => ipcRenderer.invoke("cli:resume", opts),
+    fork: (opts: unknown) => ipcRenderer.invoke("cli:fork", opts),
+    stop: (sessionId: string) => ipcRenderer.invoke("cli:stop", sessionId),
+    listLive: () => ipcRenderer.invoke("cli:list-live"),
+    getLive: (sessionId: string) => ipcRenderer.invoke("cli:get-live", sessionId),
+    archive: (target: unknown) => ipcRenderer.invoke("cli:archive", target),
+    onEvent: (callback: (data: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on("cli:event", listener);
+      return () => ipcRenderer.removeListener("cli:event", listener);
+    },
+  },
   files: {
     list: (cwd: string) => ipcRenderer.invoke("files:list", cwd),
     listAll: (cwd: string) => ipcRenderer.invoke("files:list-all", cwd),

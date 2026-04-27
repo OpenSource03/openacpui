@@ -9,6 +9,6 @@ docs/*
 /release/
 .claude/agent-memory/
 frontend/
-cli
+/cli
 .idea/
 .omx/

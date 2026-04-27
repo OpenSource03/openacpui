@@ -5,10 +5,11 @@ import { suppressNextSessionCompletion } from "../../lib/notification-utils";
 import { capture, reportError } from "../../lib/analytics/analytics";
 import { bgAgentStore } from "../../lib/background/agent-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { notifySessionTerminalsDestroyed } from "@/hooks/useSessionTerminals";
+import { notifySessionTerminalsDestroyed, notifySessionTerminalsRemap } from "@/hooks/useSessionTerminals";
 import {
   deleteBrowserSession,
   makeSessionBrowserPersistKey,
+  renameBrowserSession,
 } from "@/components/browser/browser-utils";
 import { clearAllComposerStateForSession } from "@/lib/composer-draft-storage";
 import {
@@ -182,6 +183,12 @@ export function useSessionCrud({
       } else if (draftEngine === "acp") {
         eagerStartAcpSession(projectId, options);
         probeMcpServers(projectId);
+      } else if (draftEngine === "cli") {
+        // CLI engine: nothing to eager-start in the draft phase. The
+        // actual `claude` pty is spawned on first send (or via a
+        // session-row affordance), since spawn cost is too high to do
+        // speculatively for every draft.
+        setDraftMcpStatuses([]);
       } else {
         // Codex: no eager start; prefetch model list for the picker.
         setDraftMcpStatuses([]);
@@ -309,17 +316,23 @@ export function useSessionCrud({
       if (!session) return;
       evictFromCache(id);
       if (liveSessionIdsRef.current.has(id)) {
+        suppressNextSessionCompletion(id);
         if (session.engine === "codex") {
-          suppressNextSessionCompletion(id);
           await window.claude.codex.stop(id);
         } else if (session.engine === "acp") {
-          suppressNextSessionCompletion(id);
           await window.claude.acp.stop(id);
+        } else if (session.engine === "cli") {
+          await window.claude.cli.stop(id);
         } else {
-          suppressNextSessionCompletion(id);
           await window.claude.stop(id, "session_delete");
         }
         liveSessionIdsRef.current.delete(id);
+      }
+      // CLI sessions don't use liveSessionIdsRef (they're not in the SDK's
+      // active-session map), but we still need to make sure the pty dies.
+      // cli.stop is idempotent so calling it unconditionally is safe.
+      if (session.engine === "cli") {
+        await window.claude.cli.stop(id).catch(() => { /* already gone */ });
       }
       backgroundStoreRef.current.delete(id);
       messageQueueRef.current.delete(id);
@@ -366,17 +379,34 @@ export function useSessionCrud({
       if (!session) return;
       evictFromCache(id);
       if (liveSessionIdsRef.current.has(id)) {
+        suppressNextSessionCompletion(id);
         if (session.engine === "codex") {
-          suppressNextSessionCompletion(id);
           await window.claude.codex.stop(id);
         } else if (session.engine === "acp") {
-          suppressNextSessionCompletion(id);
           await window.claude.acp.stop(id);
+        } else if (session.engine === "cli") {
+          await window.claude.cli.stop(id);
         } else {
-          suppressNextSessionCompletion(id);
           await window.claude.stop(id, "session_archive");
         }
         liveSessionIdsRef.current.delete(id);
+      }
+      if (session.engine === "cli") {
+        await window.claude.cli.stop(id).catch(() => { /* already gone */ });
+        // Also move the on-disk JSONL into the cwd's `.archived/` so a
+        // future global session browser scan won't keep showing it as
+        // resumable. Best-effort: failure here doesn't block the
+        // sidebar-archive metadata write. Skip for fork-pending-* ids
+        // since CLI never wrote a real JSONL for them.
+        if (!id.startsWith("fork-pending-")) {
+          const project = findProject(session.projectId);
+          if (project?.path) {
+            await window.claude.cli.archive({
+              sessionId: id,
+              cwd: project.path,
+            }).catch(() => { /* tolerate already-archived / missing */ });
+          }
+        }
       }
       backgroundStoreRef.current.delete(id);
       messageQueueRef.current.delete(id);
@@ -556,8 +586,189 @@ export function useSessionCrud({
     }
   }, [prefetchCodexModels, abandonEagerSession, abandonDraftAcpSession, eagerStartAcpSession, probeMcpServers]);
 
+  /**
+   * Create a CLI engine session and switch to it immediately. Unlike
+   * `createSession`, the CLI engine has no draft phase — the pty is spawned
+   * eagerly on user click, so we materialize the real `ChatSession`
+   * synchronously instead of going through DRAFT_ID + materialize-on-send.
+   *
+   * Caller is responsible for the actual `cli.start({...})` IPC after this
+   * returns; the Harnss session row exists by then so AppLayout's
+   * `isCliEngine` routing flips before the pty fires its first event.
+   */
+  const createCliSession = useCallback(async (
+    projectId: string,
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ ok: true; created: boolean } | { error: string }> => {
+    const project = findProject(projectId);
+    if (!project) return { error: `Project ${projectId} not found` };
+
+    // Idempotency: if a session with this id already exists, reuse it
+    // instead of prepending a duplicate row. This matters for resume
+    // flows from the global session browser — the user may click the
+    // same row twice, or navigate back to a CLI session they already
+    // resumed. Engine-mismatch is a real conflict (e.g. previously SDK-
+    // imported), so we surface it as an error rather than silently
+    // replacing.
+    const existing = sessionsRef.current.find((s) => s.id === sessionId);
+    if (existing) {
+      if (existing.engine !== "cli") {
+        return {
+          error: `Session ${sessionId.slice(0, 8)}… already exists as ${existing.engine ?? "claude"} engine — open it from the sidebar instead.`,
+        };
+      }
+      await switchSessionRef.current?.(sessionId);
+      return { ok: true, created: false };
+    }
+
+    abandonEagerSession("cli_session_create");
+    abandonDraftAcpSession("cli_session_create");
+    seedBackgroundStore();
+    void saveCurrentSession();
+
+    const now = Date.now();
+    const newSession: ChatSession = {
+      id: sessionId,
+      projectId,
+      title: "CLI session",
+      createdAt: now,
+      lastMessageAt: now,
+      totalCost: 0,
+      isActive: true,
+      engine: "cli",
+    };
+
+    // Persist with engine='cli' from the start. Autosave runs only when
+    // messages.length > 0, and CLI sessions intentionally never grow a
+    // React-side messages list — so this is the only chance to write the
+    // engine tag. Without it, the persisted row reloads as a default
+    // (Claude SDK) session and the routing in AppLayout breaks on restart.
+    //
+    // Exception: provisional fork ids ("fork-pending-...") aren't
+    // persisted. Their lifetime is bounded by `session_identified` →
+    // rekeyCliSession, which writes the real id to disk and discards
+    // the in-memory provisional row. Persisting the provisional row
+    // would leave stale entries on disk if the user quits Harnss before
+    // the fork id is discovered.
+    const isProvisional = sessionId.startsWith("fork-pending-");
+    if (!isProvisional) {
+      const persisted = {
+        id: sessionId,
+        projectId,
+        title: newSession.title,
+        createdAt: now,
+        messages: [],
+        totalCost: 0,
+        engine: "cli" as const,
+      };
+      await window.claude.sessions.save(persisted);
+      cacheSessionPayload(persisted);
+    }
+
+    setSessions((prev) => [
+      newSession,
+      ...prev.filter((s) => s.id !== DRAFT_ID).map((s) => ({ ...s, isActive: false })),
+    ]);
+    setInitialMessages([]);
+    setInitialMeta(null);
+    setActiveSessionId(sessionId);
+    setDraftProjectId(null);
+    void cwd; // cwd is consumed by the cli.start call the caller makes next.
+    return { ok: true, created: true };
+  }, [
+    cacheSessionPayload,
+    findProject,
+    abandonEagerSession,
+    abandonDraftAcpSession,
+    saveCurrentSession,
+    seedBackgroundStore,
+    setActiveSessionId,
+    setDraftProjectId,
+    setInitialMessages,
+    setInitialMeta,
+    setSessions,
+  ]);
+
+  /**
+   * Rename a CLI session from a provisional id (used during fork while
+   * waiting for CLI to mint the real one) to the discovered real id.
+   * Handles every place the id is keyed on:
+   *
+   *   - sessions list (sidebar row)
+   *   - sessions.json on disk (delete old + save new)
+   *   - active session pointer if this is the current one
+   *   - in-memory PersistedSession cache (evict provisional)
+   *   - per-session settings store (terminal/browser/files state)
+   *   - terminal pty ownership (notify renderer + main remap)
+   *   - browser persisted tab state
+   *
+   * No-op when the provisional id can't be found in the sidebar or the
+   * real id already exists (caller may race with us).
+   */
+  const rekeyCliSession = useCallback(async (
+    provisionalId: string,
+    realId: string,
+  ): Promise<{ ok: true } | { error: string }> => {
+    if (provisionalId === realId) return { ok: true };
+    const session = sessionsRef.current.find((s) => s.id === provisionalId);
+    if (!session) return { error: `Provisional session ${provisionalId} not found` };
+    if (sessionsRef.current.some((s) => s.id === realId)) {
+      // Real id already in sidebar — drop the provisional row + state.
+      setSessions((prev) => prev.filter((s) => s.id !== provisionalId));
+      evictFromCache(provisionalId);
+      return { ok: true };
+    }
+    const renamed: ChatSession = { ...session, id: realId };
+    setSessions((prev) => prev.map((s) => (s.id === provisionalId ? renamed : s)));
+    if (activeSessionIdRef.current === provisionalId) {
+      setActiveSessionId(realId);
+    }
+    // Migrate every keyed bucket from provisional → real id. Using the
+    // existing remap helpers keeps us consistent with the draft → real
+    // session flow that already lives in materializeDraft.
+    evictFromCache(provisionalId);
+    useSettingsStore.getState().remapSessionSettings(provisionalId, realId);
+    notifySessionTerminalsRemap(provisionalId, realId);
+    void window.claude.terminal.remapSession(provisionalId, realId).catch((err) => {
+      reportError("CLI_REKEY_TERMINAL_REMAP", err);
+    });
+    renameBrowserSession(
+      makeSessionBrowserPersistKey(provisionalId),
+      makeSessionBrowserPersistKey(realId),
+    );
+    // Persist under the new id (provisional was never persisted —
+    // createCliSession skips persist for fork-pending-* ids — so we
+    // don't need to delete an old file here, just create the new one).
+    try {
+      await window.claude.sessions.save({
+        id: realId,
+        projectId: session.projectId,
+        title: session.title,
+        createdAt: session.createdAt,
+        messages: [],
+        totalCost: 0,
+        engine: "cli" as const,
+      });
+      cacheSessionPayload({
+        id: realId,
+        projectId: session.projectId,
+        title: session.title,
+        createdAt: session.createdAt,
+        messages: [],
+        totalCost: 0,
+        engine: "cli",
+      });
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+    return { ok: true };
+  }, [activeSessionIdRef, cacheSessionPayload, evictFromCache, sessionsRef, setActiveSessionId, setSessions]);
+
   return {
     createSession,
+    createCliSession,
+    rekeyCliSession,
     switchSession,
     deleteSession,
     archiveSession,

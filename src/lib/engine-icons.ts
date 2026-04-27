@@ -1,10 +1,15 @@
 import type { InstalledAgent } from "@/types";
 import type { EngineId } from "@shared/types/engine";
 
-/** CDN icons for built-in engines; ACP agents use their own `icon` field */
+/**
+ * Icons for built-in engines. Claude/Codex use registry CDN SVGs; CLI uses
+ * a lucide name (Terminal) since it has no registry presence — `<AgentIcon>`
+ * resolves the lucide string when no URL prefix is present.
+ */
 export const ENGINE_ICONS: Record<string, string> = {
   claude: "https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg",
   codex: "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
+  cli: "Terminal",
 };
 
 /** Resolve the icon source for an agent — engine CDN icons override agent-level icons */

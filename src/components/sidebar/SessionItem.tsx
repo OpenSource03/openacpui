@@ -4,6 +4,7 @@ import {
   Archive,
   ArchiveRestore,
   Columns2,
+  GitFork,
   Pencil,
   Trash2,
   MoreHorizontal,
@@ -40,6 +41,7 @@ export function SessionItem({
   onDelete,
   onArchive,
   onUnarchive,
+  onFork,
   onRename,
   onPinToggle,
   folders,
@@ -57,6 +59,12 @@ export function SessionItem({
   onArchive?: () => void;
   /** Restore an archived session back to the main list. */
   onUnarchive?: () => void;
+  /**
+   * Fork a CLI session. Only meaningful when session.engine === 'cli'
+   * — caller passes undefined for other engines so the menu item is
+   * hidden.
+   */
+  onFork?: () => void;
   onRename: (title: string) => void;
   /** Toggle pin state. Omit if pin feature not available in this context. */
   onPinToggle?: () => void;
@@ -243,6 +251,13 @@ export function SessionItem({
             <Pencil className="me-2 h-3.5 w-3.5" />
             Rename
           </DropdownMenuItem>
+          {/* Fork is CLI-only; hidden when caller doesn't pass onFork. */}
+          {onFork && (
+            <DropdownMenuItem onClick={onFork}>
+              <GitFork className="me-2 h-3.5 w-3.5" />
+              Fork from here
+            </DropdownMenuItem>
+          )}
           {session.archivedAt ? (
             onUnarchive && (
               <DropdownMenuItem onClick={onUnarchive}>

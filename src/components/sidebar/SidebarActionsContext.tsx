@@ -10,6 +10,12 @@ export interface SidebarActions {
   archiveSession: (id: string) => void;
   /** Unarchive a previously archived session. */
   unarchiveSession: (id: string) => void;
+  /**
+   * Fork a CLI session. Optional: only present when the session
+   * picker / sidebar can resolve fork support; consumers should hide
+   * the action when this is undefined.
+   */
+  forkCliSession?: (id: string) => void;
   /** Rename a session. */
   renameSession: (id: string, title: string) => void;
   /** Toggle pin state on a session. */

@@ -4,6 +4,9 @@ import { PanelLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAppOrchestrator } from "@/hooks/useAppOrchestrator";
+import { useCliSession } from "@/hooks/useCliSession";
+import { CliChatPanel } from "@/components/cli/CliChatPanel";
+import { SessionPicker } from "@/components/SessionPicker";
 import { useSpaceTheme } from "@/hooks/useSpaceTheme";
 import { useGlassTheme } from "@/hooks/useGlassTheme";
 import { ThemeProvider } from "@/hooks/useTheme";
@@ -88,6 +91,56 @@ export function AppLayout() {
   const {
     sidebar, projectManager, spaceManager, manager, settings, resolvedTheme, sessionTerminals, activeSessionTerminals, splitView,
   } = managers;
+  // CLI engine has its own xterm-based chat surface — kept out of
+  // useAppOrchestrator deliberately so SDK / ACP / Codex paths remain
+  // unaffected. We only feed it the active session id and a hook back
+  // into the session manager for fork-id discovery.
+  const cli = useCliSession({
+    activeSessionId: manager.activeSessionId,
+    onSessionIdentified: (provisionalId, realId) => {
+      void manager.rekeyCliSession(provisionalId, realId);
+    },
+  });
+  const isCliEngine = manager.activeSession?.engine === "cli";
+  const handleCliRetry = useCallback(() => {
+    const session = manager.activeSession;
+    if (!session) return;
+    // Pass the project's cwd through so CLI re-applies --add-dir and the
+    // pty starts in the right directory after a retry. Falling back to
+    // $HOME would lose project context after every spawn failure / exit.
+    const project = projectManager.projects.find((p) => p.id === session.projectId);
+    void cli.resume({
+      sessionId: session.id,
+      cwd: project?.path,
+    });
+  }, [cli, manager.activeSession, projectManager.projects]);
+  const handleCliClose = useCallback(() => {
+    const session = manager.activeSession;
+    if (!session) return;
+    void cli.stop(session.id);
+  }, [cli, manager.activeSession]);
+
+  // Cmd+P / Ctrl+P quick-switcher state. Stored at the top layout layer
+  // because the picker spans the entire workspace and needs access to
+  // both the sidebar session list and the CLI resume entry point.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      // Ignore auto-repeat from holding the chord — without this, holding
+      // Cmd+P briefly toggles the picker rapidly.
+      if (e.repeat) return;
+      const isModifier = isMac ? e.metaKey : e.ctrlKey;
+      if (!isModifier) return;
+      // P (Cmd+P) reserved by browsers for "Print" on web — Electron lets
+      // us hijack it. Lowercase check to handle CapsLock + IME composition.
+      if (e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setPickerOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
   const {
     agents, selectedAgent, saveAgent, deleteAgent, handleAgentChange, lockedEngine, lockedAgentId,
   } = agentState;
@@ -106,6 +159,7 @@ export function AppLayout() {
     handleModelChange, handlePermissionModeChange, handlePlanModeChange,
     handleClaudeModelEffortChange, handleAgentWorktreeChange, handleStop, handleSelectSession,
     handleSendQueuedNow, handleUnqueueMessage, handleCreateProject, handleImportCCSession, handleImportSessionById,
+    handleResumeCliSessionById, handleForkCliSessionById, handleArchiveCliSessionById,
     handleNavigateToMessage, handleStartCreateSpace, handleConfirmCreateSpace, handleCancelCreateSpace,
     handleUpdateSpace, handleDeleteSpace, handleMoveProjectToSpace, handleSeedDevExampleSpaceData,
   } = actions;
@@ -183,6 +237,32 @@ export function AppLayout() {
       await handleNewChat(projectId);
     },
     [handleNewChat, projectManager.projects, setJiraBoardProjectForSpace, splitView.dismissSplitView],
+  );
+
+  // CLI engine entrypoint: spawn `claude` in a pty under the project's cwd.
+  // Materializes a real (non-draft) ChatSession synchronously via
+  // createCliSession so the activeSession.engine flip from null/SDK to
+  // "cli" happens before pty events start firing.
+  const handleOpenNewCliChat = useCallback(
+    async (projectId: string) => {
+      const project = projectManager.projects.find((item) => item.id === projectId);
+      if (!project) return;
+      setJiraBoardProjectForSpace(project.spaceId || "default", null);
+      splitView.dismissSplitView();
+      const sessionId = crypto.randomUUID();
+      const result = await manager.createCliSession(projectId, sessionId, project.path);
+      if ("error" in result) {
+        toast.error("Failed to create CLI session", { description: result.error });
+        return;
+      }
+      void cli.start({
+        cwd: project.path,
+        sessionId,
+        cols: 80,
+        rows: 24,
+      });
+    },
+    [cli, manager, projectManager.projects, setJiraBoardProjectForSpace, splitView.dismissSplitView],
   );
 
   const handleComposerClear = useCallback(
@@ -1054,6 +1134,7 @@ export function AppLayout() {
         }}
         projectActions={{
           onNewChat: handleOpenNewChat,
+          onNewCliChat: handleOpenNewCliChat,
           onToggleProjectJiraBoard: handleToggleProjectJiraBoard,
           onCreateProject: handleCreateProject,
           onDeleteProject: projectManager.deleteProject,
@@ -1061,6 +1142,9 @@ export function AppLayout() {
           onUpdateProjectIcon: projectManager.updateProjectIcon,
           onImportCCSession: handleImportCCSession,
           onImportSessionById: handleImportSessionById,
+          onResumeCliSessionById: handleResumeCliSessionById,
+          onForkCliSessionById: handleForkCliSessionById,
+          onArchiveCliSessionById: handleArchiveCliSessionById,
           onToggleSidebar: sidebar.toggle,
           onNavigateToMessage: handleNavigateToMessage,
           onMoveProjectToSpace: handleMoveProjectToSpace,
@@ -1096,6 +1180,11 @@ export function AppLayout() {
             void requestAddSplitSession(sessionId);
           },
           canOpenSessionInSplitView: (sessionId) => splitView.canShowSessionSplitAction(sessionId, manager.activeSessionId),
+          onForkSidebarCliSession: (sessionId) => {
+            void handleForkCliSessionById(sessionId).then((r) => {
+              if ("error" in r) toast.error("Fork failed", { description: r.error });
+            });
+          },
         }}
       />
 
@@ -1481,29 +1570,31 @@ export function AppLayout() {
                   background: topFadeBackground,
                 }}
               />
-              <div
-                className="chat-titlebar-bg pointer-events-none absolute inset-x-0 top-0 z-10"
-                style={{ background: titlebarSurfaceColor }}
-              >
-                <ChatHeader
-                  islandLayout={isIsland}
-                  sidebarOpen={sidebar.isOpen}
-                  showSidebarToggle={true}
-                  isProcessing={manager.isProcessing}
-                  model={activePaneCtrl?.paneHeaderModel}
-                  sessionId={manager.sessionInfo?.sessionId}
-                  totalCost={manager.totalCost}
-                  title={manager.activeSession?.title}
-                  titleGenerating={manager.activeSession?.titleGenerating}
-                  planMode={activePaneCtrl?.panePlanMode ?? settings.planMode}
-                  permissionMode={activePaneCtrl?.panePermissionMode}
-                  acpPermissionBehavior={manager.activeSession?.engine === "acp" ? settings.acpPermissionBehavior : undefined}
-                  onToggleSidebar={sidebar.toggle}
-                  showDevFill={devFillEnabled}
-                  onSeedDevExampleConversation={manager.seedDevExampleConversation}
-                  onSeedDevExampleSpaceData={handleSeedDevExampleSpaceData}
-                />
-              </div>
+              {!isCliEngine && (
+                <div
+                  className="chat-titlebar-bg pointer-events-none absolute inset-x-0 top-0 z-10"
+                  style={{ background: titlebarSurfaceColor }}
+                >
+                  <ChatHeader
+                    islandLayout={isIsland}
+                    sidebarOpen={sidebar.isOpen}
+                    showSidebarToggle={true}
+                    isProcessing={manager.isProcessing}
+                    model={activePaneCtrl?.paneHeaderModel}
+                    sessionId={manager.sessionInfo?.sessionId}
+                    totalCost={manager.totalCost}
+                    title={manager.activeSession?.title}
+                    titleGenerating={manager.activeSession?.titleGenerating}
+                    planMode={activePaneCtrl?.panePlanMode ?? settings.planMode}
+                    permissionMode={activePaneCtrl?.panePermissionMode}
+                    acpPermissionBehavior={manager.activeSession?.engine === "acp" ? settings.acpPermissionBehavior : undefined}
+                    onToggleSidebar={sidebar.toggle}
+                    showDevFill={devFillEnabled}
+                    onSeedDevExampleConversation={manager.seedDevExampleConversation}
+                    onSeedDevExampleSpaceData={handleSeedDevExampleSpaceData}
+                  />
+                </div>
+              )}
               {chatSearchOpen && (
                 <ChatSearchBar
                   messages={manager.messages}
@@ -1511,22 +1602,42 @@ export function AppLayout() {
                   onClose={() => setChatSearchOpen(false)}
                 />
               )}
-              <ChatView
-                spaceId={spaceManager.activeSpaceId}
-                messages={manager.messages}
-                isProcessing={manager.isProcessing}
-                showThinking={showThinking}
-                extraBottomPadding={!!manager.pendingPermission}
-                scrollToMessageId={scrollToMessageId}
-                onScrolledToMessage={handleScrolledToMessage}
-                sessionId={manager.activeSessionId}
-                onRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
-                onFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
-                onTopScrollProgress={handleTopScrollProgress}
-                onSendQueuedNow={handleSendQueuedNow}
-                onUnqueueQueuedMessage={handleUnqueueMessage}
-                sendNextId={manager.sendNextId}
-              />
+              {isCliEngine ? (
+                <CliChatPanel
+                  state={cli.state}
+                  resolvedTheme={resolvedTheme}
+                  onPtyDataObserved={cli.markReady}
+                  onRetry={handleCliRetry}
+                  onClose={handleCliClose}
+                  cwd={(() => {
+                    const session = manager.activeSession;
+                    if (!session) return null;
+                    const project = projectManager.projects.find((p) => p.id === session.projectId);
+                    return project?.path ?? null;
+                  })()}
+                  sidebarOpen={sidebar.isOpen}
+                  onToggleSidebar={sidebar.toggle}
+                  islandLayout={isIsland}
+                />
+              ) : (
+                <ChatView
+                  spaceId={spaceManager.activeSpaceId}
+                  messages={manager.messages}
+                  isProcessing={manager.isProcessing}
+                  showThinking={showThinking}
+                  extraBottomPadding={!!manager.pendingPermission}
+                  scrollToMessageId={scrollToMessageId}
+                  onScrolledToMessage={handleScrolledToMessage}
+                  sessionId={manager.activeSessionId}
+                  onRevert={manager.isConnected && manager.revertFiles ? handleRevert : undefined}
+                  onFullRevert={manager.isConnected && manager.fullRevert ? handleFullRevert : undefined}
+                  onTopScrollProgress={handleTopScrollProgress}
+                  onSendQueuedNow={handleSendQueuedNow}
+                  onUnqueueQueuedMessage={handleUnqueueMessage}
+                  sendNextId={manager.sendNextId}
+                />
+              )}
+              {!isCliEngine && (
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-[5] transition-opacity duration-200 ${isIsland ? "h-24" : "h-28"}`}
                 style={{
@@ -1534,6 +1645,8 @@ export function AppLayout() {
                   background: bottomFadeBackground,
                 }}
               />
+              )}
+              {!isCliEngine && (
               <div data-chat-composer className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
                 <BottomComposer
                   draftKey={manager.activeSessionId}
@@ -1580,6 +1693,7 @@ export function AppLayout() {
                   onManageACPs={() => setShowSettings("agents")}
                 />
               </div>
+              )}
               </>
             ) : (
               <>
@@ -1807,6 +1921,14 @@ export function AppLayout() {
           onComplete={handleWelcomeComplete}
         />
       )}
+      <SessionPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        sessions={manager.sessions}
+        onSelectSidebarSession={handleSelectSession}
+        onResumeCliSessionById={handleResumeCliSessionById}
+        onForkCliSessionById={handleForkCliSessionById}
+      />
     </div>
     </AgentProvider>
     </ThemeProvider>
