@@ -419,28 +419,28 @@ export const InputBar = memo(function InputBar({
     return () => {
       if (isOwner) {
         // Primary composer saves its DOM + attachments and releases the lease.
-        // `el` may be detached by the time cleanup runs (React already
-        // unmounted us), so guard the read — innerHTML on a detached node is
-        // technically defined but we'd rather drop the save than risk an
-        // exception.
-        if (el.isConnected) {
-          const html = el.innerHTML;
-          const hasText = Boolean(el.textContent?.trim());
-          const pendingAttachments = attachmentsRef.current;
-          const blob: DraftBlobV1 = {
-            v: DRAFT_BLOB_VERSION,
-            html: hasText ? html : "",
-            attachments: pendingAttachments,
-          };
-          const hasAnything = hasText || pendingAttachments.length > 0;
-          try {
-            if (hasAnything) {
-              localStorage.setItem(draftStorageKey(draftKey), JSON.stringify(blob));
-            } else {
-              localStorage.removeItem(draftStorageKey(draftKey));
-            }
-          } catch { /* ignore — quota exceeded silently drops the draft */ }
-        }
+        // Important: don't gate on `el.isConnected`. When the user switches
+        // space, AppLayout's `activeSessionId ? <Composer/> : null`
+        // conditional unmounts us; React detaches the DOM node BEFORE running
+        // this cleanup, so isConnected would be false at exactly the moment
+        // we most need to save. innerHTML on a detached node still returns
+        // the last committed string, so reading it here is safe.
+        const html = el.innerHTML;
+        const hasText = Boolean(el.textContent?.trim());
+        const pendingAttachments = attachmentsRef.current;
+        const blob: DraftBlobV1 = {
+          v: DRAFT_BLOB_VERSION,
+          html: hasText ? html : "",
+          attachments: pendingAttachments,
+        };
+        const hasAnything = hasText || pendingAttachments.length > 0;
+        try {
+          if (hasAnything) {
+            localStorage.setItem(draftStorageKey(draftKey), JSON.stringify(blob));
+          } else {
+            localStorage.removeItem(draftStorageKey(draftKey));
+          }
+        } catch { /* ignore — quota exceeded silently drops the draft */ }
         draftKeyOwners.delete(draftKey);
       }
       // Non-owners restore only, so nothing to persist on unmount — avoids
