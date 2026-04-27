@@ -166,6 +166,12 @@ interface AppSidebarSessionActions {
   onPinFolder: (projectId: string, folderId: string, pinned: boolean) => void;
   onOpenInSplitView?: (sessionId: string) => void;
   canOpenSessionInSplitView?: (sessionId: string) => boolean;
+  /**
+   * Fork an existing CLI sidebar session. Optional — caller wires it
+   * only when CLI engine is available; SessionItem hides the menu
+   * option when undefined.
+   */
+  onForkSidebarCliSession?: (sessionId: string) => void;
 }
 
 interface AppSidebarProps {
@@ -238,6 +244,7 @@ export const AppSidebar = memo(function AppSidebar({
     onPinFolder,
     onOpenInSplitView,
     canOpenSessionInSplitView,
+    onForkSidebarCliSession,
   } = sessionActions;
   const { agents } = useAgentContext();
   const isCreating = draftSpaceId !== null;
@@ -343,6 +350,7 @@ export const AppSidebar = memo(function AppSidebar({
       deleteFolder: onDeleteFolder,
       openInSplitView: onOpenInSplitView,
       canOpenSessionInSplitView,
+      forkCliSession: onForkSidebarCliSession,
     }),
     [
       onSelectSession,
@@ -357,6 +365,7 @@ export const AppSidebar = memo(function AppSidebar({
       onDeleteFolder,
       onOpenInSplitView,
       canOpenSessionInSplitView,
+      onForkSidebarCliSession,
     ],
   );
 

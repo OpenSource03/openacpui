@@ -1180,6 +1180,11 @@ export function AppLayout() {
             void requestAddSplitSession(sessionId);
           },
           canOpenSessionInSplitView: (sessionId) => splitView.canShowSessionSplitAction(sessionId, manager.activeSessionId),
+          onForkSidebarCliSession: (sessionId) => {
+            void handleForkCliSessionById(sessionId).then((r) => {
+              if ("error" in r) toast.error("Fork failed", { description: r.error });
+            });
+          },
         }}
       />
 
@@ -1604,6 +1609,15 @@ export function AppLayout() {
                   onPtyDataObserved={cli.markReady}
                   onRetry={handleCliRetry}
                   onClose={handleCliClose}
+                  cwd={(() => {
+                    const session = manager.activeSession;
+                    if (!session) return null;
+                    const project = projectManager.projects.find((p) => p.id === session.projectId);
+                    return project?.path ?? null;
+                  })()}
+                  sidebarOpen={sidebar.isOpen}
+                  onToggleSidebar={sidebar.toggle}
+                  islandLayout={isIsland}
                 />
               ) : (
                 <ChatView
@@ -1913,6 +1927,7 @@ export function AppLayout() {
         sessions={manager.sessions}
         onSelectSidebarSession={handleSelectSession}
         onResumeCliSessionById={handleResumeCliSessionById}
+        onForkCliSessionById={handleForkCliSessionById}
       />
     </div>
     </AgentProvider>

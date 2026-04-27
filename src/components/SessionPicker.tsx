@@ -51,6 +51,15 @@ interface SessionPickerProps {
   onResumeCliSessionById: (
     sessionId: string,
   ) => Promise<{ ok: true; projectId: string; sessionId: string } | { error: string }>;
+  /**
+   * Fork an existing CC session — spawns `claude --resume <id> --fork-session`
+   * which clones the transcript under a CLI-minted id. Triggered by
+   * Cmd/Ctrl+Enter in the picker (Enter alone is reserved for the
+   * primary "open" action so users don't accidentally fork).
+   */
+  onForkCliSessionById: (
+    sessionId: string,
+  ) => Promise<{ ok: true; provisionalSessionId: string } | { error: string }>;
 }
 
 /**
@@ -70,6 +79,7 @@ export function SessionPicker({
   sessions,
   onSelectSidebarSession,
   onResumeCliSessionById,
+  onForkCliSessionById,
 }: SessionPickerProps) {
   const [globalEntries, setGlobalEntries] = useState<AllSessionsEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -178,6 +188,52 @@ export function SessionPicker({
     [busy, onClose, onResumeCliSessionById, onSelectSidebarSession],
   );
 
+  /**
+   * Fork action — bound to Cmd/Ctrl+Enter. Only meaningful for global
+   * (CC-on-disk) rows; sidebar rows fall through to the regular select
+   * since the user already has a live row for them.
+   */
+  const handleFork = useCallback(
+    async (row: PickerRow) => {
+      if (busy) return;
+      if (row.source !== "global") {
+        // Only CLI sidebar sessions are fork-able — fork resolves
+        // through findById which only knows about CC-on-disk
+        // transcripts. SDK / ACP / Codex sidebar sessions don't have
+        // a CC JSONL to fork from.
+        if (row.session.engine !== "cli") {
+          setError("Fork only works for CLI sessions.");
+          return;
+        }
+        const sessionId = row.session.id;
+        // Skip fork-pending rows; the underlying transcript doesn't
+        // exist on disk yet so claude --resume would fail.
+        if (sessionId.startsWith("fork-pending-")) {
+          setError("This session hasn't been recorded yet — wait until first response.");
+          return;
+        }
+        setBusy(true);
+        try {
+          const r = await onForkCliSessionById(sessionId);
+          if ("error" in r) setError(r.error);
+          else onClose();
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+      setBusy(true);
+      try {
+        const r = await onForkCliSessionById(row.entry.sessionId);
+        if ("error" in r) setError(r.error);
+        else onClose();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, onClose, onForkCliSessionById],
+  );
+
   // Scroll the active row into view when it changes — without this, paging
   // through 80 entries with the arrow keys leaves the cursor invisible.
   useEffect(() => {
@@ -214,11 +270,19 @@ export function SessionPicker({
       if (e.key === "Enter") {
         e.preventDefault();
         const row = filtered[activeIndex];
-        if (row) void handleSelect(row);
+        if (!row) return;
+        // Cmd/Ctrl+Enter → fork; plain Enter → resume/select. The
+        // distinct modifier matches "open in new tab" muscle memory
+        // from browsers (cmd-click).
+        if (e.metaKey || e.ctrlKey) {
+          void handleFork(row);
+        } else {
+          void handleSelect(row);
+        }
         return;
       }
     },
-    [activeIndex, filtered, handleSelect, onClose],
+    [activeIndex, filtered, handleSelect, handleFork, onClose],
   );
 
   return (
@@ -328,6 +392,7 @@ export function SessionPicker({
         <div className="flex items-center gap-3 border-t border-foreground/[0.06] px-3 py-1.5 text-[10px] text-foreground/40">
           <span>↑↓ navigate</span>
           <span>↵ open</span>
+          <span>⌘↵ fork</span>
           <span>esc close</span>
           <span className="ms-auto">{filtered.length}/{rows.length}</span>
         </div>

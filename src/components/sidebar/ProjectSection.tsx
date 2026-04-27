@@ -116,6 +116,7 @@ export function ProjectSection({
     deleteSession,
     archiveSession,
     unarchiveSession,
+    forkCliSession,
     renameSession,
     pinSession,
     moveSessionToFolder,
@@ -233,6 +234,11 @@ export function ProjectSection({
           onDelete={() => deleteSession(session.id)}
           onArchive={() => archiveSession(session.id)}
           onUnarchive={() => unarchiveSession(session.id)}
+          onFork={
+            session.engine === "cli" && forkCliSession
+              ? () => forkCliSession(session.id)
+              : undefined
+          }
           onRename={(title) => renameSession(session.id, title)}
           onPinToggle={() => pinSession(session.id, !session.pinned)}
           folders={folders}

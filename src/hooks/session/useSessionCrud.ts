@@ -393,6 +393,20 @@ export function useSessionCrud({
       }
       if (session.engine === "cli") {
         await window.claude.cli.stop(id).catch(() => { /* already gone */ });
+        // Also move the on-disk JSONL into the cwd's `.archived/` so a
+        // future global session browser scan won't keep showing it as
+        // resumable. Best-effort: failure here doesn't block the
+        // sidebar-archive metadata write. Skip for fork-pending-* ids
+        // since CLI never wrote a real JSONL for them.
+        if (!id.startsWith("fork-pending-")) {
+          const project = findProject(session.projectId);
+          if (project?.path) {
+            await window.claude.cli.archive({
+              sessionId: id,
+              cwd: project.path,
+            }).catch(() => { /* tolerate already-archived / missing */ });
+          }
+        }
       }
       backgroundStoreRef.current.delete(id);
       messageQueueRef.current.delete(id);

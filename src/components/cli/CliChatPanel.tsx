@@ -1,6 +1,8 @@
 import { useEffect } from "react";
-import { Loader2, RotateCcw, Terminal as TerminalIcon, X } from "lucide-react";
+import { Loader2, PanelLeft, RotateCcw, Terminal as TerminalIcon, X } from "lucide-react";
 import { TerminalInstance } from "@/components/ToolsPanel";
+import { Button } from "@/components/ui/button";
+import { isMac } from "@/lib/utils";
 import type { ResolvedTheme } from "@/hooks/useTheme";
 import type { CliSessionState } from "@shared/types/cli-engine";
 
@@ -22,6 +24,32 @@ interface CliChatPanelProps {
   onRetry: () => void;
   /** Called when the user clicks the "Close" affordance after exit. */
   onClose: () => void;
+  /** cwd the CLI is running in. Shown in the slim header. */
+  cwd?: string | null;
+  /** Sidebar toggle — preserves the only ChatHeader feature CLI users still need. */
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  /** Island layout mode (mac glass) — the header is taller in flat mode. */
+  islandLayout: boolean;
+}
+
+/**
+ * Trim an absolute path to a $HOME-relative form when possible. The
+ * renderer can't read process.env (nodeIntegration is off + context
+ * isolation), so we infer $HOME from the platform-specific
+ * /Users/<name>/ or /home/<name>/ prefix on the path itself. Windows
+ * paths start with a drive letter and don't have a tilde convention,
+ * so they fall through to the absolute form.
+ */
+function shortenCwd(cwd: string | null | undefined): string {
+  if (!cwd) return "";
+  // macOS: /Users/<name>/...
+  let m = cwd.match(/^(\/Users\/[^/]+)(\/|$)/);
+  if (m) return "~" + cwd.slice(m[1].length);
+  // Linux: /home/<name>/...
+  m = cwd.match(/^(\/home\/[^/]+)(\/|$)/);
+  if (m) return "~" + cwd.slice(m[1].length);
+  return cwd;
 }
 
 /**
@@ -39,6 +67,10 @@ export function CliChatPanel({
   onPtyDataObserved,
   onRetry,
   onClose,
+  cwd,
+  sidebarOpen,
+  onToggleSidebar,
+  islandLayout,
 }: CliChatPanelProps) {
   // Subscribe to terminal:data scoped to our terminalId so we can flip
   // state.ready=true on the first chunk. This is what releases the
@@ -113,8 +145,40 @@ export function CliChatPanel({
   // running (ready) | exited — same render path; xterm is in charge.
   // After exit, TerminalInstance leaves the buffer scrollable but disables
   // stdin (driven by the underlying terminal:exit event).
+  const shortCwd = shortenCwd(cwd);
   return (
     <div className="relative flex h-full flex-col">
+      {/*
+        Slim header: sidebar toggle + cwd path. Replaces the regular
+        ChatHeader which was hidden in CLI mode because it overlapped
+        the CLI banner. Only renders the toggle when sidebar is closed
+        (otherwise the sidebar's own toggle suffices), and indents on
+        macOS to clear the traffic-light buttons in flat layout.
+      */}
+      <div
+        className={`drag-region flex items-center gap-2 px-3 ${
+          islandLayout ? "h-8" : "h-[3.25rem]"
+        } ${!sidebarOpen && isMac ? (islandLayout ? "ps-[78px]" : "ps-[84px]") : ""}`}
+      >
+        {!sidebarOpen && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="no-drag h-7 w-7 text-muted-foreground/60 hover:text-foreground"
+            onClick={onToggleSidebar}
+          >
+            <PanelLeft className="h-4 w-4" />
+          </Button>
+        )}
+        {shortCwd && (
+          <span
+            className="no-drag truncate font-mono text-[11px] text-foreground/45"
+            title={cwd ?? undefined}
+          >
+            {shortCwd}
+          </span>
+        )}
+      </div>
       <div className="relative min-h-0 flex-1">
         <TerminalInstance
           terminalId={state.terminalId}
