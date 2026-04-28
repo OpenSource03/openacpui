@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/opensource03-harnss-badge.png)](https://mseep.ai/app/opensource03-harnss)
+
 > [!WARNING]
 > Harnss is in early development and issues are to be expected. Please feel free to report bugs and issues in the Issues section.
 
