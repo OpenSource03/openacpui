@@ -15,6 +15,14 @@ Open-source desktop client for the Agent Client Protocol. Uses the `@anthropic-a
 - **SDK**: @anthropic-ai/claude-agent-sdk (ESM-only, async-imported from CommonJS)
 - **Terminal**: node-pty (main process) + @xterm/xterm + @xterm/addon-fit (renderer)
 - **Browser**: Electron `<webview>` tag (requires `webviewTag: true` in webPreferences)
+- **Virtualization**: @tanstack/react-virtual (chat message windowing)
+- **State management**: zustand (settings store, localStorage wrapper)
+- **Animation**: motion (v12, formerly framer-motion)
+- **Canvas/Annotations**: react-konva + konva (image annotation editor)
+- **Diagrams**: mermaid (MermaidDiagram.tsx)
+- **Code editor**: @monaco-editor/react (Monaco VS Code editor integration)
+- **Voice**: @huggingface/transformers (Whisper speech-to-text, lazy-loaded)
+- **Notifications**: sonner (toast notifications)
 - **Package manager**: pnpm
 - **Path aliases**: `@/` → `./src/`, `@shared/` → `./shared/`
 
@@ -22,35 +30,79 @@ Open-source desktop client for the Agent Client Protocol. Uses the `@anthropic-a
 
 ```
 shared/
-└── types/             # Types shared between electron and renderer processes
-    ├── codex-protocol/  # Auto-generated Codex protocol types (from codex app-server)
-    │   ├── v2/          # Modern v2 API types
-    │   └── serde_json/  # JSON value types
-    ├── codex.ts         # Codex type re-exports with Codex-prefixed aliases
-    ├── engine.ts        # EngineId, AppPermissionBehavior, SlashCommand, RespondPermissionFn
-    ├── acp.ts           # ACP session update types
-    └── registry.ts      # Agent registry types
+├── types/             # Types shared between electron and renderer processes
+│   ├── codex-protocol/  # Auto-generated Codex protocol types (from codex app-server)
+│   │   ├── v2/          # Modern v2 API types
+│   │   └── serde_json/  # JSON value types
+│   ├── codex.ts         # Codex type re-exports with Codex-prefixed aliases
+│   ├── engine.ts        # EngineId, AppPermissionBehavior, SlashCommand, RespondPermissionFn
+│   ├── acp.ts           # ACP session update types
+│   ├── registry.ts      # Agent registry types
+│   ├── git.ts           # Git operation types (GitFileStatus, GitBranch, GitRepoInfo, etc.)
+│   ├── jira.ts          # Jira integration types (JiraProjectConfig, JiraBoard, JiraIssue, etc.)
+│   └── settings.ts      # AppSettings type definition
+└── lib/               # Shared utilities usable by both processes
+    ├── acp-helpers.ts         # ACP helper functions
+    ├── async-channel.ts       # AsyncChannel implementation
+    ├── codex-helpers.ts       # Codex helper functions
+    ├── codex-rpc.ts           # Codex RPC protocol helpers
+    ├── error-utils.ts         # Shared error extraction utilities
+    ├── mcp-config.ts          # MCP configuration parsing
+    └── session-persistence.ts # Session serialization logic
 
 electron/
 ├── dist/       # tsup build output (gitignored)
 └── src/
-    ├── ipc/    # IPC handlers (claude-sessions, projects, sessions, settings, terminal, git, etc.)
-    └── lib/    # Main-process utilities (logger, async-channel, data-dir, app-settings, sdk, error-utils, etc.)
+    ├── ipc/    # IPC handlers (claude-sessions, acp-sessions, codex-sessions, projects, sessions,
+    │           #              settings, terminal, git, jira, mcp, spaces, files, folders, cc-import, title-gen)
+    └── lib/    # Main-process utilities (logger, async-channel, data-dir, app-settings, sdk,
+                #   error-utils, git-exec, jira-client, jira-store, jira-oauth-store, mcp-store,
+                #   mcp-oauth-flow, mcp-oauth-provider, mcp-oauth-store, acp-auth, claude-binary,
+                #   codex-binary, codex-rpc, migration, posthog, updater, glass, terminal-history, etc.)
 
 src/
 ├── components/
 │   ├── git/           # GitPanel decomposed (GitPanel, RepoSection, BranchPicker, CommitInput, etc.)
-│   ├── mcp-renderers/ # MCP tool renderers (jira, confluence, atlassian, context7)
+│   ├── browser/       # BrowserPanel decomposed (BrowserNavBar, BrowserUrlBar, WebviewInstance, etc.)
+│   ├── input-bar/     # InputBar decomposed (CommandPicker, MentionPicker, EngineControls, etc.)
+│   ├── jira/          # Jira board UI (KanbanBoard, JiraIssueCard, JiraBoardSetup)
+│   ├── mcp/           # MCP server management UI (AddServerDialog, McpServerRow, McpAuthStatus)
+│   ├── mcp-renderers/ # MCP tool renderers (jira, confluence, atlassian, context7, shared, helpers)
 │   ├── tool-renderers/# Built-in tool renderers (BashContent, EditContent, TaskTool, etc.)
-│   ├── sidebar/       # AppSidebar decomposed (ProjectSection, SessionItem, CCSessionList)
-│   ├── lib/           # Component-local utilities (tool-metadata, tool-formatting)
-│   ├── settings/      # Settings sub-views + shared SettingRow/SettingsSelect
+│   ├── settings/      # Settings sub-views + shared SettingRow/SettingsSelect (12 panels)
+│   ├── sidebar/       # AppSidebar decomposed (ProjectSection, FolderSection, BranchSection,
+│   │                  #   PinnedSection, SessionItem, CCSessionList, SidebarActionsContext)
+│   ├── split/         # Split pane layout (SplitPaneHost, SplitChatPane, SplitHandle, etc.)
+│   ├── welcome/       # Onboarding wizard (WelcomeWizard, 9 step components)
+│   ├── workspace/     # Workspace layout (MainTopToolArea, MainBottomToolDock, RightPanel, ToolIslandContent)
+│   ├── lib/           # Component-local utilities (tool-metadata, tool-formatting, ToolGlyph, chat-layout)
 │   └── ui/            # ShadCN base components (auto-generated)
 ├── hooks/
-│   ├── session/       # useSessionManager decomposed (lifecycle, persistence, draft, revival, queue)
-│   └── ...            # React hooks (useEngineBase, useClaude, useAppOrchestrator, usePanelResize, etc.)
-├── lib/               # Renderer utilities (protocol, streaming-buffer, message-factory, background stores, etc.)
-└── types/             # Renderer-side types (protocol, ui, window.d.ts) + re-export shims for shared/
+│   ├── session/       # useSessionManager decomposed (lifecycle, persistence, draft, revival, queue,
+│   │                  #   cache, crud, pane, restart, settings, extra-pane-loader)
+│   ├── app-layout/    # useAppOrchestrator decomposed (useAppLayoutUIState, useAppSessionActions,
+│   │                  #   useAppContextualPanels, useAppEnvironmentState, useAppSpaceWorkflow)
+│   └── ...            # React hooks (useEngineBase, useClaude, useACP, useCodex, useSpaceManager,
+│                      #   useGitStatus, useWorktreeChips, useJiraBoard, useSpeechRecognition,
+│                      #   useSpaceTerminals, useToolIslands, useSplitView, useNotifications, etc.)
+├── lib/               # Renderer utilities organized in subdirectories:
+│   ├── analytics/     #   analytics.ts, posthog.ts
+│   ├── background/    #   session-store.ts, claude/acp/codex-handler.ts, agent-store.ts
+│   ├── chat/          #   scroll.ts, virtualization.ts, thinking-animation.ts, todo-utils.ts, etc.
+│   ├── diff/          #   diff-stats.ts, patch-utils.ts, unified-diff.ts
+│   ├── engine/        #   protocol.ts, streaming-buffer.ts, acp-adapter.ts, codex-adapter.ts,
+│   │                  #   acp-utils.ts, permission-queue.ts, acp-agent-registry.ts, etc.
+│   ├── git/           #   discover-repos-cache.ts
+│   ├── layout/        #   constants.ts, split-layout.ts, split-view-state.ts, workspace-constraints.ts
+│   ├── session/       #   derived-data.ts, records.ts, space-projects.ts
+│   ├── sidebar/       #   dnd.ts (drag/drop), grouping.ts (session grouping)
+│   ├── workspace/     #   tool-docking.ts, tool-groups.ts, tool-island-utils.ts, main-tool-widths.ts
+│   └── ...            # Root utilities: message-factory.ts, file-access.ts, mcp-utils.ts,
+│                      #   color-utils.ts, icon-utils.ts, jira-utils.ts, model-utils.ts,
+│                      #   notification-utils.ts, session-notifications.ts, ansi.tsx, etc.
+├── stores/            # Zustand stores (settings-store.ts — localStorage wrapper)
+└── types/             # Renderer-side types (protocol, ui, session, spaces, attachments, tools,
+                       #   mcp, permissions, search, tool-islands, window.d.ts) + re-export shims for shared/
 ```
 
 ## How to Run
@@ -127,21 +179,67 @@ The main process uses `@anthropic-ai/claude-agent-sdk` (ESM-only, loaded via `aw
 - `settings:get` — returns full `AppSettings` object (JSON file in data dir)
 - `settings:set(patch)` — merges partial update, persists to disk, notifies in-process listeners
 
+**IPC API — Git:**
+
+- `git:status(cwd)` — returns `GitStatus` (branch, ahead/behind, staged/unstaged changes)
+- `git:log(cwd, limit?)` — recent commit log entries
+- `git:diff(cwd, filePath?)` — staged or file-level diff
+- `git:stage(cwd, paths)` / `git:unstage(cwd, paths)` — staging area management
+- `git:commit(cwd, message)` — create commit
+- `git:branches(cwd)` — list local + remote branches
+- `git:checkout(cwd, branch)` — switch branches (or create with `-b`)
+- `git:worktrees(cwd)` — list git worktrees
+- `git:add-worktree(cwd, branch, path)` / `git:remove-worktree(cwd, path)` — worktree management
+- `git:generate-commit-message(cwd)` — one-shot SDK query to generate a commit message from staged diff
+
+**IPC API — MCP Servers:**
+
+- `mcp:list` — returns all configured MCP servers
+- `mcp:add(config)` / `mcp:remove(name)` / `mcp:update(name, config)` — CRUD for MCP server configs
+- `mcp:oauth-start(serverName)` — initiates OAuth flow for MCP server, opens browser
+- `mcp:oauth-callback(code, state)` — handles OAuth redirect callback
+- `mcp:get-auth-status(serverName)` — returns OAuth token status
+
+**IPC API — Spaces:**
+
+- `spaces:list` / `spaces:create(config)` / `spaces:delete(id)` / `spaces:update(id, patch)` — Space CRUD
+- Each space has `{ id, name, color, icon, projectId, worktreePath? }`
+
+**IPC API — Jira:**
+
+- `jira:get-config` — returns stored Jira OAuth config and selected board
+- `jira:set-config(config)` — saves Jira connection settings
+- `jira:oauth-start` — opens browser for Jira OAuth flow
+- `jira:get-boards` — lists accessible Jira boards
+- `jira:get-board(boardId)` — fetches issues for a board (columns, sprints, issues)
+- `jira:update-issue(issueKey, fields)` — update issue status/assignee/etc.
+
+**IPC API — Folders:**
+
+- `folders:list(path)` — lists subdirectories for folder picker
+
 ### Settings Architecture
 
-Two tiers of settings storage, each suited to different access patterns:
+Three tiers of settings storage, each suited to different access patterns:
 
 1. **`useSettings` hook** (renderer, localStorage) — UI preferences that only the renderer needs: model, permissionMode, panel widths, active tools, thinking toggle. Per-project settings keyed by `harnss-{projectId}-*`, global settings keyed by `harnss-*`.
 
-2. **`AppSettings` store** (main process, JSON file) — settings that the main process needs at startup before any BrowserWindow exists (e.g. `autoUpdater.allowPrerelease`). File location: `{userData}/openacpui-data/settings.json` (`openacpui-data` kept for backward compatibility). Accessed via `getAppSettings()`/`setAppSettings()` in `electron/src/lib/app-settings.ts`. The `settings` IPC module exposes `settings:get`/`settings:set` to the renderer and fires `onSettingsChanged` listeners for in-process consumers (e.g. the updater).
+2. **`settings-store.ts`** (renderer, Zustand + localStorage) — A thin Zustand wrapper around localStorage for settings that multiple components subscribe to reactively (e.g. theme, notification preferences). Located in `src/stores/settings-store.ts`. Prefer this over raw `localStorage` reads in components.
 
-**When to use which:** Use `useSettings` for renderer-only preferences. Use `AppSettings` when the main process must read the value synchronously at startup or react to changes (e.g. updater config, window behavior).
+3. **`AppSettings` store** (main process, JSON file) — settings that the main process needs at startup before any BrowserWindow exists (e.g. `autoUpdater.allowPrerelease`, binary paths, analytics opt-in). File location: `{userData}/openacpui-data/settings.json` (`openacpui-data` kept for backward compatibility). Accessed via `getAppSettings()`/`setAppSettings()` in `electron/src/lib/app-settings.ts`. The `settings` IPC module exposes `settings:get`/`settings:set` to the renderer and fires `onSettingsChanged` listeners for in-process consumers (e.g. the updater). Type defined in `shared/types/settings.ts`.
+
+**When to use which:** Use `useSettings`/`settings-store` for renderer-only preferences. Use `AppSettings` when the main process must read the value synchronously at startup or react to changes (e.g. updater config, binary management, window behavior).
 
 ### State Architecture
 
 **Hook composition** — large hooks are decomposed into focused sub-hooks:
 
-- `useAppOrchestrator` — wires together all top-level state (session manager, project manager, space manager, settings, agents, notifications) and provides ~30 callbacks to `AppLayout`
+- `useAppOrchestrator` — wires together all top-level state (session manager, project manager, space manager, settings, agents, notifications) and provides ~30 callbacks to `AppLayout`. Itself decomposed in `hooks/app-layout/`:
+  - `useAppLayoutUIState` — modal/panel open states
+  - `useAppSessionActions` — session action callbacks (send, stop, interrupt)
+  - `useAppContextualPanels` — which panels are visible based on active session
+  - `useAppEnvironmentState` — environment checks, update banner, prerelease detection
+  - `useAppSpaceWorkflow` — space switching, worktree selection, space creation flow
 - `useSessionManager` — slim orchestrator (~400 lines) composing 5 sub-hooks:
   - `useSessionLifecycle` — session CRUD (create, switch, delete, rename, deselect)
   - `useSessionPersistence` — auto-save with debounce, background store seeding/consuming
@@ -151,11 +249,22 @@ Two tiers of settings storage, each suited to different access patterns:
 - `useEngineBase` — shared foundation for all engine hooks (state, rAF flush, reset effect)
 - `useClaude` / `useACP` / `useCodex` — engine-specific event handling built on `useEngineBase`
 - `useSpaceTheme` — space color tinting via CSS custom properties
-- `usePanelResize` — all resize handle logic (right panel, tools panel, splits)
+- `useSpaceManager` — space CRUD (create, delete, rename, reorder, worktree assignment)
+- `usePanelResize` / `useToolColumnResize` / `useMainToolAreaResize` — resize handle logic
+- `useToolIslands` / `useToolDragDrop` / `useSplitView` — tool panel docking and split layout
 - `useStreamingTextReveal` — per-token fade-in animation via DOM text node splitting
 - `useProjectManager` — project CRUD via IPC
+- `useFolderManager` — folder picker for project path selection
 - `useBackgroundAgents` — polls async Task agent output files every 3s, marks complete after 2 stable polls
 - `useSidebar` — sidebar open/close with localStorage persistence
+- `useGitStatus` — polls git status for the active project's cwd
+- `useWorktreeChips` — derives available worktrees for the WorktreeBar
+- `useJiraBoard` / `useJiraBoardData` / `useJiraConfig` — Jira board management
+- `useSpeechRecognition` — voice dictation via Whisper (lazy-loads `@huggingface/transformers`) or native OS speech API
+- `useSpaceTerminals` — tracks which terminal tabs belong to which space
+- `useNotifications` — OS notification triggers based on session completion events
+- `useKeyboardShortcuts` — global keybinding registration
+- `useAgentRegistry` / `useAgentStore` / `useAcpAgentAutoUpdate` — agent registry sync
 
 **BackgroundSessionStore** — accumulates events for non-active sessions to prevent state loss when switching. On switch-away, session state is captured into the store; on switch-back, state is consumed from the store (or loaded from disk if no live process). Event handling is split into per-engine handler modules (`background-claude-handler.ts`, `background-acp-handler.ts`, `background-codex-handler.ts`).
 
@@ -236,6 +345,91 @@ Tool name normalization: `extractMcpToolName(toolName)` strips the `"mcp__Server
 - `atlassian.tsx` — `RovoSearchResults`, `RovoFetchResult`, `AtlassianResourcesList`
 - `context7.tsx` — `Context7LibraryList` (resolve-library-id), `Context7DocsResult` (query-docs)
 
+### Git Integration
+
+`ipc/git.ts` exposes a full git operation layer backed by `electron/src/lib/git-exec.ts`. Status, log, diff, stage/unstage, commit, branch operations, and worktree management are all available via IPC (see IPC API — Git section above).
+
+**Worktrees**: `WorktreeBar.tsx` shows available git worktrees for the active project and lets the user switch. `useWorktreeChips` derives the chip list from `git:worktrees`. Each `Space` can be pinned to a worktree path; `useAppSpaceWorkflow` handles the worktree-space association. Worktree config is stored in `.harnss/worktree.json`.
+
+**Git Panel** (`src/components/git/`): Decomposed into 9 components — `GitPanel` (orchestrator), `RepoSection` (repo header + branch), `BranchPicker` (branch switcher popover), `ChangesSection` (staged/unstaged file list), `CommitInput` (message + commit button), `FileItem` (individual file row), `InlineDiff` (per-file diff preview), `InlineSelector` (hunk-level staging UI), `git-panel-utils.ts` (formatting helpers).
+
+**Commit message generation**: `oneShotSdkQuery()` calls a one-shot Claude Haiku query with the staged diff to generate a commit message. Exposed as `git:generate-commit-message(cwd)`.
+
+### Jira Integration
+
+Full Jira board integration via OAuth 2.0 (3-legged flow):
+
+- **OAuth**: `electron/src/lib/acp-auth.ts`-style flow via `electron/src/lib/jira-oauth-store.ts`. User authenticates in browser, loopback redirect captured by Electron. Token stored in `jira-oauth-store.ts`.
+- **Board data**: `electron/src/lib/jira-client.ts` wraps the Jira REST API. `ipc/jira.ts` exposes board/issue operations.
+- **UI**: `JiraBoardPanel.tsx` hosts the board. `src/components/jira/` contains `KanbanBoard.tsx` (column layout with drag-and-drop), `JiraIssueCard.tsx` (compact card), `JiraBoardSetup.tsx` (initial OAuth + board selection). `JiraIssuePreviewOverlay.tsx` shows issue details without leaving the board.
+- **Types**: `shared/types/jira.ts` defines all Jira entities.
+- **Hooks**: `useJiraConfig` (stored config), `useJiraBoardData` (fetch + poll), `useJiraBoard` (full board state + actions).
+
+### MCP Server Management
+
+Users can add/remove/configure MCP servers from Settings → MCP. MCP servers can require OAuth for access:
+
+- **Storage**: `electron/src/lib/mcp-store.ts` — server config (name, command, args, env). `electron/src/lib/mcp-oauth-store.ts` — token storage.
+- **OAuth**: `electron/src/lib/mcp-oauth-flow.ts` + `mcp-oauth-provider.ts` — runs a local loopback HTTP server to capture the OAuth redirect, then exchanges for tokens.
+- **UI**: `src/components/mcp/` — `AddServerDialog.tsx` (server config form), `McpServerRow.tsx` (server list item with auth status), `McpAuthStatus.tsx` (OAuth connection state indicator). `McpPanel.tsx` shows the MCP status panel in tools.
+
+### Voice Dictation
+
+`useSpeechRecognition.ts` provides voice-to-text for the input bar:
+- Tries native OS speech recognition first (Web Speech API)
+- Falls back to Whisper via `@huggingface/transformers` (lazy-loaded only when activated — Whisper model is downloaded on first use)
+- Result text is inserted into the active input bar
+
+### Image Annotations
+
+`ImageAnnotationEditor.tsx` and `ImageAnnotationToolbar.tsx` provide a Konva-based canvas annotation layer over attached images:
+- Draw arrows, rectangles, text labels on screenshots before sending to Claude
+- History tracked via `useAnnotationHistory` (undo/redo)
+- `ImageLightbox.tsx` provides full-screen image viewing with zoom
+- `FilePreviewOverlay.tsx` wraps file attachments in a preview modal
+
+### Chat Search
+
+`ChatSearchBar.tsx` provides in-session message search. Triggered by keyboard shortcut. Highlights matching messages and scrolls to them within the virtualized list.
+
+### Todo Panel
+
+`TodoPanel.tsx` extracts and displays `TodoWrite` tool call items from the active session's chat history. `src/lib/chat/todo-utils.ts` handles the extraction. Displayed as a separate tool panel accessible from the ToolPicker strip.
+
+### Space Customization
+
+Each Space can have a custom color and icon. `SpaceCustomizer.tsx` provides the UI. `ColorPicker.tsx` shows a palette of curated colors. `IconPicker.tsx` shows emoji/icon options. Color is applied as a CSS custom property via `useSpaceTheme` for subtle tinting of the workspace. `src/lib/color-utils.ts` handles color generation from agent icon URLs.
+
+### Welcome Wizard
+
+`src/components/welcome/WelcomeWizard.tsx` is a multi-step onboarding flow shown on first launch:
+- Steps: Welcome → Agents → Appearance → Feature Tour → Permissions → Project → Ready (+ more)
+- Step state tracked in localStorage via `src/lib/welcome-screen.ts`
+- Arrow canvas animation drawn via `src/lib/welcome-screen-arrow.ts`
+
+### Notification System
+
+`src/lib/notification-utils.ts` triggers OS notifications (via Electron's `Notification` API) when sessions complete or produce output while unfocused. Settings control trigger mode: `always`, `unfocused` (default), or `never`. `src/lib/session-notifications.ts` maps session result events to notification calls. `useNotifications` hook wires this to the active session state.
+
+### Split Pane Layout
+
+`src/components/split/` implements a dual-pane chat layout (two sessions side by side):
+- `SplitPaneHost.tsx` — container that renders two `SplitChatPane` instances
+- `SplitHandle.tsx` — draggable divider between panes
+- `SplitDropZone.tsx` — drag target for dropping sessions into a pane
+- `SplitChatPane.tsx` — single pane with its own session, tools, and input
+- `useSplitView` — manages split state (which sessions are in which pane, layout ratio)
+- `useSplitDragDrop` — drag-and-drop session assignment to panes
+- Layout math in `src/lib/layout/split-layout.ts`
+
+### Binary Management
+
+Claude CLI and Codex binaries can be managed downloads or user-provided custom paths:
+- `electron/src/lib/claude-binary.ts` — detects Claude CLI binary: checks `AppSettings.claudeBinaryPath` first, then standard install locations, then managed download path
+- `electron/src/lib/codex-binary.ts` — same pattern for Codex binary
+- Users can configure custom binary paths in Settings → Advanced
+- `prerelease-check.ts` — detects if the current build is a pre-release; `PreReleaseBanner.tsx` shows a dismissible banner in the UI
+
 ## Reference Documentation
 
 When working on engine-related code, always consult these local docs:
@@ -282,6 +476,17 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 - **`src/types/engine-hook.ts`** — `EngineHookState`, `BackgroundSessionSnapshot`. React-dependent engine types that live in the renderer layer.
 - **`shared/types/acp.ts`** — ACP session update discriminated union types.
 - **`shared/types/registry.ts`** — agent registry types (`RegistryAgent`, `RegistryData`).
+- **`shared/types/git.ts`** — git operation types: `GitFileStatus`, `GitBranch`, `GitRepoInfo`, `GitStatus`, `GitLogEntry`, `GitWorktree`.
+- **`shared/types/jira.ts`** — Jira integration types: `JiraProjectConfig`, `JiraBoard`, `JiraIssue`, `JiraColumn`, `JiraSprint`.
+- **`shared/types/settings.ts`** — `AppSettings` type (notification config, editor/binary preferences, analytics settings, pre-release channel).
+
+**Shared utilities** (`shared/lib/`) — utilities safe to import from both processes (no Electron or React imports):
+- `async-channel.ts` — `AsyncChannel` push-based async iterable
+- `session-persistence.ts` — session serialization/deserialization logic
+- `mcp-config.ts` — MCP configuration schema parsing
+- `codex-rpc.ts` — Codex RPC protocol helpers
+- `error-utils.ts` — `extractErrorMessage()` without PostHog dependency
+- `acp-helpers.ts` / `codex-helpers.ts` — event normalization helpers
 
 **Backward compatibility**: `src/types/` contains re-export shims (`export * from "../../shared/types/..."`) so existing `@/types/*` imports continue to work. New code can use either `@/types/` or `@shared/types/`.
 
@@ -293,16 +498,43 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 
 **Electron SDK types**: `electron/src/lib/sdk.ts` imports `Query` and `query` types directly from `@anthropic-ai/claude-agent-sdk` (no more manual type definitions or double-casts). ACP connection is typed as `ClientSideConnection` from `@agentclientprotocol/sdk`.
 
+**Note on `AsyncChannel`**: The canonical implementation lives in `shared/lib/async-channel.ts` and is imported by both `electron/src/ipc/claude-sessions.ts` and renderer-side code. Do not duplicate it.
+
 ### Shared Utilities
 
+`src/lib/` is organized into subdirectories. Key utilities:
+
 - **`src/lib/message-factory.ts`** — `createSystemMessage()`, `createUserMessage()`, `formatResultError()` — replaces 20+ inline UIMessage constructions
-- **`src/lib/streaming-buffer.ts`** — `StreamingBuffer` (Claude) + `SimpleStreamingBuffer` (ACP/Codex, merged from two identical copies)
+- **`src/lib/engine/streaming-buffer.ts`** — `StreamingBuffer` (Claude) + `SimpleStreamingBuffer` (ACP/Codex, merged from two identical copies)
+- **`src/lib/engine/protocol.ts`** — event normalization from raw SDK events to `UIMessage[]`
+- **`src/lib/engine/permission-queue.ts`** — permission request batching/deduplication
 - **`src/lib/file-access.ts`** — pure data transformation for file access tracking (extracted from FilesPanel)
 - **`src/lib/mcp-utils.ts`** — `toMcpStatusState()` (moved from types/ui.ts)
-- **`src/lib/acp-utils.ts`** — `flattenConfigOptions()` (moved from types/acp.ts)
+- **`src/lib/color-utils.ts`** — space color generation from agent icon URLs
+- **`src/lib/icon-utils.ts`** — agent icon URL resolution
+- **`src/lib/jira-utils.ts`** — Jira formatting helpers (issue key, priority icons, etc.)
+- **`src/lib/model-utils.ts`** — model name parsing and display normalization
+- **`src/lib/notification-utils.ts`** — OS notification trigger logic (respects `notifyOn: always/unfocused/never`)
+- **`src/lib/session-notifications.ts`** — maps session events to notification triggers
+- **`src/lib/session/records.ts`** — `UIMessage` and `ChatSession` type guards
+- **`src/lib/session/derived-data.ts`** — computed session stats (token counts, cost summaries)
+- **`src/lib/sidebar/grouping.ts`** — groups sessions by date/project for sidebar rendering
+- **`src/lib/sidebar/dnd.ts`** — drag-and-drop logic for sidebar session reordering
+- **`src/lib/workspace/tool-docking.ts`** — tool panel docking state (which tools are docked where)
+- **`src/lib/workspace/tool-groups.ts`** — tool panel grouping for split layout
+- **`src/lib/layout/split-layout.ts`** — split pane math (pixel ↔ ratio conversions)
+- **`src/lib/chat/todo-utils.ts`** — extracts TodoWrite items from chat messages
+- **`src/lib/chat/thinking-animation.ts`** — thinking block pulse animation logic
+- **`src/lib/diff/patch-utils.ts`** — unified diff parsing and context extraction
+- **`src/lib/git/discover-repos-cache.ts`** — caches git repo discovery results for the folder picker
+- **`src/lib/analytics/analytics.ts`** — `capture()`, `captureException()`, `reportError()` — renderer-side analytics and error tracking
+- **`src/lib/analytics/posthog.ts`** — `initPostHog()`, `syncAnalyticsSettings()` — renderer-side PostHog client (posthog-js) initialization
 - **`electron/src/lib/error-utils.ts`** — `extractErrorMessage()`, `reportError()` — shared error extraction and PostHog exception capture
-- **`src/lib/analytics.ts`** — `capture()`, `captureException()`, `reportError()` — renderer-side analytics and error tracking
-- **`src/lib/posthog.ts`** — `initPostHog()`, `syncAnalyticsSettings()` — renderer-side PostHog client (posthog-js) initialization
+- **`electron/src/lib/git-exec.ts`** — git command execution helpers used by `ipc/git.ts`
+- **`electron/src/lib/jira-client.ts`** — Jira REST API client (search, fetch issue, update)
+- **`electron/src/lib/migration.ts`** — data migration utilities for localStorage and file store upgrades
+- **`electron/src/lib/claude-binary.ts`** / **`codex-binary.ts`** — CLI binary detection (managed download path + custom user path)
+- **`electron/src/lib/mcp-oauth-flow.ts`** / **`mcp-oauth-provider.ts`** — MCP OAuth provider server (loopback redirect) + flow orchestration
 
 ### Error Tracking (PostHog)
 
@@ -351,8 +583,8 @@ The three session IPC handlers share extracted utilities:
 - **No false optionals** — never mark props/parameters as optional (`?`) when they are always provided by every caller. Optional means "sometimes absent" — if every call site passes the value, make it required. Lazy `?` hides broken contracts and leads to unnecessary null checks.
 - **pnpm** — always use pnpm for package management
 - **Memo optimization** — components use `React.memo` with custom comparators for performance
-- **Component decomposition** — large components are split into focused sub-components in subdirectories (git/, tool-renderers/, mcp-renderers/, sidebar/)
-- **Hook decomposition** — large hooks are split into focused sub-hooks (session/, useEngineBase)
+- **Component decomposition** — large components are split into focused sub-components in subdirectories (git/, browser/, input-bar/, jira/, mcp/, mcp-renderers/, tool-renderers/, sidebar/, split/, welcome/, workspace/)
+- **Hook decomposition** — large hooks are split into focused sub-hooks (session/, app-layout/, useEngineBase)
 - **Shared components** — reusable UI patterns extracted to shared components (`TabBar`, `PanelHeader`, `SettingRow`)
 - **Error tracking** — all caught errors in IPC handlers and hooks must use `reportError(label, err)` (not bare `log()`). Benign/expected catches (cleanup, parse fallbacks, cancellation guards) are exempt. See "Error Tracking (PostHog)" section for details.
 
