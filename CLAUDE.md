@@ -95,14 +95,18 @@ src/
 │                      #   useSpaceTerminals, useToolIslands, useSplitView, useNotifications,
 │                      #   useGlassOrchestrator, useGlassTheme, useTheme, usePaneController,
 │                      #   useMainToolWorkspace, useMainToolAreaLayout, useToolIslandContext,
-│                      #   useBrowserWebviewEvents, useProjectFiles, useMcpServers, etc.)
+│                      #   useBrowserWebviewEvents, useProjectFiles, useMcpServers,
+│                      #   useSettingsCompat, useClickOutside, useContextMenuPosition,
+│                      #   useInlineRename, usePaneResize, etc.)
 ├── lib/               # Renderer utilities organized in subdirectories:
 │   ├── analytics/     #   analytics.ts, posthog.ts
 │   ├── background/    #   session-store.ts, claude/acp/codex-handler.ts, agent-store.ts
-│   ├── chat/          #   scroll.ts, virtualization.ts, thinking-animation.ts, todo-utils.ts, etc.
+│   ├── chat/          #   scroll.ts, virtualization.ts, thinking-animation.ts, todo-utils.ts,
+│   │                  #   turn-changes.ts, assistant-turn-divider.ts, annotation-types.ts, etc.
 │   ├── diff/          #   diff-stats.ts, patch-utils.ts, unified-diff.ts
 │   ├── engine/        #   protocol.ts, streaming-buffer.ts, acp-adapter.ts, codex-adapter.ts,
-│   │                  #   acp-utils.ts, permission-queue.ts, acp-agent-registry.ts, etc.
+│   │                  #   acp-utils.ts, permission-queue.ts, acp-agent-registry.ts,
+│   │                  #   acp-task-adapter.ts, acp-agent-updates.ts, etc.
 │   ├── git/           #   discover-repos-cache.ts
 │   ├── layout/        #   constants.ts, split-layout.ts, split-view-state.ts, workspace-constraints.ts
 │   ├── session/       #   derived-data.ts, records.ts, space-projects.ts
@@ -393,6 +397,11 @@ Three tiers of settings storage, each suited to different access patterns:
 - `useBottomHeightResize` — vertical drag handle for the bottom tool dock
 - `useAnnotationHistory` — undo/redo for image annotation editor
 - `useSplitDragDrop` — drag-and-drop session assignment to split panes
+- `usePaneResize` — resize drag logic for N-1 split handles in multi-pane split view (fractions of adjacent panes)
+- `useSettingsCompat` — drop-in replacement for legacy `useSettings()` that reads from Zustand store; allows gradual migration, delete once all consumers use direct store selectors
+- `useClickOutside` — calls handler when mousedown/touchstart occurs outside a ref'd element; pass `enabled: false` to skip attaching
+- `useContextMenuPosition` — shared positioning logic for right-click and button-triggered context menus (open state, align, coordinates)
+- `useInlineRename` — controlled edit state for inline rename inputs (isEditing, editName, handlers)
 
 **BackgroundSessionStore** — accumulates events for non-active sessions to prevent state loss when switching. On switch-away, session state is captured into the store; on switch-back, state is consumed from the store (or loaded from disk if no live process). Event handling is split into per-engine handler modules (`background-claude-handler.ts`, `background-acp-handler.ts`, `background-codex-handler.ts`).
 
@@ -640,6 +649,8 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 - **`src/lib/engine/streaming-buffer.ts`** — `StreamingBuffer` (Claude) + `SimpleStreamingBuffer` (ACP/Codex, merged from two identical copies)
 - **`src/lib/engine/protocol.ts`** — event normalization from raw SDK events to `UIMessage[]`
 - **`src/lib/engine/permission-queue.ts`** — permission request batching/deduplication
+- **`src/lib/engine/acp-task-adapter.ts`** — `isTaskToolName()`, `getTaskStatus()`, `extractTaskSubagentSteps()` — normalizes ACP Task/Agent tool results into `SubagentToolStep[]` for routing to Task cards
+- **`src/lib/engine/acp-agent-updates.ts`** — `PlannedAcpAgentUpdate` type + `mergeRegistryAgentUpdate()` — computes and applies registry-driven agent definition updates
 - **`src/lib/file-access.ts`** — pure data transformation for file access tracking (extracted from FilesPanel)
 - **`src/lib/mcp-utils.ts`** — `toMcpStatusState()` (moved from types/ui.ts)
 - **`src/lib/color-utils.ts`** — space color generation from agent icon URLs
@@ -657,6 +668,8 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 - **`src/lib/layout/split-layout.ts`** — split pane math (pixel ↔ ratio conversions)
 - **`src/lib/chat/todo-utils.ts`** — extracts TodoWrite items from chat messages
 - **`src/lib/chat/thinking-animation.ts`** — thinking block pulse animation logic
+- **`src/lib/chat/assistant-turn-divider.ts`** — `formatAssistantTurnDividerLabel(durationMs)` — formats turn duration ("Worked for 2m 30s") displayed between assistant turns
+- **`src/lib/chat/annotation-types.ts`** — `AnnotationTool` union + all annotation shape interfaces (`FreehandAnnotation`, `RectAnnotation`, etc.) for the image annotation editor
 - **`src/lib/diff/patch-utils.ts`** — unified diff parsing and context extraction
 - **`src/lib/git/discover-repos-cache.ts`** — caches git repo discovery results for the folder picker
 - **`src/lib/chat/turn-changes.ts`** — `TurnSummary`/`FileChange` types + extraction for `TurnChangesSummary.tsx`
