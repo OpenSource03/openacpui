@@ -703,7 +703,7 @@ Two PostHog clients run in parallel, one per process:
    - `captureEvent(event, properties?)` — custom analytics events
    - Respects `analyticsEnabled` setting, uses anonymous `analyticsUserId`
 
-2. **Renderer process** (`posthog-js` + `@posthog/react` in `src/lib/posthog.ts`):
+2. **Renderer process** (`posthog-js` + `@posthog/react` in `src/lib/analytics/posthog.ts`):
    - Exception autocapture via `defaults: "2026-01-30"` — auto-hooks `window.onerror` and `window.onunhandledrejection`
    - `PostHogProvider` wraps the app in `main.tsx`
    - `ErrorBoundary.componentDidCatch` → `posthog.captureException()` for React rendering errors
