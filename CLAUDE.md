@@ -66,7 +66,7 @@ electron/
                 #   mcp-oauth-flow, mcp-oauth-provider, mcp-oauth-store, acp-auth, claude-binary,
                 #   codex-binary, codex-rpc, migration, posthog, updater, glass, terminal-history,
                 #   json-file-store, safe-send, claude-model-cache, acp-utility-prompt,
-                #   codex-utility-prompt, etc.)
+                #   codex-utility-prompt, agent-registry, prerelease-check, etc.)
 
 src/
 ├── components/
@@ -89,7 +89,8 @@ src/
 │   ├── session/       # useSessionManager decomposed (lifecycle, persistence, draft, revival, queue,
 │   │                  #   cache, crud, pane, restart, settings, extra-pane-loader)
 │   ├── app-layout/    # useAppOrchestrator decomposed (useAppLayoutUIState, useAppSessionActions,
-│   │                  #   useAppContextualPanels, useAppEnvironmentState, useAppSpaceWorkflow)
+│   │                  #   useAppContextualPanels, useAppEnvironmentState, useAppSpaceWorkflow,
+│   │                  #   session-utils — shared session-creation option builder)
 │   └── ...            # React hooks (useEngineBase, useClaude, useACP, useCodex, useSpaceManager,
 │                      #   useGitStatus, useWorktreeChips, useJiraBoard, useSpeechRecognition,
 │                      #   useSpaceTerminals, useToolIslands, useSplitView, useNotifications,
@@ -113,12 +114,12 @@ src/
 │   ├── sidebar/       #   dnd.ts (drag/drop), grouping.ts (session grouping)
 │   ├── workspace/     #   tool-docking.ts, tool-groups.ts, tool-island-utils.ts, main-tool-widths.ts
 │   ├── dev-seeding/   #   chat-seed.ts, space-seeding.ts (dev-only data seeding)
-│   └── ...            # Root utilities: message-factory.ts, file-access.ts, mcp-utils.ts,
-│                      #   color-utils.ts, icon-utils.ts, engine-icons.ts, jira-utils.ts,
-│                      #   model-utils.ts, notification-utils.ts, session-notifications.ts,
-│                      #   ansi.tsx, syntax-highlight.tsx, clipboard.ts, file-tree.ts,
-│                      #   element-inspector.ts, local-storage-migration.ts, terminal-tabs.ts,
-│                      #   ask-user-question.ts, monaco.ts, languages.ts, etc.
+│   └── ...            # Root utilities: utils.ts (cn/isRecord/isMac/isWindows), message-factory.ts,
+│                      #   file-access.ts, mcp-utils.ts, color-utils.ts, icon-utils.ts,
+│                      #   engine-icons.ts, jira-utils.ts, model-utils.ts, notification-utils.ts,
+│                      #   session-notifications.ts, ansi.tsx, syntax-highlight.tsx, clipboard.ts,
+│                      #   file-tree.ts, element-inspector.ts, local-storage-migration.ts,
+│                      #   terminal-tabs.ts, ask-user-question.ts, monaco.ts, languages.ts, etc.
 ├── stores/            # Zustand stores (settings-store.ts — localStorage wrapper)
 └── types/             # Renderer-side types (protocol, ui, session, spaces, attachments, tools,
                        #   mcp, permissions, search, tool-islands, window.d.ts) + re-export shims for shared/
@@ -552,6 +553,10 @@ Each Space can have a custom color and icon. `SpaceCustomizer.tsx` provides the 
 
 `src/lib/notification-utils.ts` triggers OS notifications (via Electron's `Notification` API) when sessions complete or produce output while unfocused. Settings control trigger mode: `always`, `unfocused` (default), or `never`. `src/lib/session-notifications.ts` maps session result events to notification calls. `useNotifications` hook wires this to the active session state.
 
+### Bottom Composer
+
+`BottomComposer.tsx` is a composite component that wraps `InputBar` + `PermissionPrompt` + `WorktreeBar` into a single bottom-of-chat unit. Both `AppLayout` (single-pane) and `SplitChatPane` use it, ensuring the permission prompt and worktree bar always appear together with the input bar.
+
 ### Split Pane Layout
 
 `src/components/split/` implements a dual-pane chat layout (two sessions side by side):
@@ -645,6 +650,7 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 
 `src/lib/` is organized into subdirectories. Key utilities:
 
+- **`src/lib/utils.ts`** — `cn()` (clsx + tailwind-merge), `isRecord()` type guard, `isMac`/`isWindows` synchronous platform checks
 - **`src/lib/message-factory.ts`** — `createSystemMessage()`, `createUserMessage()`, `formatResultError()` — replaces 20+ inline UIMessage constructions
 - **`src/lib/engine/streaming-buffer.ts`** — `StreamingBuffer` (Claude) + `SimpleStreamingBuffer` (ACP/Codex, merged from two identical copies)
 - **`src/lib/engine/protocol.ts`** — event normalization from raw SDK events to `UIMessage[]`
@@ -692,6 +698,7 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 - **`electron/src/lib/migration.ts`** — data migration utilities for localStorage and file store upgrades
 - **`electron/src/lib/claude-binary.ts`** / **`codex-binary.ts`** — CLI binary detection (managed download path + custom user path)
 - **`electron/src/lib/mcp-oauth-flow.ts`** / **`mcp-oauth-provider.ts`** — MCP OAuth provider server (loopback redirect) + flow orchestration
+- **`electron/src/lib/agent-registry.ts`** — reads/writes `InstalledAgent` definitions from disk; exposes `BUILTIN_CLAUDE` constant; used by `ipc/agent-registry.ts`
 
 ### Error Tracking (PostHog)
 
