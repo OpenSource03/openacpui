@@ -5,14 +5,16 @@ Open-source desktop client for the Agent Client Protocol. Uses the `@anthropic-a
 ## Tech Stack
 
 - **Runtime**: Electron 40 (main process) + React 19 (renderer)
-- **Build**: Vite 7, TypeScript 5.9, tsup (electron TS→JS)
+- **Build**: Vite 7, TypeScript 5.9, tsup (electron TS→JS), electron-builder (cross-platform packaging)
+- **Testing**: vitest (unit tests for hooks, lib utilities, and electron modules; config: `vitest.config.electron.ts`)
 - **Styling**: Tailwind CSS v4 + ShadCN UI (includes Preflight — no CSS resets needed)
 - **UI Components**: ShadCN (Button, Badge, ScrollArea, Tooltip, Collapsible, Separator, DropdownMenu, Avatar)
 - **Icons**: lucide-react
 - **Markdown**: react-markdown + remark-gfm + react-syntax-highlighter + @tailwindcss/typography
 - **Diff**: diff (word-level diff rendering)
 - **Glass effect**: electron-liquid-glass (macOS Tahoe+ transparency)
-- **SDK**: @anthropic-ai/claude-agent-sdk (ESM-only, async-imported from CommonJS)
+- **Claude SDK**: @anthropic-ai/claude-agent-sdk (ESM-only, async-imported from CommonJS)
+- **ACP SDK**: @agentclientprotocol/sdk (Agent Client Protocol client — ACP sessions use `ClientSideConnection`)
 - **Terminal**: node-pty (main process) + @xterm/xterm + @xterm/addon-fit (renderer)
 - **Browser**: Electron `<webview>` tag (requires `webviewTag: true` in webPreferences)
 - **Virtualization**: @tanstack/react-virtual (chat message windowing)
@@ -61,12 +63,13 @@ electron/
 └── src/
     ├── ipc/    # IPC handlers (claude-sessions, acp-sessions, codex-sessions, projects, sessions,
     │           #              settings, terminal, git, jira, mcp, spaces, files, folders, cc-import, title-gen)
-    └── lib/    # Main-process utilities (logger, async-channel, data-dir, app-settings, sdk,
+    └── lib/    # Main-process utilities (logger, data-dir, app-settings, sdk,
                 #   error-utils, git-exec, jira-client, jira-store, jira-oauth-store, mcp-store,
                 #   mcp-oauth-flow, mcp-oauth-provider, mcp-oauth-store, acp-auth, claude-binary,
                 #   codex-binary, codex-rpc, migration, posthog, updater, glass, terminal-history,
                 #   json-file-store, safe-send, claude-model-cache, acp-utility-prompt,
-                #   codex-utility-prompt, agent-registry, prerelease-check, etc.)
+                #   codex-utility-prompt, agent-registry, prerelease-check)
+                #   └── __tests__/  # Main-process unit tests (sdk, acp-auth, updater, logger, etc.)
 
 src/
 ├── components/
@@ -84,7 +87,21 @@ src/
 │   ├── welcome/       # Onboarding wizard (WelcomeWizard, 9 step components)
 │   ├── workspace/     # Workspace layout (MainTopToolArea, MainBottomToolDock, RightPanel, ToolIslandContent)
 │   ├── lib/           # Component-local utilities (tool-metadata, tool-formatting, ToolGlyph, chat-layout)
-│   └── ui/            # ShadCN base components (auto-generated)
+│   ├── ui/            # ShadCN base components (auto-generated)
+│   └── *.tsx          # ~40 root-level component files: AppLayout, ChatView, ChatHeader, InputBar,
+│                      #   ToolCall, McpToolContent, PermissionPrompt, ToolsPanel, ToolPicker,
+│                      #   ToolGroupBlock, BrowserPanel, FilesPanel, ProjectFilesPanel, TodoPanel,
+│                      #   BackgroundAgentsPanel, AgentTranscriptViewer, AgentContext, AgentIcon,
+│                      #   ImageAnnotationEditor, ImageAnnotationToolbar, ImageLightbox,
+│                      #   FilePreviewOverlay, DiffViewer, UnifiedPatchViewer, TurnChangesSummary,
+│                      #   SpaceBar, SpaceCustomizer, WorktreeBar, JiraBoardPanel,
+│                      #   JiraIssuePreviewOverlay, McpPanel, BottomComposer, SidebarSearch,
+│                      #   ChatSearchBar, TabBar, PanelHeader, CopyButton, MessageBubble,
+│                      #   ErrorBoundary, PreReleaseBanner, UpdateBanner, WelcomeScreen,
+│                      #   ACPAuthDialog, CodexAuthDialog, JiraAuthDialog, AuthDialogShell,
+│                      #   MermaidDiagram, ThinkingBlock, SummaryBlock, OpenInEditorButton,
+│                      #   PanelDockControls, PanelDockPreview, ColorPicker, IconPicker,
+│                      #   SettingsView, AppSidebar, chat-ui-state
 ├── hooks/
 │   ├── session/       # useSessionManager decomposed (lifecycle, persistence, draft, revival, queue,
 │   │                  #   cache, crud, pane, restart, settings, extra-pane-loader)
@@ -101,7 +118,7 @@ src/
 │                      #   useInlineRename, usePaneResize, etc.)
 ├── lib/               # Renderer utilities organized in subdirectories:
 │   ├── analytics/     #   analytics.ts, posthog.ts
-│   ├── background/    #   session-store.ts, claude/acp/codex-handler.ts, agent-store.ts
+│   ├── background/    #   session-store.ts, claude/acp/codex-handler.ts, agent-store.ts, agent-store-utils.ts
 │   ├── chat/          #   scroll.ts, virtualization.ts, thinking-animation.ts, todo-utils.ts,
 │   │                  #   turn-changes.ts, assistant-turn-divider.ts, annotation-types.ts, etc.
 │   ├── diff/          #   diff-stats.ts, patch-utils.ts, unified-diff.ts
@@ -112,14 +129,15 @@ src/
 │   ├── layout/        #   constants.ts, split-layout.ts, split-view-state.ts, workspace-constraints.ts
 │   ├── session/       #   derived-data.ts, records.ts, space-projects.ts
 │   ├── sidebar/       #   dnd.ts (drag/drop), grouping.ts (session grouping)
-│   ├── workspace/     #   tool-docking.ts, tool-groups.ts, tool-island-utils.ts, main-tool-widths.ts
+│   ├── workspace/     #   tool-docking.ts, tool-groups.ts, tool-island-utils.ts, main-tool-widths.ts, drag.ts
 │   ├── dev-seeding/   #   chat-seed.ts, space-seeding.ts (dev-only data seeding)
 │   └── ...            # Root utilities: utils.ts (cn/isRecord/isMac/isWindows), message-factory.ts,
 │                      #   file-access.ts, mcp-utils.ts, color-utils.ts, icon-utils.ts,
 │                      #   engine-icons.ts, jira-utils.ts, model-utils.ts, notification-utils.ts,
 │                      #   session-notifications.ts, ansi.tsx, syntax-highlight.tsx, clipboard.ts,
 │                      #   file-tree.ts, element-inspector.ts, local-storage-migration.ts,
-│                      #   terminal-tabs.ts, ask-user-question.ts, monaco.ts, languages.ts, etc.
+│                      #   terminal-tabs.ts, ask-user-question.ts, monaco.ts, languages.ts,
+│                      #   welcome-screen.ts, welcome-screen-arrow.ts
 ├── stores/            # Zustand stores (settings-store.ts — localStorage wrapper)
 └── types/             # Renderer-side types (protocol, ui, session, spaces, attachments, tools,
                        #   mcp, permissions, search, tool-islands, window.d.ts) + re-export shims for shared/
@@ -132,6 +150,8 @@ pnpm install
 pnpm dev       # Starts Vite dev server + tsup watch + Electron
 pnpm build     # tsup (electron/) + Vite (renderer) production build
 pnpm start     # Run Electron with pre-built dist/
+pnpm test      # Run vitest unit tests (uses vitest.config.electron.ts)
+pnpm test:watch    # Run vitest in watch mode
 ```
 
 **Dev logs**: Main process logs go to `logs/main-{timestamp}.log` (dev) or `{userData}/logs/main-{timestamp}.log` (packaged). Check the latest file with `ls -t logs/main-*.log | head -1 | xargs cat`.
