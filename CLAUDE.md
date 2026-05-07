@@ -62,7 +62,8 @@ electron/
 ├── dist/       # tsup build output (gitignored)
 └── src/
     ├── ipc/    # IPC handlers (claude-sessions, acp-sessions, codex-sessions, projects, sessions,
-    │           #              settings, terminal, git, jira, mcp, spaces, files, folders, cc-import, title-gen)
+    │           #              settings, terminal, git, jira, mcp, spaces, files, folders, cc-import,
+    │           #              title-gen, agent-registry)
     └── lib/    # Main-process utilities (logger, data-dir, app-settings, sdk,
                 #   error-utils, git-exec, jira-client, jira-store, jira-oauth-store, mcp-store,
                 #   mcp-oauth-flow, mcp-oauth-provider, mcp-oauth-store, acp-auth, claude-binary,
@@ -140,7 +141,7 @@ src/
 │                      #   welcome-screen.ts, welcome-screen-arrow.ts
 ├── stores/            # Zustand stores (settings-store.ts — localStorage wrapper)
 └── types/             # Renderer-side types (protocol, ui, session, spaces, attachments, tools,
-                       #   mcp, permissions, search, tool-islands, window.d.ts) + re-export shims for shared/
+                       #   mcp, permissions, search, tool-islands, agents, window.d.ts) + re-export shims for shared/
 ```
 
 ## How to Run
@@ -240,6 +241,7 @@ The main process uses `@anthropic-ai/claude-agent-sdk` (ESM-only, loaded via `aw
 - `agents:delete(id)` → removes an agent from the registry
 - `agents:update-cached-config(agentId, configOptions)` → caches `ACPConfigOption[]` per agent for fast re-use
 - `agents:get-platform-keys` → returns platform-specific config key list for registry agents
+- `agents:check-binaries(agents)` → batch-checks whether binary-only agents are installed on the system PATH; returns per-agent availability status
 
 **IPC API — Projects:**
 
@@ -640,6 +642,7 @@ Types shared between electron and renderer live in `shared/types/`. Both tsconfi
 - **`shared/types/codex.ts`** — re-exports with `Codex`-prefixed aliases (e.g., `CodexThreadItem`, `CodexSessionEvent`) plus Harnss-specific wrappers (`CodexApprovalRequest`, `CodexRequestUserInputRequest`).
 - **`shared/types/engine.ts`** — `EngineId`, `AppPermissionBehavior`, `SlashCommand`, `RespondPermissionFn`. No React or renderer dependencies.
 - **`src/types/engine-hook.ts`** — `EngineHookState`, `BackgroundSessionSnapshot`. React-dependent engine types that live in the renderer layer.
+- **`src/types/agents.ts`** — `BackgroundAgent`, `BackgroundAgentActivity`, `BackgroundAgentUsage`. Renderer-only types for tracking background Task agents (status, activity log, live usage metrics, progress summary, current tool).
 - **`shared/types/acp.ts`** — ACP session update discriminated union types.
 - **`shared/types/registry.ts`** — agent registry types (`RegistryAgent`, `RegistryData`).
 - **`shared/types/git.ts`** — git operation types: `GitFileStatus`, `GitBranch`, `GitRepoInfo`, `GitStatus`, `GitLogEntry`, `GitWorktree`.
