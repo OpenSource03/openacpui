@@ -5,6 +5,7 @@ import {
   getAvailableSlashCommands,
   getSlashCommandReplacement,
   isClearCommandText,
+  shouldSubmitOnEnter,
 } from "./input-bar";
 
 describe("InputBar slash command helpers", () => {
@@ -45,5 +46,35 @@ describe("InputBar slash command helpers", () => {
     expect(
       getSlashCommandReplacement({ name: "fix", description: "", source: "codex-skill", defaultPrompt: "bug" }),
     ).toBe("$fix bug");
+  });
+
+  it("does not submit enter while IME composition is active", () => {
+    expect(
+      shouldSubmitOnEnter({
+        key: "Enter",
+        shiftKey: false,
+        isComposing: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSubmitOnEnter({
+        key: "Enter",
+        shiftKey: false,
+        nativeEvent: { isComposing: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldSubmitOnEnter({
+        key: "Enter",
+        shiftKey: false,
+        nativeEvent: { keyCode: 229 },
+      }),
+    ).toBe(false);
+  });
+
+  it("submits enter only for non-composition send shortcut", () => {
+    expect(shouldSubmitOnEnter({ key: "Enter", shiftKey: false })).toBe(true);
+    expect(shouldSubmitOnEnter({ key: "Enter", shiftKey: true })).toBe(false);
+    expect(shouldSubmitOnEnter({ key: "a", shiftKey: false })).toBe(false);
   });
 });

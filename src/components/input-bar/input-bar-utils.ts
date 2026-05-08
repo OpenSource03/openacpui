@@ -156,6 +156,27 @@ export function fuzzyMatch(
   return { match: false, score: 0 };
 }
 
+type EnterKeyEventLike = {
+  key: string;
+  shiftKey: boolean;
+  isComposing?: boolean;
+  nativeEvent?: {
+    isComposing?: boolean;
+    keyCode?: number;
+  };
+};
+
+/** Enter should submit only when not composing text via an IME. */
+export function shouldSubmitOnEnter(event: EnterKeyEventLike): boolean {
+  if (event.key !== "Enter" || event.shiftKey) return false;
+  const nativeEvent = event.nativeEvent;
+  return !(
+    event.isComposing ||
+    nativeEvent?.isComposing ||
+    nativeEvent?.keyCode === 229
+  );
+}
+
 // ── Slash command helpers (exported for tests + external consumers) ──
 
 export const LOCAL_CLEAR_COMMAND: SlashCommand = {

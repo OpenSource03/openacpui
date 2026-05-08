@@ -7,4 +7,5 @@ export {
   getAvailableSlashCommands,
   getSlashCommandReplacement,
   isClearCommandText,
+  shouldSubmitOnEnter,
 } from "./input-bar-utils";
