@@ -77,11 +77,15 @@ src/
 │   ├── git/           # GitPanel decomposed (GitPanel, RepoSection, BranchPicker, CommitInput, etc.)
 │   ├── browser/       # BrowserPanel decomposed (BrowserNavBar, BrowserUrlBar, WebviewInstance, etc.)
 │   ├── input-bar/     # InputBar decomposed (CommandPicker, MentionPicker, EngineControls,
-│   │                  #   AttachmentPreview, ContextGauge, EnginePickerDropdown, useMentionAutocomplete)
+│   │                  #   AttachmentPreview, ContextGauge, EnginePickerDropdown, useMentionAutocomplete,
+│   │                  #   input-bar-utils.ts, constants.ts)
 │   ├── jira/          # Jira board UI (KanbanBoard, JiraIssueCard, JiraBoardSetup)
 │   ├── mcp/           # MCP server management UI (AddServerDialog, McpServerRow, McpAuthStatus)
 │   ├── mcp-renderers/ # MCP tool renderers (jira, confluence, atlassian, context7, shared, helpers)
-│   ├── tool-renderers/# Built-in tool renderers (BashContent, EditContent, TaskTool, etc.)
+│   ├── tool-renderers/# Built-in tool renderers (BashContent, EditContent, WriteContent, ReadContent,
+│   │                  #   SearchContent, WebFetchContent, WebSearchContent, SkillContent,
+│   │                  #   ToolSearchContent, PlanContent, TodoWriteContent, ExpandedToolContent,
+│   │                  #   GenericContent, AskUserQuestion, TaskTool)
 │   ├── settings/      # Settings sub-views + shared SettingRow/SettingsSelect (12 panels)
 │   ├── sidebar/       # AppSidebar decomposed (ProjectSection, FolderSection, BranchSection,
 │   │                  #   PinnedSection, SessionItem, CCSessionList, SidebarActionsContext)
@@ -430,7 +434,7 @@ Three tiers of settings storage, each suited to different access patterns:
 - `useContextMenuPosition` — shared positioning logic for right-click and button-triggered context menus (open state, align, coordinates)
 - `useInlineRename` — controlled edit state for inline rename inputs (isEditing, editName, handlers)
 
-**BackgroundSessionStore** — accumulates events for non-active sessions to prevent state loss when switching. On switch-away, session state is captured into the store; on switch-back, state is consumed from the store (or loaded from disk if no live process). Event handling is split into per-engine handler modules (`background-claude-handler.ts`, `background-acp-handler.ts`, `background-codex-handler.ts`). `InternalState` also tracks `contextUsage`, `isCompacting`, `codexPlanText`/`codexPlanTurnCounter` (Codex plan mode output), `activeTask`, `slashCommands`, and `pendingPermission`/`rawAcpPermission` for per-engine permission bridging.
+**BackgroundSessionStore** — accumulates events for non-active sessions to prevent state loss when switching. On switch-away, session state is captured into the store; on switch-back, state is consumed from the store (or loaded from disk if no live process). Event handling is split into per-engine handler modules (`background-claude-handler.ts`, `background-acp-handler.ts`, `background-codex-handler.ts`). `InternalState` also tracks `contextUsage`, `isCompacting`, `codexPlanText`/`codexPlanTurnCounter` (Codex plan mode output), `activeTask`, `slashCommands`, and `pendingPermission`/`rawAcpPermission` for per-engine permission bridging. Public methods `updateMessages(sessionId, updater)` and `setProcessing(sessionId, isProcessing)` allow background handlers to mutate session state for sessions that are still processing while the user has switched away.
 
 ### Claude CLI Stream-JSON Protocol
 
@@ -584,6 +588,8 @@ Each Space can have a custom color and icon. `SpaceCustomizer.tsx` provides the 
 ### Notification System
 
 `src/lib/notification-utils.ts` triggers OS notifications (via Electron's `Notification` API) when sessions complete or produce output while unfocused. Settings control trigger mode: `always`, `unfocused` (default), or `never`. `src/lib/session-notifications.ts` maps session result events to notification calls. `useNotifications` hook wires this to the active session state.
+
+Notifications show the actual agent/model name (e.g. "Claude Sonnet has finished processing") and clicking an OS notification navigates directly to the relevant session. Background sessions that finish while inactive set `hasUnreadCompletion: true` on the `ChatSession` record, which `SessionItem` renders as a pulsing green dot in the sidebar; the flag is cleared when the session becomes visible.
 
 ### Context Window Gauge
 
